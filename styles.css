@@ -4,30 +4,30 @@
    ========================================================================== */
 
 :root {
-    /* Color Palette */
-    --primary: #9E2A2B;         /* Deep Warm Crimson / Ethiopian Red Tone */
-    --primary-dark: #6E1A1C;
-    --primary-light: #C84B4D;
+    /* Color Palette - Elegant Purple & Gold Theme */
+    --primary: #7E22CE;         /* Royal Amethyst Purple */
+    --primary-dark: #581C87;    /* Deep Purple */
+    --primary-light: #A855F7;   /* Bright Violet */
     --accent-gold: #D4AF37;      /* Warm Ethiopian Gold */
-    --accent-rose: #E89BB2;      /* Gentle Feminine Rose */
-    --accent-burgundy: #4A121A;
-    --bg-dark: #120A0E;          /* Deep rich background */
+    --accent-rose: #D8B4FE;      /* Soft Lavender Rose */
+    --accent-burgundy: #3B0764;  /* Midnight Purple */
+    --bg-dark: #1A092A;          /* Deep rich purple background */
     --bg-card: rgba(255, 255, 255, 0.95);
-    --bg-card-dark: rgba(26, 16, 22, 0.85);
+    --bg-card-dark: rgba(26, 9, 42, 0.85);
 
-    --text-main: #2D1A22;
-    --text-muted: #6B5B63;
-    --text-light: #FDF8F9;
+    --text-main: #230B38;
+    --text-muted: #6B567E;
+    --text-light: #FAF5FF;
 
-    --gradient-primary: linear-gradient(135deg, #9E2A2B 0%, #D4AF37 50%, #E89BB2 100%);
-    --gradient-hero: linear-gradient(135deg, #4A121A 0%, #120A0E 100%);
-    --gradient-card: linear-gradient(135deg, rgba(255, 255, 255, 0.9), rgba(253, 248, 249, 0.95));
+    --gradient-primary: linear-gradient(135deg, #7E22CE 0%, #D4AF37 50%, #C084FC 100%);
+    --gradient-hero: linear-gradient(135deg, #3B0764 0%, #1A092A 100%);
+    --gradient-card: linear-gradient(135deg, rgba(255, 255, 255, 0.9), rgba(250, 245, 255, 0.95));
     --gradient-gold: linear-gradient(135deg, #D4AF37 0%, #F3E5AB 100%);
 
     /* Shadows & Glassmorphism */
     --shadow-sm: 0 4px 15px rgba(0, 0, 0, 0.05);
-    --shadow-md: 0 10px 30px rgba(158, 42, 43, 0.12);
-    --shadow-lg: 0 20px 50px rgba(74, 18, 26, 0.25);
+    --shadow-md: 0 10px 30px rgba(126, 34, 206, 0.15);
+    --shadow-lg: 0 20px 50px rgba(59, 7, 100, 0.3);
     --glass-border: 1px solid rgba(212, 175, 55, 0.25);
 
     /* Fonts & Radii */
@@ -79,7 +79,7 @@ h1, h2, h3, h4 {
 }
 
 .gradient-text {
-    background: linear-gradient(135deg, #9E2A2B, #D4AF37);
+    background: linear-gradient(135deg, #7E22CE, #C084FC, #D4AF37);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     display: inline-block;
@@ -133,19 +133,19 @@ h1, h2, h3, h4 {
 .btn-primary {
     background: var(--primary);
     color: white;
-    box-shadow: 0 8px 25px rgba(158, 42, 43, 0.35);
+    box-shadow: 0 8px 25px rgba(126, 34, 206, 0.35);
 }
 
 .btn-primary:hover {
     background: var(--primary-dark);
     transform: translateY(-3px);
-    box-shadow: 0 12px 30px rgba(158, 42, 43, 0.45);
+    box-shadow: 0 12px 30px rgba(126, 34, 206, 0.45);
 }
 
 .btn-secondary {
     background: rgba(255, 255, 255, 0.9);
     color: var(--accent-burgundy);
-    border: 1px solid rgba(158, 42, 43, 0.2);
+    border: 1px solid rgba(126, 34, 206, 0.2);
     backdrop-filter: blur(10px);
 }
 
@@ -162,14 +162,14 @@ h1, h2, h3, h4 {
 }
 
 .btn-light-danger {
-    background: linear-gradient(135deg, #DC2626, #9E2A2B);
+    background: linear-gradient(135deg, #9333EA, #7E22CE);
     color: white;
-    box-shadow: 0 8px 25px rgba(220, 38, 38, 0.4);
+    box-shadow: 0 8px 25px rgba(147, 51, 234, 0.4);
 }
 
 .btn-light-danger:hover {
     transform: translateY(-3px);
-    box-shadow: 0 12px 35px rgba(220, 38, 38, 0.6);
+    box-shadow: 0 12px 35px rgba(147, 51, 234, 0.6);
 }
 
 /* Navbar */
@@ -303,7 +303,7 @@ h1, h2, h3, h4 {
 .hero-section {
     position: relative;
     padding: 150px 0 90px 0;
-    background: linear-gradient(180deg, #FDF5F7 0%, #FAF0F2 100%);
+    background: linear-gradient(180deg, #FAF5FF 0%, #F3E8FF 100%);
     overflow: hidden;
 }
 
@@ -313,7 +313,7 @@ h1, h2, h3, h4 {
     right: -100px;
     width: 600px;
     height: 600px;
-    background: radial-gradient(circle, rgba(232, 155, 178, 0.35) 0%, rgba(212, 175, 55, 0.15) 50%, transparent 70%);
+    background: radial-gradient(circle, rgba(216, 180, 254, 0.35) 0%, rgba(212, 175, 55, 0.15) 50%, transparent 70%);
     filter: blur(60px);
     z-index: 0;
 }
@@ -632,7 +632,7 @@ h1, h2, h3, h4 {
     width: 100%;
     padding: 12px;
     border-radius: var(--radius-md);
-    background: #DC2626;
+    background: #9333EA;
     color: white;
     border: none;
     font-weight: 700;
@@ -641,7 +641,7 @@ h1, h2, h3, h4 {
 }
 
 .btn-card-action:hover {
-    background: #B91C1C;
+    background: #7E22CE;
 }
 
 /* SAFETY DEEP SECTION */
@@ -722,7 +722,7 @@ h1, h2, h3, h4 {
 .radar-pulse {
     position: absolute;
     border-radius: 50%;
-    border: 1px solid rgba(220, 38, 38, 0.4);
+    border: 1px solid rgba(147, 51, 234, 0.4);
     animation: radarRipple 3s infinite linear;
 }
 
@@ -741,13 +741,13 @@ h1, h2, h3, h4 {
     width: 80px;
     height: 80px;
     border-radius: 50%;
-    background: linear-gradient(135deg, #DC2626, #9E2A2B);
+    background: linear-gradient(135deg, #9333EA, #7E22CE);
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
     color: white;
-    box-shadow: 0 0 30px rgba(220, 38, 38, 0.8);
+    box-shadow: 0 0 30px rgba(147, 51, 234, 0.8);
 }
 
 .center-user i { font-size: 1.5rem; }
@@ -965,7 +965,7 @@ h1, h2, h3, h4 {
 }
 
 .download-card {
-    background: linear-gradient(135deg, #4A121A 0%, #9E2A2B 100%);
+    background: linear-gradient(135deg, #3B0764 0%, #7E22CE 100%);
     border-radius: var(--radius-lg);
     padding: 60px;
     color: white;
@@ -1165,8 +1165,8 @@ h1, h2, h3, h4 {
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    background: rgba(220, 38, 38, 0.1);
-    color: #DC2626;
+    background: rgba(147, 51, 234, 0.1);
+    color: #9333EA;
     font-size: 0.75rem;
     font-weight: 800;
     padding: 4px 10px;
