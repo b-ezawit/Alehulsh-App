@@ -1,0 +1,551 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Alehulish | አለሁልሽ - The Super App for Women in Ethiopia</title>
+    <meta name="description" content="Alehulish (አለሁልሽ) is Ethiopia's premier Super App for women. Offering period care packages, women's express delivery, fashion hub, and an advanced 500m radius emergency safety shield.">
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Noto+Sans+Ethiopic:wght@400;600;700&display=swap" rel="stylesheet">
+    <!-- FontAwesome for crisp icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+    <!-- Header & Navigation -->
+    <header class="navbar">
+        <div class="nav-container">
+            <a href="#" class="logo">
+                <span class="logo-text">Alehulish</span>
+                <span class="logo-amharic">አለሁልሽ</span>
+            </a>
+            <nav class="nav-links">
+                <a href="#features">Services</a>
+                <a href="#safety">Safety Shield</a>
+                <a href="#fashion">Fashion & Care</a>
+                <a href="#mission">Our Essence</a>
+                <a href="#faq">FAQ</a>
+            </nav>
+            <div class="nav-cta">
+                <a href="#download" class="btn btn-primary nav-btn">
+                    <i class="fa-solid fa-cloud-arrow-down"></i> Get App
+                </a>
+                <button class="mobile-toggle" aria-label="Toggle menu" id="mobileMenuBtn">
+                    <i class="fa-solid fa-bars"></i>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Mobile Drawer Navigation -->
+    <div class="mobile-drawer" id="mobileDrawer">
+        <div class="drawer-header">
+            <span class="logo-text">Alehulish <small>አለሁልሽ</small></span>
+            <button id="closeDrawerBtn"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div class="drawer-links">
+            <a href="#features" class="drawer-link">Services</a>
+            <a href="#safety" class="drawer-link">Safety Shield</a>
+            <a href="#fashion" class="drawer-link">Fashion & Care</a>
+            <a href="#mission" class="drawer-link">Our Essence</a>
+            <a href="#faq" class="drawer-link">FAQ</a>
+            <a href="#download" class="btn btn-primary drawer-btn">Get App Now</a>
+        </div>
+    </div>
+
+    <!-- Hero Section -->
+    <section class="hero-section">
+        <div class="hero-bg-glow"></div>
+        <div class="container hero-container">
+            <div class="hero-content">
+                <div class="badge-pill">
+                    <span class="pulse-dot"></span> Ethiopia's #1 Super App for Women
+                </div>
+                <h1 class="hero-title">
+                    <span class="gradient-text">I am here for you</span>
+                </h1>
+                <p class="hero-subtitle">
+                    Alehulish (አለሁልሽ) — Ethiopia's Super App for Women. Express package delivery, period care kits, curated fashion, and instant 500-meter SOS safety protection.
+                </p>
+
+                <!-- Pillars from Artwork -->
+                <div class="hero-pillars">
+                    <span class="pillar-tag"><i class="fa-solid fa-heart-pulse"></i> Healer</span>
+                    <span class="pillar-tag"><i class="fa-solid fa-hand-holding-heart"></i> Giver</span>
+                    <span class="pillar-tag"><i class="fa-solid fa-star"></i> Dreamer</span>
+                    <span class="pillar-tag"><i class="fa-solid fa-palette"></i> Creator</span>
+                    <span class="pillar-tag"><i class="fa-solid fa-shield-halved"></i> Protector</span>
+                </div>
+
+                <div class="hero-actions">
+                    <a href="#download" class="btn btn-primary btn-lg">
+                        <i class="fa-brands fa-google-play"></i> Download Alehulish
+                    </a>
+                    <a href="#safety" class="btn btn-secondary btn-lg">
+                        <i class="fa-solid fa-shield-cat"></i> Safety Demo
+                    </a>
+                </div>
+
+                <div class="hero-stats">
+                    <div class="stat-item">
+                        <span class="stat-num">500m</span>
+                        <span class="stat-lbl">Instant SOS Alert Radius</span>
+                    </div>
+                    <div class="stat-divider"></div>
+                    <div class="stat-item">
+                        <span class="stat-num">24/7</span>
+                        <span class="stat-lbl">Care & Package Delivery</span>
+                    </div>
+                    <div class="stat-divider"></div>
+                    <div class="stat-item">
+                        <span class="stat-num">100%</span>
+                        <span class="stat-lbl">Designed for Women</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Hero Image Frame -->
+            <div class="hero-image-wrapper">
+                <div class="image-glass-card">
+                    <div class="artwork-frame">
+                        <img src="hero-image.png" alt="Alehulish - Healer, Giver, Dreamer, Creator, Protector" class="hero-artwork">
+                    </div>
+                    <!-- Floating Badge Cards -->
+                    <div class="floating-badge badge-top-right">
+                        <div class="badge-icon alert-icon"><i class="fa-solid fa-bell-concierge"></i></div>
+                        <div>
+                            <strong>Period Care Package</strong>
+                            <small>On-demand & discreet</small>
+                        </div>
+                    </div>
+                    <div class="floating-badge badge-bottom-left">
+                        <div class="badge-icon shield-icon"><i class="fa-solid fa-shield-heart"></i></div>
+                        <div>
+                            <strong>500m Safety Shield</strong>
+                            <small>Location & Voice Evidence</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Services Overview -->
+    <section class="services-section" id="features">
+        <div class="container">
+            <div class="section-header">
+                <span class="subhead">Alehulish Ecosystem</span>
+                <h2>Everything You Need, Wrapped in One Super App</h2>
+                <p>Designed with care to solve daily challenges for women across Addis Ababa and Ethiopia.</p>
+            </div>
+
+            <div class="services-grid">
+                <!-- Service 1: Period Care -->
+                <div class="service-card highlight-card">
+                    <div class="card-badge">Most Loved</div>
+                    <div class="service-icon"><i class="fa-solid fa-box-tissue"></i></div>
+                    <h3>Period & Cycle Care Packages</h3>
+                    <p>Subtle, monthly, or instant delivery of sanitary products, heating pads, organic teas, pampering items, and pain relief direct to your doorstep.</p>
+                    <ul class="service-bullets">
+                        <li><i class="fa-solid fa-check"></i> Customizable monthly subscription boxes</li>
+                        <li><i class="fa-solid fa-check"></i> 30-minute emergency delivery mode</li>
+                        <li><i class="fa-solid fa-check"></i> Cycle tracking & relief reminder insights</li>
+                    </ul>
+                </div>
+
+                <!-- Service 2: Safety Feature -->
+                <div class="service-card safety-card-highlight">
+                    <div class="card-badge emergency-badge">Lifeline Feature</div>
+                    <div class="service-icon emergency-icon"><i class="fa-solid fa-shield-halved"></i></div>
+                    <h3>500m SOS Safety Shield</h3>
+                    <p>Instant activation alerts everyone within a 500-meter radius, automatically notifies emergency contacts & police, tracks live GPS, and stores encrypted audio.</p>
+                    <ul class="service-bullets">
+                        <li><i class="fa-solid fa-check"></i> 500m radius community alert grid</li>
+                        <li><i class="fa-solid fa-check"></i> Live location & police dispatch system</li>
+                        <li><i class="fa-solid fa-check"></i> Auto-recording stored tamper-proof in cloud</li>
+                    </ul>
+                    <button class="btn-card-action" onclick="openSafetyModal()">Test SOS Simulation</button>
+                </div>
+
+                <!-- Service 3: Women's Express Package Delivery -->
+                <div class="service-card">
+                    <div class="service-icon"><i class="fa-solid fa-truck-ramp-box"></i></div>
+                    <h3>Women's Express Delivery</h3>
+                    <p>Send and receive personal packages, documents, care items, or business merchandise safely with verified, vetted delivery partners.</p>
+                    <ul class="service-bullets">
+                        <li><i class="fa-solid fa-check"></i> Vetted & trusted delivery personnel</li>
+                        <li><i class="fa-solid fa-check"></i> Real-time package location tracking</li>
+                        <li><i class="fa-solid fa-check"></i> Secret PIN delivery confirmation</li>
+                    </ul>
+                </div>
+
+                <!-- Service 4: Woman's Fashion & Boutique -->
+                <div class="service-card">
+                    <div class="service-icon"><i class="fa-solid fa-shirt"></i></div>
+                    <h3>Woman's Fashion Hub</h3>
+                    <p>Discover hand-picked traditional Ethiopian Habesha Kemis, contemporary dresses, local designer collections, and accessories with instant try & delivery.</p>
+                    <ul class="service-bullets">
+                        <li><i class="fa-solid fa-check"></i> Curated Ethiopian women fashion brands</li>
+                        <li><i class="fa-solid fa-check"></i> Custom tailoring & size matching</li>
+                        <li><i class="fa-solid fa-check"></i> Express fitting delivered to your home</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Deep Dive: 500m Safety Shield Feature -->
+    <section class="safety-deep-section" id="safety">
+        <div class="container">
+            <div class="safety-box">
+                <div class="safety-info">
+                    <span class="subhead subhead-light"><i class="fa-solid fa-lock"></i> Built for Your Protection</span>
+                    <h2>How the 500m Safety Shield Protects You</h2>
+                    <p>Whenever you feel unsafe, press or hold the Alehulish Panic Trigger. In less than 3 seconds, your safety shield activates four simultaneous protection layers:</p>
+                    
+                    <div class="safety-steps">
+                        <div class="step-card">
+                            <div class="step-num">01</div>
+                            <div class="step-text">
+                                <h4>500m Radius Nearby Community Alert</h4>
+                                <p>Sends high-priority distress alerts to nearby Alehulish app users and verified community responders within 500 meters.</p>
+                            </div>
+                        </div>
+
+                        <div class="step-card">
+                            <div class="step-num">02</div>
+                            <div class="step-text">
+                                <h4>Police & Emergency Contact Dispatch</h4>
+                                <p>Automatically dials and sends SMS with your live coordinates to local emergency services and your personal emergency circle.</p>
+                            </div>
+                        </div>
+
+                        <div class="step-card">
+                            <div class="step-num">03</div>
+                            <div class="step-text">
+                                <h4>Real-Time Live GPS Tracking</h4>
+                                <p>Broadcasting your continuous path so help can reach your exact location even if you move.</p>
+                            </div>
+                        </div>
+
+                        <div class="step-card">
+                            <div class="step-num">04</div>
+                            <div class="step-text">
+                                <h4>Encrypted Voice Evidence Storage</h4>
+                                <p>Instantly records high-definition audio surrounding your phone and uploads it securely to the cloud to preserve tamper-proof evidence.</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="safety-cta">
+                        <button class="btn btn-light-danger btn-lg" onclick="openSafetyModal()">
+                            <i class="fa-solid fa-bell"></i> Interactive SOS Demo
+                        </button>
+                    </div>
+                </div>
+
+                <div class="safety-visual">
+                    <div class="radar-circle-wrap">
+                        <div class="radar-pulse ring-1"></div>
+                        <div class="radar-pulse ring-2"></div>
+                        <div class="radar-pulse ring-3"></div>
+                        <div class="center-user">
+                            <i class="fa-solid fa-person-shelter"></i>
+                            <span>YOU</span>
+                        </div>
+                        <div class="radar-node node-1" title="Responder within 150m">
+                            <i class="fa-solid fa-shield"></i>
+                            <small>150m</small>
+                        </div>
+                        <div class="radar-node node-2" title="Police alert sent">
+                            <i class="fa-solid fa-building-shield"></i>
+                            <small>Police</small>
+                        </div>
+                        <div class="radar-node node-3" title="Nearby User within 380m">
+                            <i class="fa-solid fa-users"></i>
+                            <small>380m</small>
+                        </div>
+                        <div class="radar-node node-4" title="Emergency Contact">
+                            <i class="fa-solid fa-heart"></i>
+                            <small>Contacts</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Fashion & Period Care Spotlight -->
+    <section class="care-fashion-section" id="fashion">
+        <div class="container">
+            <div class="grid-2col">
+                <!-- Period Package Highlight -->
+                <div class="feature-spotlight-card">
+                    <div class="spotlight-tag">Care & Dignity</div>
+                    <div class="spotlight-icon"><i class="fa-solid fa-heart-pulse"></i></div>
+                    <h3>Period Package & Comfort Kit</h3>
+                    <p>We take away the pain, hassle, and stigma of purchasing period products. Order your essential pads, tampons, cramps relief items, dark chocolate, and teas in one tap with discrete packaging.</p>
+                    <div class="pill-group">
+                        <span>Sanitary Products</span>
+                        <span>Cramp Relief Hot Packs</span>
+                        <span>Soothing Herbal Teas</span>
+                        <span>Discreet Fast Courier</span>
+                    </div>
+                </div>
+
+                <!-- Fashion Hub Highlight -->
+                <div class="feature-spotlight-card fashion-theme">
+                    <div class="spotlight-tag">Ethiopian Style</div>
+                    <div class="spotlight-icon"><i class="fa-solid fa-gem"></i></div>
+                    <h3>Curated Women's Fashion</h3>
+                    <p>Elevate your wardrobe with authentic Habesha Kemis, modern Ethiopian streetwear, workwear, and handcrafted jewelry sourced directly from talented women artisans.</p>
+                    <div class="pill-group">
+                        <span>Traditional Kemis</span>
+                        <span>Modern Ethiopian Wear</span>
+                        <span>Handmade Accessories</span>
+                        <span>Direct Artisan Support</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Our Essence / Values Section -->
+    <section class="mission-section" id="mission">
+        <div class="container text-center">
+            <span class="subhead">Our Core Essence</span>
+            <h2>Healer. Giver. Dreamer. Creator. Protector.</h2>
+            <p class="mission-lead">
+                Inspired by the strength, beauty, and resilience of Ethiopian women. Alehulish (አለሁልሽ) translates to <em>"I am here for you"</em>—a promise of unwavering support across every stage of your journey.
+            </p>
+
+            <div class="essence-cards">
+                <div class="essence-card">
+                    <i class="fa-solid fa-hands-holding-child"></i>
+                    <h4>Healer</h4>
+                    <p>Nurturing your health, wellness, and body comfort during your period & everyday life.</p>
+                </div>
+                <div class="essence-card">
+                    <i class="fa-solid fa-gift"></i>
+                    <h4>Giver</h4>
+                    <p>Delivering convenience, care packages, and essentials right when you need them.</p>
+                </div>
+                <div class="essence-card">
+                    <i class="fa-solid fa-cloud-moon"></i>
+                    <h4>Dreamer</h4>
+                    <p>Inspiring ambition by providing tools, fashion, and services that unlock freedom.</p>
+                </div>
+                <div class="essence-card">
+                    <i class="fa-solid fa-palette"></i>
+                    <h4>Creator</h4>
+                    <p>Celebrating Ethiopian women creators, artisans, designers, and entrepreneurs.</p>
+                </div>
+                <div class="essence-card">
+                    <i class="fa-solid fa-shield-halved"></i>
+                    <h4>Protector</h4>
+                    <p>Guarding your safety with 500m radius alerts, live GPS tracking, and voice evidence.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- FAQ Section -->
+    <section class="faq-section" id="faq">
+        <div class="container">
+            <div class="section-header">
+                <span class="subhead">Questions & Answers</span>
+                <h2>Frequently Asked Questions</h2>
+            </div>
+            
+            <div class="faq-accordion">
+                <div class="faq-item">
+                    <button class="faq-question">
+                        <span>What is Alehulish (አለሁልሽ)?</span>
+                        <i class="fa-solid fa-chevron-down"></i>
+                    </button>
+                    <div class="faq-answer">
+                        <p>Alehulish is Ethiopia's first Super App created specifically for women. It combines essential services into one platform: fast delivery for women's packages, period care boxes, curated fashion, and an emergency SOS 500m radius safety shield.</p>
+                    </div>
+                </div>
+
+                <div class="faq-item">
+                    <button class="faq-question">
+                        <span>How does the 500m Safety Shield work?</span>
+                        <i class="fa-solid fa-chevron-down"></i>
+                    </button>
+                    <div class="faq-answer">
+                        <p>When activated, your phone immediately sends a high-priority distress signal to all registered Alehulish app users and community responders within a 500-meter radius. Simultaneously, it notifies local emergency services (police) and your designated contacts while uploading live GPS coordinates and background audio evidence.</p>
+                    </div>
+                </div>
+
+                <div class="faq-item">
+                    <button class="faq-question">
+                        <span>How fast is the period package delivery?</span>
+                        <i class="fa-solid fa-chevron-down"></i>
+                    </button>
+                    <div class="faq-answer">
+                        <p>We offer both scheduled monthly subscriptions and Emergency Express Delivery within 30-45 minutes across major areas of Addis Ababa and surrounding regions.</p>
+                    </div>
+                </div>
+
+                <div class="faq-item">
+                    <button class="faq-question">
+                        <span>Is my data and voice recording secure?</span>
+                        <i class="fa-solid fa-chevron-down"></i>
+                    </button>
+                    <div class="faq-answer">
+                        <p>Yes. All voice recordings and location data collected during safety alerts are encrypted end-to-end and stored securely. Only you and authorized legal authorities can access the voice evidence file.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Download App CTA Banner -->
+    <section class="download-section" id="download">
+        <div class="container">
+            <div class="download-card">
+                <div class="download-content">
+                    <span class="subhead subhead-light">Join the Alehulish Sisterhood</span>
+                    <h2>Download Alehulish Today</h2>
+                    <p>Available on Android & iOS across Ethiopia. Experience safety, care, and fashion at your fingertips.</p>
+                    
+                    <div class="store-buttons">
+                        <a href="#" class="store-btn" onclick="alert('Alehulish Android App Launching Soon on Play Store!'); return false;">
+                            <i class="fa-brands fa-google-play"></i>
+                            <div>
+                                <small>GET IT ON</small>
+                                <strong>Google Play</strong>
+                            </div>
+                        </a>
+                        <a href="#" class="store-btn" onclick="alert('Alehulish iOS App Launching Soon on App Store!'); return false;">
+                            <i class="fa-brands fa-apple"></i>
+                            <div>
+                                <small>DOWNLOAD ON THE</small>
+                                <strong>App Store</strong>
+                            </div>
+                        </a>
+                    </div>
+                </div>
+                <div class="download-qr">
+                    <div class="qr-box">
+                        <i class="fa-solid fa-qrcode"></i>
+                    </div>
+                    <small>Scan to download app directly</small>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="container">
+            <div class="footer-top">
+                <div class="footer-brand">
+                    <a href="#" class="logo">
+                        <span class="logo-text">Alehulish</span>
+                        <span class="logo-amharic">አለሁልሽ</span>
+                    </a>
+                    <p>The Super App for Women in Ethiopia. Always here for your safety, wellness, and lifestyle.</p>
+                </div>
+
+                <div class="footer-links">
+                    <div class="link-col">
+                        <h4>Services</h4>
+                        <a href="#features">Period Packages</a>
+                        <a href="#features">Women's Delivery</a>
+                        <a href="#fashion">Fashion Hub</a>
+                        <a href="#safety">500m Safety Shield</a>
+                    </div>
+
+                    <div class="link-col">
+                        <h4>Company</h4>
+                        <a href="#mission">About Alehulish</a>
+                        <a href="#mission">Our Essence</a>
+                        <a href="#faq">FAQs</a>
+                        <a href="#">Contact Us</a>
+                    </div>
+
+                    <div class="link-col">
+                        <h4>Connect</h4>
+                        <div class="social-icons">
+                            <a href="#" aria-label="Telegram"><i class="fa-brands fa-telegram"></i></a>
+                            <a href="#" aria-label="Instagram"><i class="fa-brands fa-instagram"></i></a>
+                            <a href="#" aria-label="TikTok"><i class="fa-brands fa-tiktok"></i></a>
+                            <a href="#" aria-label="Facebook"><i class="fa-brands fa-facebook-f"></i></a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="footer-bottom">
+                <p>&copy; 2026 Alehulish (አለሁልሽ). All rights reserved. Made with ❤️ for Ethiopia.</p>
+                <div class="legal-links">
+                    <a href="#">Privacy Policy</a>
+                    <a href="#">Terms of Service</a>
+                    <a href="#">Safety Guidelines</a>
+                </div>
+            </div>
+        </div>
+    </footer>
+
+    <!-- SOS Interactive Simulation Modal -->
+    <div class="modal-overlay" id="safetyModal">
+        <div class="modal-container">
+            <button class="modal-close" onclick="closeSafetyModal()"><i class="fa-solid fa-xmark"></i></button>
+            <div class="modal-header">
+                <div class="sos-active-badge"><i class="fa-solid fa-triangle-exclamation"></i> SOS SIMULATION ACTIVE</div>
+                <h3>500m Safety Shield Protocol Activated</h3>
+                <p>Simulating live alert sequence for Alehulish App user in Addis Ababa.</p>
+            </div>
+
+            <div class="simulation-body">
+                <div class="sim-item active" id="simStep1">
+                    <div class="sim-icon"><i class="fa-solid fa-tower-broadcast"></i></div>
+                    <div class="sim-details">
+                        <strong>1. 500m Radius Community Alert Sent</strong>
+                        <span>Broadcasting alert to 142 nearby active users & community helpers</span>
+                    </div>
+                    <div class="sim-status green"><i class="fa-solid fa-circle-check"></i> Active</div>
+                </div>
+
+                <div class="sim-item active" id="simStep2">
+                    <div class="sim-icon"><i class="fa-solid fa-location-crosshairs"></i></div>
+                    <div class="sim-details">
+                        <strong>2. GPS Location Streamed</strong>
+                        <span>Lat: 9.0105° N, Long: 38.7612° E (Updating real-time)</span>
+                    </div>
+                    <div class="sim-status green"><i class="fa-solid fa-circle-check"></i> Live Tracking</div>
+                </div>
+
+                <div class="sim-item active" id="simStep3">
+                    <div class="sim-icon"><i class="fa-solid fa-microphone-lines"></i></div>
+                    <div class="sim-details">
+                        <strong>3. Encrypted Voice Recording</strong>
+                        <span>Audio recording saved to secure cloud evidence vault (00:14)</span>
+                    </div>
+                    <div class="sim-status red-pulse"><i class="fa-solid fa-record-vinyl"></i> Recording...</div>
+                </div>
+
+                <div class="sim-item active" id="simStep4">
+                    <div class="sim-icon"><i class="fa-solid fa-phone-flip"></i></div>
+                    <div class="sim-details">
+                        <strong>4. Police & Emergency Dispatch</strong>
+                        <span>Automatic SMS and dispatch alert sent to local authorities</span>
+                    </div>
+                    <div class="sim-status green"><i class="fa-solid fa-circle-check"></i> Dispatched</div>
+                </div>
+            </div>
+
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeSafetyModal()">End Simulation</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
