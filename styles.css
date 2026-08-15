@@ -955,9 +955,82 @@ h1, h2, h3, h4 {
     max-height: 300px;
 }
 
-.faq-answer p {
+/* CONTACT SECTION */
+.contact-section {
+    padding: 90px 0;
+    background: #FAF5FF;
+}
+
+.contact-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 30px;
+    max-width: 800px;
+    margin: 0 auto;
+}
+
+.contact-card {
+    background: white;
+    padding: 32px 28px;
+    border-radius: var(--radius-lg);
+    border: 1px solid rgba(139, 53, 137, 0.15);
+    box-shadow: var(--shadow-sm);
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    position: relative;
+    overflow: hidden;
+}
+
+.contact-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 15px 35px rgba(255, 0, 228, 0.2);
+    border-color: rgba(255, 0, 228, 0.4);
+}
+
+.contact-icon {
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, rgba(139, 53, 137, 0.1), rgba(255, 0, 228, 0.15));
+    color: var(--primary);
+    font-size: 1.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.contact-info small {
+    display: block;
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
     color: var(--text-muted);
-    font-size: 0.95rem;
+    letter-spacing: 0.5px;
+}
+
+.contact-info strong {
+    display: block;
+    font-size: 1.2rem;
+    color: var(--accent-purple);
+    margin-top: 2px;
+}
+
+.contact-action {
+    margin-left: auto;
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: var(--accent-magenta);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    transition: transform 0.3s ease;
+}
+
+.contact-card:hover .contact-action i {
+    transform: translateX(4px);
 }
 
 /* DOWNLOAD SECTION */
