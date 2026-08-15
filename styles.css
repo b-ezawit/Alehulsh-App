@@ -4,31 +4,32 @@
    ========================================================================== */
 
 :root {
-    /* Color Palette - Elegant Purple & Gold Theme */
-    --primary: #7E22CE;         /* Royal Amethyst Purple */
-    --primary-dark: #581C87;    /* Deep Purple */
-    --primary-light: #A855F7;   /* Bright Violet */
-    --accent-gold: #D4AF37;      /* Warm Ethiopian Gold */
-    --accent-rose: #D8B4FE;      /* Soft Lavender Rose */
-    --accent-burgundy: #3B0764;  /* Midnight Purple */
-    --bg-dark: #1A092A;          /* Deep rich purple background */
+    /* Color Palette - Matching User Provided Image Theme */
+    --primary: #8B3589;            /* Deep Grape Purple ("Problem" color) */
+    --primary-dark: #661C65;       /* Dark Grape Purple */
+    --primary-light: #FF00E4;      /* Bright Neon Pink/Magenta ("Statement" color) */
+    --accent-magenta: #FF00E4;     /* Electric Magenta */
+    --accent-purple: #8B3589;      /* Deep Royal Purple */
+    --accent-gold: #FF00E4;        /* Bright Pink Highlight */
+    --accent-burgundy: #4A1248;    /* Dark Midnight Purple */
+    --bg-dark: #1A051A;            /* Deep Dark Purple background */
     --bg-card: rgba(255, 255, 255, 0.95);
-    --bg-card-dark: rgba(26, 9, 42, 0.85);
+    --bg-card-dark: rgba(26, 5, 26, 0.85);
 
-    --text-main: #230B38;
-    --text-muted: #6B567E;
-    --text-light: #FAF5FF;
+    --text-main: #2A0A29;
+    --text-muted: #6B4069;
+    --text-light: #FAF0FA;
 
-    --gradient-primary: linear-gradient(135deg, #7E22CE 0%, #D4AF37 50%, #C084FC 100%);
-    --gradient-hero: linear-gradient(135deg, #3B0764 0%, #1A092A 100%);
-    --gradient-card: linear-gradient(135deg, rgba(255, 255, 255, 0.9), rgba(250, 245, 255, 0.95));
-    --gradient-gold: linear-gradient(135deg, #D4AF37 0%, #F3E5AB 100%);
+    --gradient-primary: linear-gradient(135deg, #8B3589 0%, #FF00E4 100%);
+    --gradient-hero: linear-gradient(135deg, #4A1248 0%, #1A051A 100%);
+    --gradient-card: linear-gradient(135deg, rgba(255, 255, 255, 0.95), rgba(253, 240, 253, 0.95));
+    --gradient-gold: linear-gradient(135deg, #8B3589 0%, #FF00E4 100%);
 
     /* Shadows & Glassmorphism */
     --shadow-sm: 0 4px 15px rgba(0, 0, 0, 0.05);
-    --shadow-md: 0 10px 30px rgba(126, 34, 206, 0.15);
-    --shadow-lg: 0 20px 50px rgba(59, 7, 100, 0.3);
-    --glass-border: 1px solid rgba(212, 175, 55, 0.25);
+    --shadow-md: 0 10px 30px rgba(139, 53, 137, 0.2);
+    --shadow-lg: 0 20px 50px rgba(255, 0, 228, 0.25);
+    --glass-border: 1px solid rgba(255, 0, 228, 0.25);
 
     /* Fonts & Radii */
     --font-main: 'Plus Jakarta Sans', 'Noto Sans Ethiopic', sans-serif;
@@ -79,7 +80,7 @@ h1, h2, h3, h4 {
 }
 
 .gradient-text {
-    background: linear-gradient(135deg, #7E22CE, #C084FC, #D4AF37);
+    background: linear-gradient(135deg, #8B3589 0%, #FF00E4 100%);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     display: inline-block;
@@ -96,7 +97,7 @@ h1, h2, h3, h4 {
 }
 
 .subhead-light {
-    color: var(--accent-gold);
+    color: var(--accent-magenta);
 }
 
 .section-header {
@@ -131,21 +132,21 @@ h1, h2, h3, h4 {
 }
 
 .btn-primary {
-    background: var(--primary);
+    background: linear-gradient(135deg, #8B3589 0%, #FF00E4 100%);
     color: white;
-    box-shadow: 0 8px 25px rgba(126, 34, 206, 0.35);
+    box-shadow: 0 8px 25px rgba(255, 0, 228, 0.35);
 }
 
 .btn-primary:hover {
-    background: var(--primary-dark);
+    background: linear-gradient(135deg, #752A74 0%, #E000C8 100%);
     transform: translateY(-3px);
-    box-shadow: 0 12px 30px rgba(126, 34, 206, 0.45);
+    box-shadow: 0 12px 30px rgba(255, 0, 228, 0.55);
 }
 
 .btn-secondary {
-    background: rgba(255, 255, 255, 0.9);
-    color: var(--accent-burgundy);
-    border: 1px solid rgba(126, 34, 206, 0.2);
+    background: rgba(255, 255, 255, 0.95);
+    color: var(--primary);
+    border: 1px solid rgba(139, 53, 137, 0.3);
     backdrop-filter: blur(10px);
 }
 
@@ -162,14 +163,14 @@ h1, h2, h3, h4 {
 }
 
 .btn-light-danger {
-    background: linear-gradient(135deg, #9333EA, #7E22CE);
+    background: linear-gradient(135deg, #8B3589 0%, #FF00E4 100%);
     color: white;
-    box-shadow: 0 8px 25px rgba(147, 51, 234, 0.4);
+    box-shadow: 0 8px 25px rgba(255, 0, 228, 0.4);
 }
 
 .btn-light-danger:hover {
     transform: translateY(-3px);
-    box-shadow: 0 12px 35px rgba(147, 51, 234, 0.6);
+    box-shadow: 0 12px 35px rgba(255, 0, 228, 0.6);
 }
 
 /* Navbar */
@@ -632,16 +633,17 @@ h1, h2, h3, h4 {
     width: 100%;
     padding: 12px;
     border-radius: var(--radius-md);
-    background: #9333EA;
+    background: linear-gradient(135deg, #8B3589 0%, #FF00E4 100%);
     color: white;
     border: none;
     font-weight: 700;
     cursor: pointer;
-    transition: background 0.3s ease;
+    transition: all 0.3s ease;
 }
 
 .btn-card-action:hover {
-    background: #7E22CE;
+    box-shadow: 0 6px 20px rgba(255, 0, 228, 0.5);
+    transform: translateY(-2px);
 }
 
 /* SAFETY DEEP SECTION */
@@ -722,7 +724,7 @@ h1, h2, h3, h4 {
 .radar-pulse {
     position: absolute;
     border-radius: 50%;
-    border: 1px solid rgba(147, 51, 234, 0.4);
+    border: 1px solid rgba(255, 0, 228, 0.4);
     animation: radarRipple 3s infinite linear;
 }
 
@@ -741,13 +743,13 @@ h1, h2, h3, h4 {
     width: 80px;
     height: 80px;
     border-radius: 50%;
-    background: linear-gradient(135deg, #9333EA, #7E22CE);
+    background: linear-gradient(135deg, #8B3589, #FF00E4);
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
     color: white;
-    box-shadow: 0 0 30px rgba(147, 51, 234, 0.8);
+    box-shadow: 0 0 30px rgba(255, 0, 228, 0.8);
 }
 
 .center-user i { font-size: 1.5rem; }
@@ -965,7 +967,7 @@ h1, h2, h3, h4 {
 }
 
 .download-card {
-    background: linear-gradient(135deg, #3B0764 0%, #7E22CE 100%);
+    background: linear-gradient(135deg, #4A1248 0%, #8B3589 50%, #FF00E4 100%);
     border-radius: var(--radius-lg);
     padding: 60px;
     color: white;
