@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "276071022271",
+    "project_id": "alehulsh-app",
+    "storage_bucket": "alehulsh-app.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:276071022271:android:768378ccd98742d612500a",
+        "android_client_info": {
+          "package_name": "com.example.alehulsh_app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDIzsusGzcBaWtsY0CmFqYnPhyw2zhg6_g"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

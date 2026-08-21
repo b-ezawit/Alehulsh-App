@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="hardware_sos_accessibility_description">Alehulsh uses this service only to detect 5 rapid power-button presses and the Android Emergency SOS screen so your in-app SOS can start immediately. Cancelling the phone\'s 911 dialog will never cancel Alehulsh SOS.</string>
+    <string name="radar_channel_name">Alehulsh Safety Radar</string>
+    <string name="radar_channel_desc">Keeps emergency gesture detection and alert pings active.</string>
+    <string name="radar_notification_title">Alehulsh protection is on</string>
+    <string name="radar_notification_text">5× power SOS and nearby alert pings are active.</string>
+</resources>

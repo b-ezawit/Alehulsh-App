@@ -88,3 +88,20 @@ window.addEventListener('click', (e) => {
         closeSafetyModal();
     }
 });
+
+
+// iOS Coming Soon Modal / Alert
+function showIosComingSoon(event) {
+    if (event) event.preventDefault();
+    alert("🍎 Alehulish for iOS is currently in development!\n\nThe iOS version is being built and will be available soon on the Apple App Store.\n\nAndroid users can tap 'Download for Android' to get the live app APK now.");
+}
+
+// Android APK Download Feedback
+document.addEventListener('DOMContentLoaded', () => {
+    const androidBtn = document.getElementById('downloadAndroidBtn');
+    if (androidBtn) {
+        androidBtn.addEventListener('click', () => {
+            console.log("Downloading Alehulish Android APK...");
+        });
+    }
+});

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Alehulish | አለሁልሽ - The Super App for Women in Ethiopia</title>
+    <title>Alehulsh - The Super App for Women in Ethiopia</title>
     <link rel="icon" type="image/png" href="favicon.png">
     <link rel="shortcut icon" type="image/png" href="favicon.png">
     <meta name="description" content="Alehulish (አለሁልሽ) is Ethiopia's premier Super App for women. Offering period care packages, women's express delivery, fashion hub, and an advanced 500m radius emergency safety shield.">
@@ -15,6 +15,14 @@
     <!-- FontAwesome for crisp icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="styles.css">
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "WebSite",
+      "name": "Alehulsh",
+      "url": "https://alehulish.vercel.app"
+    }
+    </script>
 </head>
 <body>
 
@@ -91,7 +99,7 @@
 
                 <div class="hero-actions">
                     <a href="#download" class="btn btn-primary btn-lg">
-                        <i class="fa-brands fa-google-play"></i> Download Alehulish
+                        <i class="fa-brands fa-android"></i> Download for Android
                     </a>
                     <a href="#safety" class="btn btn-secondary btn-lg">
                         <i class="fa-solid fa-shield-cat"></i> Safety Demo
@@ -137,6 +145,42 @@
                             <small>Location & Voice Evidence</small>
                         </div>
                     </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Download App CTA Banner (Featured Below Hero) -->
+    <section class="download-section" id="download">
+        <div class="container">
+            <div class="download-card">
+                <div class="download-content">
+                    <span class="subhead subhead-light">Join the Alehulish Sisterhood</span>
+                    <h2>Download Alehulish Today</h2>
+                    <p>Available on Android & iOS across Ethiopia. Experience safety, care, and fashion at your fingertips.</p>
+                    
+                    <div class="store-buttons">
+                        <a href="alehulsh-release.apk" download="alehulsh-release.apk" class="store-btn store-btn-android" id="downloadAndroidBtn">
+                            <i class="fa-brands fa-android"></i>
+                            <div>
+                                <small>DIRECT APK DOWNLOAD</small>
+                                <strong>Download for Android</strong>
+                            </div>
+                        </a>
+                        <a href="#" class="store-btn store-btn-ios" onclick="showIosComingSoon(event)">
+                            <i class="fa-brands fa-apple"></i>
+                            <div>
+                                <small>IN DEVELOPMENT</small>
+                                <strong>Download for iOS</strong>
+                            </div>
+                        </a>
+                    </div>
+                </div>
+                <div class="download-qr">
+                    <div class="qr-box">
+                        <i class="fa-solid fa-qrcode"></i>
+                    </div>
+                    <small>Scan or tap to download .APK directly</small>
                 </div>
             </div>
         </div>
@@ -442,41 +486,7 @@
         </div>
     </section>
 
-    <!-- Download App CTA Banner -->
-    <section class="download-section" id="download">
-        <div class="container">
-            <div class="download-card">
-                <div class="download-content">
-                    <span class="subhead subhead-light">Join the Alehulish Sisterhood</span>
-                    <h2>Download Alehulish Today</h2>
-                    <p>Available on Android & iOS across Ethiopia. Experience safety, care, and fashion at your fingertips.</p>
-                    
-                    <div class="store-buttons">
-                        <a href="#" class="store-btn" onclick="alert('Alehulish Android App Launching Soon on Play Store!'); return false;">
-                            <i class="fa-brands fa-google-play"></i>
-                            <div>
-                                <small>GET IT ON</small>
-                                <strong>Google Play</strong>
-                            </div>
-                        </a>
-                        <a href="#" class="store-btn" onclick="alert('Alehulish iOS App Launching Soon on App Store!'); return false;">
-                            <i class="fa-brands fa-apple"></i>
-                            <div>
-                                <small>DOWNLOAD ON THE</small>
-                                <strong>App Store</strong>
-                            </div>
-                        </a>
-                    </div>
-                </div>
-                <div class="download-qr">
-                    <div class="qr-box">
-                        <i class="fa-solid fa-qrcode"></i>
-                    </div>
-                    <small>Scan to download app directly</small>
-                </div>
-            </div>
-        </div>
-    </section>
+    
 
     <!-- Footer -->
     <footer class="footer">
