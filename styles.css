@@ -785,7 +785,7 @@ h1, h2, h3, h4 {
 .node-4 { bottom: 20px; left: 30px; }
 
 /* CARE & FASHION SPOTLIGHT */
-.care-fashion-section {
+.future-roadmap-section {
     padding: 100px 0;
     background: #FAF5F6;
 }
@@ -806,7 +806,7 @@ h1, h2, h3, h4 {
     overflow: hidden;
 }
 
-.fashion-theme {
+.courier-theme {
     background: linear-gradient(135deg, #FFF 0%, #FAF0F2 100%);
 }
 
