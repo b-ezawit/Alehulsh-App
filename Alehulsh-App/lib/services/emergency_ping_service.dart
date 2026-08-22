@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:geolocator/geolocator.dart';
 import '../models/alert_model.dart';
 import 'alert_service.dart';
@@ -68,8 +69,30 @@ class EmergencyPingService {
       await androidImplementation.requestNotificationsPermission();
     }
 
+    // Listen for high-priority FCM emergency messages dispatched by Cloud Functions
+    try {
+      FirebaseMessaging.onMessage.listen((RemoteMessage message) {
+        debugPrint("[EmergencyPingService] FCM Emergency broadcast received: ${message.data}");
+        final alertId = message.data['alertId']?.toString() ?? '';
+        final userName = message.data['userName']?.toString() ?? 'Nearby Protector';
+        final locationName = message.data['locationName']?.toString() ?? 'Emergency Location';
+        final distStr = message.data['distStr']?.toString() ?? '500m SOS Radar Alert';
+
+        if (alertId.isNotEmpty) {
+          sendProximityPingNotification(
+            alertId: alertId,
+            userName: userName,
+            distanceText: distStr,
+            locationName: locationName,
+          );
+        }
+      });
+    } catch (e) {
+      debugPrint("[EmergencyPingService] Note initializing FCM listener: $e");
+    }
+
     _isInitialized = true;
-    debugPrint("[EmergencyPingService] Initialized successfully.");
+    debugPrint("[EmergencyPingService] Initialized successfully with Cloud Function FCM support.");
 
     // Start 500m Proximity Radar Monitor
     startProximityRadarMonitor();

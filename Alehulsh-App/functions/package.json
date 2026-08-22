@@ -1,0 +1,17 @@
+{
+  "name": "alehulsh-cloud-functions",
+  "description": "High-Performance Server-Side SOS Alert Dispatcher & Proximity Radar for Alehulsh",
+  "version": "1.0.0",
+  "engines": {
+    "node": "18"
+  },
+  "main": "index.js",
+  "dependencies": {
+    "firebase-admin": "^12.0.0",
+    "firebase-functions": "^5.0.0"
+  },
+  "devDependencies": {
+    "firebase-functions-test": "^3.1.0"
+  },
+  "private": true
+}

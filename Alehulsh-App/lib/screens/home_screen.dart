@@ -252,8 +252,8 @@ class HomeScreen extends StatelessWidget {
                             const SizedBox(height: 4),
                             Text(
                               loc.isAmharic
-                                  ? "ስልክዎን ለ 3 ሰከንድ 3 ጊዜ በማነቅነቅ (Shake 3x) የቀጥታ GPS የአደጋ ጊዜ ጥሪ ወዲያውኑ ማሰራጨት ይችላሉ"
-                                  : "Shake your phone 3 times continuously for 3 seconds to automatically broadcast live GPS emergency SOS",
+                                  ? "ስልክዎ ተቆልፎም ቢሆን ለ 3 ሰከንድ 3 ጊዜ በማነቅነቅ (Shake 3x) የቀጥታ GPS የአደጋ ጊዜ ጥሪ ወዲያውኑ ማሰራጨት ይችላሉ"
+                                  : "Shake your phone 3 times for 3s (even when screen is locked) to automatically broadcast live GPS emergency SOS",
                               style: TextStyle(
                                 fontSize: 12,
                                 height: 1.35,

@@ -1,26 +1,139 @@
 package com.example.alehulsh_app
 
 import android.accessibilityservice.AccessibilityService
+import android.content.Context
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
+import android.os.Build
+import android.os.Handler
+import android.os.Looper
+import android.os.PowerManager
+import android.util.Log
 import android.view.KeyEvent
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import kotlin.math.sqrt
 
 /**
- * Detects 5 consecutive power presses and the Android Emergency SOS / 911 UI.
- * Clicks on "Cancel emergency" are ignored and never forwarded as a cancel.
+ * 24/7 Redundant Hardware & Gesture Accessibility Service:
+ * - Detects 2.3s phone shake even if screen is locked or app is closed.
+ * - Detects OS Emergency SOS / 911 UI.
  */
-class HardwareSosAccessibilityService : AccessibilityService() {
-    private val powerKeyTimestamps = mutableListOf<Long>()
+class HardwareSosAccessibilityService : AccessibilityService(), SensorEventListener {
     private var lastOsSosWindowAt = 0L
+    private var wakeLock: PowerManager.WakeLock? = null
+    private var sensorManager: SensorManager? = null
+    private var accelerometer: Sensor? = null
+    private var shakeCount = 0
+    private var firstShakeTime = 0L
+    private var lastShakeTime = 0L
+    private var isSosDispatchedForCurrentShake = false
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private var shakeValidationRunnable: Runnable? = null
 
     override fun onServiceConnected() {
         super.onServiceConnected()
         AlehulshForegroundService.start(this)
+
+        try {
+            val powerManager = getSystemService(Context.POWER_SERVICE) as? PowerManager
+            wakeLock = powerManager?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "Alehulsh::AccessibilityShakeWakeLock")
+            wakeLock?.setReferenceCounted(false)
+            wakeLock?.acquire()
+
+            sensorManager = getSystemService(Context.SENSOR_SERVICE) as? SensorManager
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                accelerometer = sensorManager?.getDefaultSensor(Sensor.TYPE_ACCELEROMETER, true)
+            }
+            if (accelerometer == null) {
+                accelerometer = sensorManager?.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
+            }
+            if (accelerometer != null) {
+                sensorManager?.registerListener(
+                    this,
+                    accelerometer,
+                    SensorManager.SENSOR_DELAY_GAME
+                )
+                Log.d("HardwareSosAccessibility", "Accessibility shake sensor registered.")
+            }
+        } catch (e: Exception) {
+            Log.e("HardwareSosAccessibility", "Error in onServiceConnected: ${e.message}")
+        }
     }
 
-    override fun onKeyEvent(event: KeyEvent): Boolean {
-        // Never consume — Android OS SOS / 911 UI must still appear.
-        return false
+    override fun onSensorChanged(event: SensorEvent?) {
+        if (event == null || event.sensor.type != Sensor.TYPE_ACCELEROMETER) return
+        val x = event.values[0] / SensorManager.GRAVITY_EARTH
+        val y = event.values[1] / SensorManager.GRAVITY_EARTH
+        val z = event.values[2] / SensorManager.GRAVITY_EARTH
+        val gForce = sqrt(x * x + y * y + z * z)
+
+        if (gForce > 2.7f) {
+            val now = System.currentTimeMillis()
+
+            if (lastShakeTime > 0 && (now - lastShakeTime > 3000L)) {
+                shakeCount = 0
+                firstShakeTime = 0L
+                isSosDispatchedForCurrentShake = false
+                shakeValidationRunnable?.let { mainHandler.removeCallbacks(it) }
+            }
+
+            if (lastShakeTime == 0L || (now - lastShakeTime >= 350L)) {
+                if (shakeCount == 0 || firstShakeTime == 0L) {
+                    firstShakeTime = now
+                    isSosDispatchedForCurrentShake = false
+
+                    shakeValidationRunnable?.let { mainHandler.removeCallbacks(it) }
+                    val runnable = Runnable {
+                        if (shakeCount >= 3 && lastShakeTime > 0) {
+                            val elapsedSinceLast = System.currentTimeMillis() - lastShakeTime
+                            if (elapsedSinceLast <= 1500L && !isSosDispatchedForCurrentShake) {
+                                dispatchShakeSOS()
+                                return@Runnable
+                            }
+                        }
+                        shakeCount = 0
+                        firstShakeTime = 0L
+                        lastShakeTime = 0L
+                    }
+                    shakeValidationRunnable = runnable
+                    mainHandler.postDelayed(runnable, 2300L)
+                }
+
+                lastShakeTime = now
+                shakeCount++
+
+                val elapsed = now - firstShakeTime
+                if (shakeCount >= 3 && elapsed >= 2000L && !isSosDispatchedForCurrentShake) {
+                    dispatchShakeSOS()
+                }
+            }
+        }
+    }
+
+    override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
+
+    private fun dispatchShakeSOS() {
+        isSosDispatchedForCurrentShake = true
+        shakeValidationRunnable?.let { mainHandler.removeCallbacks(it) }
+        shakeCount = 0
+        firstShakeTime = 0L
+        lastShakeTime = 0L
+        Log.d("HardwareSosAccessibility", "🚨 2.3s Sustained Phone Shake SOS Confirmed in Accessibility! Dispatching SOS...")
+        AlehulshSosDispatcher.trigger(this, "Emergency Shake Gesture (2.3s/3x)")
+    }
+
+    override fun onDestroy() {
+        try {
+            sensorManager?.unregisterListener(this)
+            shakeValidationRunnable?.let { mainHandler.removeCallbacks(it) }
+            if (wakeLock?.isHeld == true) {
+                wakeLock?.release()
+            }
+        } catch (_: Exception) {}
+        super.onDestroy()
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {

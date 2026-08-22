@@ -1,4 +1,6 @@
 import 'dart:math';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import '../utils/geohash_util.dart';
 
 class VoiceNoteItem {
   final String id;
@@ -47,6 +49,8 @@ class EmergencyAlert {
   final double longitude;
   final String locationName;
   final DateTime timestamp;
+  final DateTime expiresAt; // 2-Hour TTL Safety Net
+  final String geohash; // Spatial partitioning for 500m geofencing
   final String category;
   final String message; // Optional user note
   final bool isUrgent;
@@ -70,6 +74,8 @@ class EmergencyAlert {
     required this.longitude,
     required this.locationName,
     required this.timestamp,
+    DateTime? expiresAt,
+    String? geohash,
     this.category = 'Emergency SOS Alert',
     this.message = '',
     this.isUrgent = false,
@@ -81,7 +87,11 @@ class EmergencyAlert {
     this.emergencyContactPhones = const [],
     this.emergencyContactNames = const [],
     this.emergencyContactUids = const [],
-  });
+  })  : expiresAt = expiresAt ?? timestamp.add(const Duration(hours: 2)),
+        geohash = geohash ?? GeohashUtil.encode(latitude, longitude);
+
+  /// Check if the 2-hour TTL has expired
+  bool get isExpired => DateTime.now().isAfter(expiresAt);
 
   /// Mathematical Haversine Distance Formula between current user location and alert location in kilometers
   double calculateDistanceKm(double userLat, double userLng) {
@@ -116,6 +126,7 @@ class EmergencyAlert {
   }
 
   Map<String, dynamic> toMap() {
+    final validExpiresAt = expiresAt;
     return {
       'id': id,
       'userId': userId,
@@ -127,6 +138,14 @@ class EmergencyAlert {
       'longitude': longitude,
       'locationName': locationName,
       'timestamp': timestamp.toIso8601String(),
+      'expiresAt': validExpiresAt.toIso8601String(),
+      'expiresAtTimestamp': Timestamp.fromDate(validExpiresAt), // For Firestore native TTL / indexing
+      'ttlHours': 2,
+      'geohash': geohash,
+      'geo': {
+        'geohash': geohash,
+        'geopoint': GeoPoint(latitude, longitude),
+      },
       'category': category,
       'message': message,
       'isUrgent': isUrgent,
@@ -146,6 +165,15 @@ class EmergencyAlert {
     try {
       if (map['timestamp'] != null) {
         parsedTimestamp = DateTime.parse(map['timestamp'].toString());
+      }
+    } catch (_) {}
+
+    DateTime parsedExpiresAt = parsedTimestamp.add(const Duration(hours: 2));
+    try {
+      if (map['expiresAt'] != null) {
+        parsedExpiresAt = DateTime.parse(map['expiresAt'].toString());
+      } else if (map['expiresAtTimestamp'] is Timestamp) {
+        parsedExpiresAt = (map['expiresAtTimestamp'] as Timestamp).toDate();
       }
     } catch (_) {}
 
@@ -174,6 +202,12 @@ class EmergencyAlert {
       return [];
     }
 
+    final lat = (map['latitude'] as num?)?.toDouble() ?? 9.0125;
+    final lng = (map['longitude'] as num?)?.toDouble() ?? 38.7636;
+    final extractedGeohash = map['geohash']?.toString() ??
+        (map['geo'] is Map ? (map['geo']['geohash']?.toString()) : null) ??
+        GeohashUtil.encode(lat, lng);
+
     return EmergencyAlert(
       id: docId ?? map['id']?.toString() ?? '',
       userId: map['userId']?.toString() ?? '',
@@ -181,10 +215,12 @@ class EmergencyAlert {
       userAvatar: map['userAvatar']?.toString() ?? 'U',
       alerterPhone: map['alerterPhone']?.toString() ?? '',
       alerterEmail: map['alerterEmail']?.toString() ?? '',
-      latitude: (map['latitude'] as num?)?.toDouble() ?? 9.0125,
-      longitude: (map['longitude'] as num?)?.toDouble() ?? 38.7636,
+      latitude: lat,
+      longitude: lng,
       locationName: map['locationName']?.toString() ?? 'Live GPS',
       timestamp: parsedTimestamp,
+      expiresAt: parsedExpiresAt,
+      geohash: extractedGeohash,
       category: map['category']?.toString() ?? 'Emergency SOS Alert',
       message: map['message']?.toString() ?? '',
       isUrgent: map['isUrgent'] == true,

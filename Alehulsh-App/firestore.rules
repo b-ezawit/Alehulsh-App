@@ -1,0 +1,43 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // Active SOS Alerts collection
+    // 1. Any authenticated user can read active alerts for 500m proximity radar
+    // 2. A user can only create/update their own alert document (id == auth.uid)
+    // 3. Responders can update responders list
+    match /active_alerts/{alertId} {
+      allow read: if isAuthenticated();
+      
+      allow create: if isAuthenticated() && (request.auth.uid == alertId || request.auth.uid == request.resource.data.userId);
+      
+      allow update: if isAuthenticated() && (
+        request.auth.uid == alertId || 
+        request.auth.uid == resource.data.userId || 
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['responders', 'voiceNotes'])
+      );
+      
+      allow delete: if isAuthenticated() && (request.auth.uid == alertId || request.auth.uid == resource.data.userId);
+    }
+
+    // User Profiles Collection
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow write: if isOwner(userId);
+    }
+
+    // Emergency Contacts Subcollections / metadata
+    match /users/{userId}/contacts/{contactId} {
+      allow read, write: if isOwner(userId);
+    }
+  }
+}

@@ -2,6 +2,10 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
+import '../utils/geohash_util.dart';
 
 class LocationService {
   static final LocationService _instance = LocationService._internal();
@@ -18,6 +22,9 @@ class LocationService {
 
   StreamSubscription<Position>? _positionStreamSub;
   bool _streamActive = false;
+  String? _currentFCMGeohashTopic;
+  DateTime? _lastFirestoreSyncTime;
+  Position? _lastSyncedPosition;
 
   Future<void> _initFastLocation() async {
     try {
@@ -26,6 +33,7 @@ class LocationService {
       if (lastKnown != null) {
         _currentPosition = lastKnown;
         positionNotifier.value = lastKnown;
+        _updateFCMGeohashSubscription(lastKnown.latitude, lastKnown.longitude);
         debugPrint("[LocationService] Fast cached GPS available: ${lastKnown.latitude}, ${lastKnown.longitude}");
       }
     } catch (_) {}
@@ -50,6 +58,8 @@ class LocationService {
         ).listen((Position position) {
           _currentPosition = position;
           positionNotifier.value = position;
+          _updateFCMGeohashSubscription(position.latitude, position.longitude);
+          _syncLocationToFirestoreDebounced(position);
         }, onError: (e) {
           _streamActive = false;
           debugPrint("[LocationService] Position stream error: $e");
@@ -57,6 +67,67 @@ class LocationService {
       }
     } catch (_) {
       _streamActive = false;
+    }
+  }
+
+  /// Automatically subscribe device to local 500m / 2km Geohash FCM broadcast topic
+  void _updateFCMGeohashSubscription(double lat, double lng) async {
+    try {
+      final geohash5 = GeohashUtil.getFCMTopicGeohash(lat, lng);
+      final newTopic = "sos_radar_$geohash5";
+      if (newTopic != _currentFCMGeohashTopic) {
+        if (_currentFCMGeohashTopic != null) {
+          await FirebaseMessaging.instance.unsubscribeFromTopic(_currentFCMGeohashTopic!);
+        }
+        await FirebaseMessaging.instance.subscribeToTopic(newTopic);
+        _currentFCMGeohashTopic = newTopic;
+        debugPrint("[LocationService] Subscribed to localized 500m SOS topic: $newTopic");
+      }
+    } catch (e) {
+      debugPrint("[LocationService] FCM topic subscription note: $e");
+    }
+  }
+
+  /// Debounced sync to user's profile to prevent high write costs during viral movement
+  void _syncLocationToFirestoreDebounced(Position position) async {
+    final now = DateTime.now();
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null || uid.isEmpty) return;
+
+    // Check distance moved since last sync
+    double distanceMoved = 999.0;
+    if (_lastSyncedPosition != null) {
+      distanceMoved = Geolocator.distanceBetween(
+        _lastSyncedPosition!.latitude,
+        _lastSyncedPosition!.longitude,
+        position.latitude,
+        position.longitude,
+      );
+    }
+
+    final bool timeElapsed = _lastFirestoreSyncTime == null ||
+        now.difference(_lastFirestoreSyncTime!).inMinutes >= 10;
+    final bool significantMove = distanceMoved >= 200.0; // 200m
+
+    if (timeElapsed || significantMove) {
+      _lastFirestoreSyncTime = now;
+      _lastSyncedPosition = position;
+
+      try {
+        final geohash = GeohashUtil.encode(position.latitude, position.longitude);
+        await FirebaseFirestore.instance.collection('users').doc(uid).set({
+          'geo': {
+            'geohash': geohash,
+            'geopoint': GeoPoint(position.latitude, position.longitude),
+          },
+          'lastKnownLat': position.latitude,
+          'lastKnownLng': position.longitude,
+          'lastActive': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+        debugPrint("[LocationService] Synced user geohash to Firestore: $geohash");
+      } catch (e) {
+        debugPrint("[LocationService] Note syncing user location: $e");
+      }
     }
   }
 

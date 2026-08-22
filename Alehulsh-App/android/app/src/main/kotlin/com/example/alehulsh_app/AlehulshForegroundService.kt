@@ -16,6 +16,7 @@ import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
+import android.os.PowerManager
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
@@ -31,15 +32,16 @@ import kotlin.math.sqrt
 
 /**
  * Sticky foreground radar:
- * - 24/7 Background Accelerometer listener: Detects 4-second sustained vigorous phone shake.
+ * - 24/7 Background Accelerometer listener with WakeLock: Detects 2.3-second sustained vigorous phone shake even when screen is locked/closed.
  * - Listens to Firestore active_alerts and posts high-priority pings immediately.
  */
 class AlehulshForegroundService : Service(), SensorEventListener {
     private var alertsReg: ListenerRegistration? = null
     private val notifiedIds = mutableSetOf<String>()
     private var pingListenerSeeded = false
+    private var wakeLock: PowerManager.WakeLock? = null
 
-    // Shake Detector Variables
+    // Shake Detector Variables (2.3s Continuous Window)
     private var sensorManager: SensorManager? = null
     private var accelerometer: Sensor? = null
     private var shakeCount = 0
@@ -52,7 +54,23 @@ class AlehulshForegroundService : Service(), SensorEventListener {
     private val screenReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             val action = intent?.action
-            if (action == "android.intent.action.EMERGENCY_ASSISTANCE" ||
+            if (action == Intent.ACTION_SCREEN_OFF || action == Intent.ACTION_SCREEN_ON) {
+                // Ensure WakeLock is held and sensor listener stays connected when screen turns off
+                try {
+                    if (wakeLock?.isHeld != true) {
+                        wakeLock?.acquire()
+                    }
+                    accelerometer?.let {
+                        sensorManager?.registerListener(
+                            this@AlehulshForegroundService,
+                            it,
+                            SensorManager.SENSOR_DELAY_GAME
+                        )
+                    }
+                } catch (e: Exception) {
+                    Log.e("AlehulshForeground", "Screen toggle sensor re-register error: ${e.message}")
+                }
+            } else if (action == "android.intent.action.EMERGENCY_ASSISTANCE" ||
                 action == "com.samsung.intent.action.EMERGENCY_STATE_CHANGED"
             ) {
                 Log.d("AlehulshForeground", "OS Emergency broadcast received: $action")
@@ -70,22 +88,41 @@ class AlehulshForegroundService : Service(), SensorEventListener {
             createChannels()
             startAsForeground()
 
-            // 1. Register 24/7 Background Accelerometer Sensor Listener
+            // 1. Acquire Partial WakeLock so CPU processes sensors 24/7 when screen is off
+            val powerManager = getSystemService(Context.POWER_SERVICE) as? PowerManager
+            wakeLock = powerManager?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "Alehulsh::BackgroundShakeWakeLock")
+            wakeLock?.setReferenceCounted(false)
+            try {
+                wakeLock?.acquire()
+                Log.d("AlehulshForeground", "WakeLock acquired for 24/7 background shake monitoring.")
+            } catch (e: Exception) {
+                Log.e("AlehulshForeground", "WakeLock acquire failed: ${e.message}")
+            }
+
+            // 2. Register 24/7 Background Accelerometer Sensor Listener (Wake-up hardware sensor)
             sensorManager = getSystemService(SENSOR_SERVICE) as? SensorManager
-            accelerometer = sensorManager?.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                accelerometer = sensorManager?.getDefaultSensor(Sensor.TYPE_ACCELEROMETER, true)
+            }
+            if (accelerometer == null) {
+                accelerometer = sensorManager?.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
+            }
+
             if (accelerometer != null) {
                 sensorManager?.registerListener(
                     this,
                     accelerometer,
-                    SensorManager.SENSOR_DELAY_UI
+                    SensorManager.SENSOR_DELAY_GAME
                 )
-                Log.d("AlehulshForeground", "24/7 Background Shake Sensor Listener successfully registered.")
+                Log.d("AlehulshForeground", "24/7 Background Wake-Up Shake Sensor Listener registered successfully.")
             } else {
                 Log.w("AlehulshForeground", "Device accelerometer sensor not available.")
             }
 
-            // 2. Register OS Emergency Intent Filter
+            // 3. Register Screen toggle and OS Emergency Intent Filter
             val filter = IntentFilter().apply {
+                addAction(Intent.ACTION_SCREEN_OFF)
+                addAction(Intent.ACTION_SCREEN_ON)
                 addAction("android.intent.action.EMERGENCY_ASSISTANCE")
                 addAction("com.samsung.intent.action.EMERGENCY_STATE_CHANGED")
             }
@@ -107,30 +144,30 @@ class AlehulshForegroundService : Service(), SensorEventListener {
         val z = event.values[2] / SensorManager.GRAVITY_EARTH
         val gForce = sqrt(x * x + y * y + z * z)
 
-        // Require strong deliberate force (2.8g)
-        if (gForce > 2.8f) {
+        // Require deliberate vigorous force (2.7g)
+        if (gForce > 2.7f) {
             val now = System.currentTimeMillis()
 
-            // If more than 3.8s since last shake, reset window
-            if (lastShakeTime > 0 && (now - lastShakeTime > 3800L)) {
+            // If more than 3.0s since last shake, reset window
+            if (lastShakeTime > 0 && (now - lastShakeTime > 3000L)) {
                 shakeCount = 0
                 firstShakeTime = 0L
                 isSosDispatchedForCurrentShake = false
                 shakeValidationRunnable?.let { mainHandler.removeCallbacks(it) }
             }
 
-            // Require minimum 450ms between distinct shake peaks
-            if (lastShakeTime == 0L || (now - lastShakeTime >= 450L)) {
+            // Require minimum 350ms between distinct shake peaks
+            if (lastShakeTime == 0L || (now - lastShakeTime >= 350L)) {
                 if (shakeCount == 0 || firstShakeTime == 0L) {
                     firstShakeTime = now
                     isSosDispatchedForCurrentShake = false
 
-                    // Schedule 3.1s validation
+                    // Schedule 2.3s validation window
                     shakeValidationRunnable?.let { mainHandler.removeCallbacks(it) }
                     val runnable = Runnable {
                         if (shakeCount >= 3 && lastShakeTime > 0) {
                             val elapsedSinceLast = System.currentTimeMillis() - lastShakeTime
-                            if (elapsedSinceLast <= 1800L && !isSosDispatchedForCurrentShake) {
+                            if (elapsedSinceLast <= 1500L && !isSosDispatchedForCurrentShake) {
                                 dispatchShakeSOS()
                                 return@Runnable
                             }
@@ -140,7 +177,7 @@ class AlehulshForegroundService : Service(), SensorEventListener {
                         lastShakeTime = 0L
                     }
                     shakeValidationRunnable = runnable
-                    mainHandler.postDelayed(runnable, 3100L)
+                    mainHandler.postDelayed(runnable, 2300L)
                 }
 
                 lastShakeTime = now
@@ -148,7 +185,7 @@ class AlehulshForegroundService : Service(), SensorEventListener {
                 Log.d("AlehulshForeground", "Deliberate shake #$shakeCount in background (gForce: $gForce)")
 
                 val elapsed = now - firstShakeTime
-                if (shakeCount >= 3 && elapsed >= 2900L && !isSosDispatchedForCurrentShake) {
+                if (shakeCount >= 3 && elapsed >= 2000L && !isSosDispatchedForCurrentShake) {
                     dispatchShakeSOS()
                 }
             }
@@ -163,16 +200,19 @@ class AlehulshForegroundService : Service(), SensorEventListener {
         shakeCount = 0
         firstShakeTime = 0L
         lastShakeTime = 0L
-        Log.d("AlehulshForeground", "🚨 3.1-Second Sustained Phone Shake SOS Confirmed in Background! Dispatching SOS...")
+        Log.d("AlehulshForeground", "🚨 2.3-Second Sustained Phone Shake SOS Confirmed in Background! Dispatching SOS...")
         AlehulshSosDispatcher.trigger(
             this@AlehulshForegroundService,
-            "Emergency Shake Gesture (3.1s/3x)"
+            "Emergency Shake Gesture (2.3s/3x)"
         )
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         try {
             startAsForeground()
+            if (wakeLock?.isHeld != true) {
+                wakeLock?.acquire()
+            }
         } catch (e: Exception) {
             Log.e("AlehulshForeground", "Error in onStartCommand: ${e.message}")
         }
@@ -240,6 +280,8 @@ class AlehulshForegroundService : Service(), SensorEventListener {
         try {
             alertsReg = FirebaseFirestore.getInstance()
                 .collection("active_alerts")
+                .whereEqualTo("status", "active")
+                .limit(25)
                 .addSnapshotListener { snap, error ->
                     if (error != null || snap == null) return@addSnapshotListener
                     if (!pingListenerSeeded) {

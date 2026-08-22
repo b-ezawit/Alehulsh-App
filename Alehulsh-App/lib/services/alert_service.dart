@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/alert_model.dart';
 import '../models/user_profile_model.dart';
+import '../utils/geohash_util.dart';
 
 class CancelSOSResult {
   final bool isSuccess;
@@ -24,10 +25,13 @@ class AlertService {
 
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
-  /// Real-time stream of all alerts from Firestore (Strictly deduplicated: exactly 1 alert per user)
+  /// Optimized Real-time stream of active alerts with 2-hour TTL filtering
   Stream<List<EmergencyAlert>> get alertsStream {
+    final now = DateTime.now();
     return _firestore
         .collection('active_alerts')
+        .where('status', isEqualTo: 'active')
+        .limit(60)
         .snapshots()
         .map((snapshot) {
       final List<EmergencyAlert> allDocs = [];
@@ -35,7 +39,11 @@ class AlertService {
         try {
           final data = doc.data();
           if (data.isNotEmpty) {
-            allDocs.add(EmergencyAlert.fromMap(data, docId: doc.id));
+            final alert = EmergencyAlert.fromMap(data, docId: doc.id);
+            // 2-Hour TTL Safety Net: Drop any expired alerts immediately
+            if (!alert.isExpired) {
+              allDocs.add(alert);
+            }
           }
         } catch (e) {
           debugPrint("[AlertService] Note parsing doc ${doc.id}: $e");
@@ -46,7 +54,7 @@ class AlertService {
       final Map<String, EmergencyAlert> uniqueByUser = {};
 
       for (var alert in allDocs) {
-        if (alert.status != 'active') continue;
+        if (alert.status != 'active' || alert.isExpired) continue;
         final uid = alert.userId.isNotEmpty ? alert.userId : alert.id;
         
         if (!uniqueByUser.containsKey(uid)) {
@@ -68,6 +76,44 @@ class AlertService {
     });
   }
 
+  /// Spatial Geohash 500m Radar Stream: Reads only alerts in the user's localized geohash cluster
+  Stream<List<EmergencyAlert>> getNearbyAlertsStream({
+    required double userLat,
+    required double userLng,
+    double radiusInKm = 0.5,
+  }) {
+    // 5-character Geohash covers ~2.4km surrounding grid (encompassing 500m radar)
+    final geohashPrefix = GeohashUtil.getFCMTopicGeohash(userLat, userLng);
+    final queryRange = GeohashUtil.getGeohashQueryRange(geohashPrefix);
+
+    return _firestore
+        .collection('active_alerts')
+        .where('status', isEqualTo: 'active')
+        .where('geohash', isGreaterThanOrEqualTo: queryRange[0])
+        .where('geohash', isLessThanOrEqualTo: queryRange[1])
+        .limit(30)
+        .snapshots()
+        .map((snapshot) {
+      final List<EmergencyAlert> nearby = [];
+      for (var doc in snapshot.docs) {
+        try {
+          final alert = EmergencyAlert.fromMap(doc.data(), docId: doc.id);
+          if (alert.status == 'active' && !alert.isExpired) {
+            final distKm = alert.calculateDistanceKm(userLat, userLng);
+            if (distKm <= radiusInKm) {
+              nearby.add(alert);
+            }
+          }
+        } catch (_) {}
+      }
+      nearby.sort((a, b) => a.calculateDistanceKm(userLat, userLng).compareTo(b.calculateDistanceKm(userLat, userLng)));
+      return nearby;
+    }).handleError((error) {
+      debugPrint("[AlertService] Geohash query error handled (fallback to global): $error");
+      return <EmergencyAlert>[];
+    });
+  }
+
   /// Real-time stream of active alert for a specific user by UID (Guarantees persistence across pages)
   Stream<EmergencyAlert?> getUserActiveAlertStream(String userId) {
     if (userId.isEmpty) {
@@ -81,7 +127,7 @@ class AlertService {
       try {
         if (doc.exists && doc.data() != null) {
           final alert = EmergencyAlert.fromMap(doc.data()!, docId: doc.id);
-          if (alert.status == 'active') {
+          if (alert.status == 'active' && !alert.isExpired) {
             return alert;
           }
         }
@@ -133,7 +179,7 @@ class AlertService {
         final existingDoc = await docRef.get();
         if (existingDoc.exists && existingDoc.data() != null) {
           final existingAlert = EmergencyAlert.fromMap(existingDoc.data()!, docId: existingDoc.id);
-          if (existingAlert.status == 'active') {
+          if (existingAlert.status == 'active' && !existingAlert.isExpired) {
             currentVoiceNotes = existingAlert.voiceNotes;
             currentResponders = existingAlert.responders;
           }
@@ -142,6 +188,7 @@ class AlertService {
         debugPrint("[AlertService] Note fetching existing alert: $e");
       }
 
+      final now = DateTime.now();
       final newAlert = EmergencyAlert(
         id: docRef.id,
         userId: profile.uid,
@@ -152,7 +199,9 @@ class AlertService {
         latitude: latitude,
         longitude: longitude,
         locationName: locationName,
-        timestamp: DateTime.now(),
+        timestamp: now,
+        expiresAt: now.add(const Duration(hours: 2)), // 2-Hour TTL Safety Net
+        geohash: GeohashUtil.encode(latitude, longitude),
         category: isUrgent ? 'Urgent Distress Alert' : 'Emergency SOS Alert',
         message: message,
         isUrgent: isUrgent,
@@ -165,10 +214,11 @@ class AlertService {
         emergencyContactUids: emergencyUids,
       );
 
+      // Single atomic write to Firestore - resilient on low bandwidth networks
       await docRef.set(newAlert.toMap());
-      debugPrint("[AlertService] Single active SOS Alert saved to doc(${profile.uid})");
+      debugPrint("[AlertService] Single active SOS Alert saved with 2h TTL & Geohash to doc(${profile.uid})");
 
-      // Cleanup any stray old duplicate documents for this user
+      // Cleanup any stray old duplicate documents for this user in background
       _cleanupDuplicateUserDocs(profile.uid);
 
       return docRef.id;

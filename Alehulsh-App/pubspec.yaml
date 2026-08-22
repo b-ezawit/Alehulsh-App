@@ -1,6 +1,5 @@
 name: alehulsh_app
-description: "Alewlish - Emergency Alert System & Women for Women Community Safety Network"
-version: 1.0.1+8
+version: 1.0.1+11
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
