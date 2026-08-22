@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import '../theme/app_theme.dart';
 import '../main.dart';
 import '../services/localization_service.dart';
+import '../services/user_data_service.dart';
 
 class HomeScreen extends StatelessWidget {
   final VoidCallback onGoToEmergency;
@@ -99,9 +100,18 @@ class HomeScreen extends StatelessWidget {
                   themeModeNotifier.value = isDarkMode ? ThemeMode.light : ThemeMode.dark;
                 },
               ),
+              IconButton(
+                tooltip: loc.isAmharic ? "ቅንብሮች" : "Settings & Notifications",
+                icon: const Icon(
+                  Icons.settings_rounded,
+                  color: AppTheme.primaryPink,
+                  size: 24,
+                ),
+                onPressed: () => _showSettingsSheet(context, loc, isDarkMode),
+              ),
               if (onGoToProfile != null)
                 IconButton(
-                  tooltip: "User Profile & Tracking",
+                  tooltip: loc.isAmharic ? "መገለጫ" : "User Profile",
                   icon: const Icon(Icons.account_circle_rounded, color: AppTheme.primaryPink, size: 28),
                   onPressed: onGoToProfile,
                 ),
@@ -406,6 +416,201 @@ class HomeScreen extends StatelessWidget {
                     ),
                   ),
                 ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void _showSettingsSheet(BuildContext context, LocalizationService loc, bool isDarkMode) {
+    final bgColor = isDarkMode ? const Color(0xFF1E1026) : Colors.white;
+    final cardBg = isDarkMode ? const Color(0xFF2B1637) : const Color(0xFFFFF0F5);
+    final textMain = isDarkMode ? AppTheme.darkTextMain : AppTheme.lightTextMain;
+    final textSub = isDarkMode ? const Color(0xFFD8B4FE) : AppTheme.lightTextMuted;
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (ctx) {
+        return Container(
+          decoration: BoxDecoration(
+            color: bgColor,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+            border: Border.all(
+              color: isDarkMode ? AppTheme.darkCardBorder : AppTheme.lightCardBorder,
+              width: 1.5,
+            ),
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+          child: SafeArea(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // Top drag handle
+                Center(
+                  child: Container(
+                    width: 44,
+                    height: 5,
+                    decoration: BoxDecoration(
+                      color: AppTheme.primaryPink.withValues(alpha: 0.3),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 20),
+
+                // Header
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: AppTheme.primaryPink.withValues(alpha: 0.15),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(Icons.settings_rounded, color: AppTheme.primaryPink, size: 24),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            loc.isAmharic ? "ቅንብሮች" : "Settings",
+                            style: TextStyle(
+                              color: textMain,
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          Text(
+                            loc.isAmharic ? "የማሳወቂያ እና የመተግበሪያ ምርጫዎች" : "Notification & app preferences",
+                            style: TextStyle(
+                              color: textSub,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      icon: Icon(Icons.close_rounded, color: textSub),
+                      onPressed: () => Navigator.pop(ctx),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 24),
+
+                // Notification Toggle Card
+                ValueListenableBuilder<bool>(
+                  valueListenable: UserDataService().notificationsEnabledNotifier,
+                  builder: (context, notifsEnabled, _) {
+                    return Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: cardBg,
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(
+                          color: notifsEnabled
+                              ? AppTheme.primaryPink.withValues(alpha: 0.4)
+                              : Colors.grey.withValues(alpha: 0.2),
+                          width: 1.5,
+                        ),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.all(10),
+                                decoration: BoxDecoration(
+                                  color: notifsEnabled
+                                      ? AppTheme.primaryPink.withValues(alpha: 0.2)
+                                      : Colors.grey.withValues(alpha: 0.15),
+                                  shape: BoxShape.circle,
+                                ),
+                                child: Icon(
+                                  notifsEnabled ? Icons.notifications_active_rounded : Icons.notifications_off_rounded,
+                                  color: notifsEnabled ? AppTheme.primaryPink : Colors.grey,
+                                  size: 24,
+                                ),
+                              ),
+                              const SizedBox(width: 14),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      loc.isAmharic ? "የአደጋ ጊዜ ማሳወቂያዎች" : "Emergency Notifications",
+                                      style: TextStyle(
+                                        color: textMain,
+                                        fontSize: 15,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      notifsEnabled
+                                          ? (loc.isAmharic ? "ማሳወቂያዎች በርተዋል" : "Notifications Enabled")
+                                          : (loc.isAmharic ? "ማሳወቂያዎች ጠፍተዋል" : "Notifications Disabled"),
+                                      style: TextStyle(
+                                        color: notifsEnabled ? AppTheme.primaryPink : Colors.grey,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              Switch(
+                                value: notifsEnabled,
+                                activeColor: AppTheme.primaryPink,
+                                onChanged: (value) async {
+                                  await UserDataService().setNotificationsEnabled(value);
+                                },
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 10),
+                          Divider(color: AppTheme.primaryPink.withValues(alpha: 0.1)),
+                          const SizedBox(height: 6),
+                          Text(
+                            loc.isAmharic
+                                ? "ይህ ምርጫ ሲበራ በአቅራቢያዎ ያሉ ሴቶች እርዳታ ሲጠይቁ ወይም የአደጋ ጥሪ ሲያደርጉ ፈጣን ማሳወቂያ ይደርስዎታል። ይህ ሲጠፋ ምንም አይነት ማሳወቂያ አይደርስዎትም።"
+                                : "When enabled, you will receive real-time proximity alerts and emergency distress pings when women nearby need help. When disabled, no notifications will be delivered.",
+                            style: TextStyle(
+                              color: textSub,
+                              fontSize: 12,
+                              height: 1.4,
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+                const SizedBox(height: 20),
+
+                // Close / Done Button
+                ElevatedButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppTheme.primaryPink,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                  ),
+                  child: Text(
+                    loc.isAmharic ? "ተከናውኗል" : "Done",
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                  ),
+                ),
+                const SizedBox(height: 10),
               ],
             ),
           ),

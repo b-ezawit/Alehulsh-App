@@ -279,6 +279,12 @@ class AlehulshForegroundService : Service() {
     }
 
     private fun showPing(alertId: String, title: String, body: String, isSender: Boolean) {
+        val prefs = getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
+        val notifsEnabled = prefs.getBoolean("flutter.notifications_enabled", true)
+        if (!isSender && !notifsEnabled) {
+            Log.d("AlehulshForeground", "Notifications disabled in settings. Skipping ping.")
+            return
+        }
         val launch = packageManager.getLaunchIntentForPackage(packageName) ?: return
         launch.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
         launch.putExtra("open_alerts_tab", true)

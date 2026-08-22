@@ -15,6 +15,7 @@ void main() async {
     );
     debugPrint("[Firebase] App initialized successfully!");
     UserDataService().initializeSync();
+    await UserDataService().initNotificationSetting();
     await EmergencyPingService().initialize();
     EmergencyGestureService().startListening();
   } catch (e) {

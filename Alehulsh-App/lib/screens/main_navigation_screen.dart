@@ -35,7 +35,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
     final targetTab = EmergencyPingService.targetNavigationTab.value;
     if (mounted && _currentIndex != targetTab) {
       setState(() {
-        _currentIndex = targetTab;
+        _currentIndex = targetTab.clamp(0, 2);
       });
     }
   }
@@ -51,70 +51,71 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
     final loc = LocalizationService();
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
 
-    // Order: 0: Emergency, 1: Alerts (Women for Women), 2: Home, 3: Profile
+    // Order: 0: Emergency, 1: Alerts (Women for Women), 2: Home
+    // Profile is exclusively accessible through Home Page profile icon
     final List<Widget> screens = [
       const EmergencyScreen(),
       const WomenForWomenScreen(),
       HomeScreen(
         onGoToEmergency: () => setState(() => _currentIndex = 0),
         onGoToWomenNetwork: () => setState(() => _currentIndex = 1),
-        onGoToProfile: () => setState(() => _currentIndex = 3),
+        onGoToProfile: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const ProfileScreen()),
+          );
+        },
       ),
-      const ProfileScreen(),
     ];
 
-        return ValueListenableBuilder<String>(
-          valueListenable: loc.currentLocale,
-          builder: (context, currentLang, child) {
-            return Scaffold(
-              body: IndexedStack(
-                index: _currentIndex,
-                children: screens,
-              ),
-              bottomNavigationBar: Container(
-                decoration: BoxDecoration(
-                  border: Border(
-                    top: BorderSide(
-                      color: isDarkMode ? AppTheme.darkCardBorder : AppTheme.lightCardBorder,
-                      width: 1,
-                    ),
-                  ),
-                ),
-                child: BottomNavigationBar(
-                  currentIndex: _currentIndex,
-                  backgroundColor: isDarkMode ? const Color(0xFF1A1021) : Colors.white,
-                  selectedItemColor: AppTheme.primaryPink,
-                  unselectedItemColor: isDarkMode ? const Color(0xFF715978) : const Color(0xFFB48FA3),
-                  selectedLabelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11),
-                  unselectedLabelStyle: const TextStyle(fontSize: 11),
-                  type: BottomNavigationBarType.fixed,
-                  onTap: (index) {
-                    setState(() {
-                      _currentIndex = index;
-                    });
-                  },
-                  items: [
-                    BottomNavigationBarItem(
-                      icon: const Icon(Icons.warning_amber_rounded),
-                      label: loc.tr('nav_emergency'),
-                    ),
-                    BottomNavigationBarItem(
-                      icon: const Icon(Icons.notifications_active_rounded),
-                      label: loc.tr('nav_network'),
-                    ),
-                    BottomNavigationBarItem(
-                      icon: const Icon(Icons.home_rounded),
-                      label: loc.tr('nav_home'),
-                    ),
-                    BottomNavigationBarItem(
-                      icon: const Icon(Icons.person_rounded),
-                      label: loc.tr('nav_profile'),
-                    ),
-                  ],
+    return ValueListenableBuilder<String>(
+      valueListenable: loc.currentLocale,
+      builder: (context, currentLang, child) {
+        return Scaffold(
+          body: IndexedStack(
+            index: _currentIndex,
+            children: screens,
+          ),
+          bottomNavigationBar: Container(
+            decoration: BoxDecoration(
+              border: Border(
+                top: BorderSide(
+                  color: isDarkMode ? AppTheme.darkCardBorder : AppTheme.lightCardBorder,
+                  width: 1,
                 ),
               ),
-            );
-          },
+            ),
+            child: BottomNavigationBar(
+              currentIndex: _currentIndex,
+              backgroundColor: isDarkMode ? const Color(0xFF1A1021) : Colors.white,
+              selectedItemColor: AppTheme.primaryPink,
+              unselectedItemColor: isDarkMode ? const Color(0xFF715978) : const Color(0xFFB48FA3),
+              selectedLabelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11),
+              unselectedLabelStyle: const TextStyle(fontSize: 11),
+              type: BottomNavigationBarType.fixed,
+              onTap: (index) {
+                setState(() {
+                  _currentIndex = index;
+                });
+              },
+              items: [
+                BottomNavigationBarItem(
+                  icon: const Icon(Icons.warning_amber_rounded),
+                  label: loc.tr('nav_emergency'),
+                ),
+                BottomNavigationBarItem(
+                  icon: const Icon(Icons.notifications_active_rounded),
+                  label: loc.tr('nav_network'),
+                ),
+                BottomNavigationBarItem(
+                  icon: const Icon(Icons.home_rounded),
+                  label: loc.tr('nav_home'),
+                ),
+              ],
+            ),
+          ),
         );
+      },
+    );
   }
 }

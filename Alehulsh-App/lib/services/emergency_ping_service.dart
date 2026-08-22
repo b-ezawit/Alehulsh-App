@@ -219,6 +219,10 @@ class EmergencyPingService {
     required String locationName,
     bool isUrgent = false,
   }) async {
+    if (!UserDataService().areNotificationsEnabled) {
+      debugPrint("[EmergencyPingService] Notifications disabled in Settings. Suppressing ping.");
+      return;
+    }
     const AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
       'emergency_ping_channel',
       'Emergency Proximity Pings',

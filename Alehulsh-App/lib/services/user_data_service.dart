@@ -20,10 +20,27 @@ class UserDataService {
         : UserProfile.guestProfile(),
   );
   final ValueNotifier<bool> isFirestoreConnected = ValueNotifier<bool>(false);
+  final ValueNotifier<bool> notificationsEnabledNotifier = ValueNotifier<bool>(true);
 
   UserProfile get currentProfile => profileNotifier.value;
   User? get currentUser => _auth.currentUser;
   bool get isLoggedIn => _auth.currentUser != null && currentProfile.uid.isNotEmpty;
+  bool get areNotificationsEnabled => notificationsEnabledNotifier.value;
+
+  Future<void> initNotificationSetting() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      notificationsEnabledNotifier.value = prefs.getBool('notifications_enabled') ?? true;
+    } catch (_) {}
+  }
+
+  Future<void> setNotificationsEnabled(bool enabled) async {
+    notificationsEnabledNotifier.value = enabled;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('notifications_enabled', enabled);
+    } catch (_) {}
+  }
 
   /// Check if SOS was active prior to app exit
   Future<bool> isSOSActiveLocally() async {
