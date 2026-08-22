@@ -1,5 +1,6 @@
 # 🛡️ Alehulsh (አለሁልሽ) — Comprehensive Technical Architecture & Developer Handoff Document
 
+
 > **App Name:** Alehulsh (አለሁልሽ)  
 > **Version:** 1.0.1+23  
 > **Platform:** Flutter (Android, iOS, Web)  
