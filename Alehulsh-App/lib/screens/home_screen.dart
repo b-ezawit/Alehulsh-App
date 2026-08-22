@@ -4,6 +4,7 @@ import '../theme/app_theme.dart';
 import '../main.dart';
 import '../services/localization_service.dart';
 import '../services/user_data_service.dart';
+import 'profile_screen.dart';
 
 class HomeScreen extends StatelessWidget {
   final VoidCallback onGoToEmergency;
@@ -100,22 +101,17 @@ class HomeScreen extends StatelessWidget {
                   themeModeNotifier.value = isDarkMode ? ThemeMode.light : ThemeMode.dark;
                 },
               ),
+              // Settings Icon (Contains Profile & Notifications Toggle)
               IconButton(
-                tooltip: loc.isAmharic ? "ቅንብሮች" : "Settings & Notifications",
+                tooltip: loc.isAmharic ? "ቅንብሮች እና መገለጫ" : "Settings & Profile",
                 icon: const Icon(
                   Icons.settings_rounded,
                   color: AppTheme.primaryPink,
-                  size: 24,
+                  size: 26,
                 ),
                 onPressed: () => _showSettingsSheet(context, loc, isDarkMode),
               ),
-              if (onGoToProfile != null)
-                IconButton(
-                  tooltip: loc.isAmharic ? "መገለጫ" : "User Profile",
-                  icon: const Icon(Icons.account_circle_rounded, color: AppTheme.primaryPink, size: 28),
-                  onPressed: onGoToProfile,
-                ),
-              const SizedBox(width: 6),
+              const SizedBox(width: 8),
             ],
           ),
           body: SingleChildScrollView(
@@ -123,9 +119,9 @@ class HomeScreen extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                // Pinkish Protection Banner with Brand Logo Artwork
+                // Clean Full-Width Protection Banner
                 Container(
-                  padding: const EdgeInsets.all(20),
+                  padding: const EdgeInsets.all(22),
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
                       colors: isDarkMode
@@ -144,74 +140,73 @@ class HomeScreen extends StatelessWidget {
                       ),
                     ],
                   ),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.center,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                              decoration: BoxDecoration(
-                                color: AppTheme.primaryPink.withValues(alpha: 0.15),
-                                borderRadius: BorderRadius.circular(20),
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  const Icon(Icons.check_circle_rounded, color: AppTheme.primaryPink, size: 14),
-                                  const SizedBox(width: 4),
-                                  Text(
-                                    loc.isAmharic ? "የቀጥታ ጥበቃ ንቁ ነው" : "ACTIVE SAFETY SHIELD",
-                                    style: const TextStyle(color: AppTheme.primaryPink, fontSize: 10, fontWeight: FontWeight.bold),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: AppTheme.primaryPink.withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(Icons.shield_rounded, color: AppTheme.primaryPink, size: 16),
+                                const SizedBox(width: 6),
+                                Text(
+                                  loc.isAmharic ? "የቀጥታ ጥበቃ ንቁ ነው" : "ACTIVE SAFETY SHIELD",
+                                  style: const TextStyle(color: AppTheme.primaryPink, fontSize: 11, fontWeight: FontWeight.bold),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: Colors.green.withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Container(
+                                  width: 7,
+                                  height: 7,
+                                  decoration: const BoxDecoration(
+                                    color: Colors.green,
+                                    shape: BoxShape.circle,
                                   ),
-                                ],
-                              ),
+                                ),
+                                const SizedBox(width: 5),
+                                Text(
+                                  loc.isAmharic ? "GPS መስመር ላይ" : "GPS Online",
+                                  style: const TextStyle(color: Colors.green, fontSize: 10, fontWeight: FontWeight.bold),
+                                ),
+                              ],
                             ),
-                            const SizedBox(height: 10),
-                            Text(
-                              loc.isAmharic
-                                  ? "በሄዱበት ቦታ ሁሉ\nደህንነትዎ የተጠበቀ ነው።"
-                                  : "Keeping You Safe,\nWherever You Go.",
-                              style: TextStyle(
-                                color: textMain,
-                                fontSize: 19,
-                                fontWeight: FontWeight.bold,
-                                height: 1.2,
-                              ),
-                            ),
-                            const SizedBox(height: 6),
-                            Text(
-                              loc.tr('home_standby'),
-                              style: TextStyle(color: textSub, fontSize: 12),
-                            ),
-                          ],
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      Text(
+                        loc.isAmharic
+                            ? "በሄዱበት ቦታ ሁሉ\nደህንነትዎ የተጠበቀ ነው።"
+                            : "Keeping You Safe,\nWherever You Go.",
+                        style: TextStyle(
+                          color: textMain,
+                          fontSize: 22,
+                          fontWeight: FontWeight.bold,
+                          height: 1.25,
                         ),
                       ),
-                      const SizedBox(width: 12),
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(22),
-                        child: Container(
-                          width: 125,
-                          height: 155,
-                          padding: const EdgeInsets.all(3),
-                          decoration: BoxDecoration(
-                            color: AppTheme.primaryPink.withValues(alpha: 0.14),
-                            borderRadius: BorderRadius.circular(22),
-                            border: Border.all(
-                              color: AppTheme.primaryPink.withValues(alpha: 0.3),
-                              width: 1.5,
-                            ),
-                          ),
-                          child: ClipRRect(
-                            borderRadius: BorderRadius.circular(19),
-                            child: Image.asset(
-                              'assets/images/women_community.png',
-                              fit: BoxFit.cover,
-                            ),
-                          ),
-                        ),
+                      const SizedBox(height: 8),
+                      Text(
+                        loc.tr('home_standby'),
+                        style: TextStyle(color: textSub, fontSize: 13, height: 1.35),
                       ),
                     ],
                   ),
@@ -219,7 +214,7 @@ class HomeScreen extends StatelessWidget {
 
                 const SizedBox(height: 16),
 
-                // Hardware & Motion SOS Feature Status Card
+                // Hardware SOS Feature Status Card (5x Power Button)
                 GestureDetector(
                   onTap: () async {
                     try {
@@ -311,108 +306,115 @@ class HomeScreen extends StatelessWidget {
                 ),
                 const SizedBox(height: 14),
 
-                // Emergency SOS Panic Launcher Card
-                GestureDetector(
-                  onTap: onGoToEmergency,
-                  child: Container(
-                    padding: const EdgeInsets.all(18),
-                    decoration: BoxDecoration(
-                      color: cardColor,
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: AppTheme.emergencyRed.withValues(alpha: 0.4), width: 1.5),
-                      boxShadow: [
-                        BoxShadow(
-                          color: AppTheme.emergencyRed.withValues(alpha: 0.12),
-                          blurRadius: 15,
-                          spreadRadius: 2,
-                        ),
-                      ],
+                // Emergency Trigger Card
+                Card(
+                  elevation: 4,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(20),
+                    side: BorderSide(
+                      color: AppTheme.emergencyRed.withValues(alpha: 0.3),
+                      width: 1.5,
                     ),
-                    child: Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(14),
-                          decoration: BoxDecoration(
-                            color: AppTheme.emergencyRed.withValues(alpha: 0.15),
-                            shape: BoxShape.circle,
+                  ),
+                  color: isDarkMode ? const Color(0xFF28111D) : const Color(0xFFFFF0F2),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(20),
+                    onTap: onGoToEmergency,
+                    child: Padding(
+                      padding: const EdgeInsets.all(20),
+                      child: Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(14),
+                            decoration: BoxDecoration(
+                              color: AppTheme.emergencyRed.withValues(alpha: 0.15),
+                              shape: BoxShape.circle,
+                            ),
+                            child: const Icon(Icons.warning_amber_rounded, color: AppTheme.emergencyRed, size: 32),
                           ),
-                          child: const Icon(Icons.warning_rounded, color: AppTheme.emergencyRed, size: 30),
-                        ),
-                        const SizedBox(width: 16),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                loc.tr('home_emergency_btn'),
-                                style: TextStyle(color: textMain, fontSize: 16, fontWeight: FontWeight.bold),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                loc.isAmharic
-                                    ? "የቀጥታ GPS እና የድምፅ መልእክት ወዲያውኑ ይላኩ"
-                                    : "Instantly broadcast GPS & voice context to contacts & community",
-                                style: TextStyle(color: textSub, fontSize: 12),
-                              ),
-                            ],
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  loc.tr('home_sos_btn'),
+                                  style: const TextStyle(
+                                    color: AppTheme.emergencyRed,
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  loc.isAmharic
+                                      ? "የቀጥታ የጂፒኤስ አደጋ ጥሪ ይላኩ እና የድምጽ ማስታወሻ ይመዝግቡ"
+                                      : "Broadcast live GPS emergency alert & record audio note",
+                                  style: TextStyle(
+                                    color: isDarkMode ? const Color(0xFFFFB3BA) : const Color(0xFFC2185B),
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
-                        ),
-                        const Icon(Icons.arrow_forward_ios_rounded, color: AppTheme.emergencyRed, size: 18),
-                      ],
+                          const Icon(Icons.arrow_forward_ios_rounded, color: AppTheme.emergencyRed, size: 18),
+                        ],
+                      ),
                     ),
                   ),
                 ),
 
-                const SizedBox(height: 16),
+                const SizedBox(height: 12),
 
-                // Alerts Network Launcher Card
-                GestureDetector(
-                  onTap: onGoToWomenNetwork,
-                  child: Container(
-                    padding: const EdgeInsets.all(18),
-                    decoration: BoxDecoration(
-                      color: cardColor,
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: AppTheme.primaryPink.withValues(alpha: 0.4), width: 1.5),
-                      boxShadow: [
-                        BoxShadow(
-                          color: AppTheme.primaryPink.withValues(alpha: 0.12),
-                          blurRadius: 15,
-                          spreadRadius: 2,
-                        ),
-                      ],
+                // Network & Alerts Card
+                Card(
+                  elevation: 2,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(20),
+                    side: BorderSide(
+                      color: isDarkMode ? AppTheme.darkCardBorder : AppTheme.lightCardBorder,
+                      width: 1.5,
                     ),
-                    child: Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(14),
-                          decoration: BoxDecoration(
-                            color: AppTheme.primaryPink.withValues(alpha: 0.15),
-                            shape: BoxShape.circle,
+                  ),
+                  color: cardColor,
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(20),
+                    onTap: onGoToWomenNetwork,
+                    child: Padding(
+                      padding: const EdgeInsets.all(20),
+                      child: Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(14),
+                            decoration: BoxDecoration(
+                              color: AppTheme.primaryPink.withValues(alpha: 0.15),
+                              shape: BoxShape.circle,
+                            ),
+                            child: const Icon(Icons.notifications_active_rounded, color: AppTheme.primaryPink, size: 30),
                           ),
-                          child: const Icon(Icons.notifications_active_rounded, color: AppTheme.primaryPink, size: 30),
-                        ),
-                        const SizedBox(width: 16),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                loc.tr('home_network_btn'),
-                                style: TextStyle(color: textMain, fontSize: 16, fontWeight: FontWeight.bold),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                loc.isAmharic
-                                    ? "በአቅራቢያ ያሉ የሴቶች አደጋዎችን ይመልከቱ ወይም እርዳታ ይስጡ"
-                                    : "View active community alerts nearby or offer immediate support",
-                                style: TextStyle(color: textSub, fontSize: 12),
-                              ),
-                            ],
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  loc.tr('home_network_btn'),
+                                  style: TextStyle(color: textMain, fontSize: 16, fontWeight: FontWeight.bold),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  loc.isAmharic
+                                      ? "በአቅራቢያ ያሉ የሴቶች አደጋዎችን ይመልከቱ ወይም እርዳታ ይስጡ"
+                                      : "View active community alerts nearby or offer immediate support",
+                                  style: TextStyle(color: textSub, fontSize: 12),
+                                ),
+                              ],
+                            ),
                           ),
-                        ),
-                        const Icon(Icons.arrow_forward_ios_rounded, color: AppTheme.primaryPink, size: 18),
-                      ],
+                          const Icon(Icons.arrow_forward_ios_rounded, color: AppTheme.primaryPink, size: 18),
+                        ],
+                      ),
                     ),
                   ),
                 ),
@@ -429,6 +431,7 @@ class HomeScreen extends StatelessWidget {
     final cardBg = isDarkMode ? const Color(0xFF2B1637) : const Color(0xFFFFF0F5);
     final textMain = isDarkMode ? AppTheme.darkTextMain : AppTheme.lightTextMain;
     final textSub = isDarkMode ? const Color(0xFFD8B4FE) : AppTheme.lightTextMuted;
+    final profile = UserDataService().currentProfile;
 
     showModalBottomSheet(
       context: context,
@@ -488,7 +491,7 @@ class HomeScreen extends StatelessWidget {
                             ),
                           ),
                           Text(
-                            loc.isAmharic ? "የማሳወቂያ እና የመተግበሪያ ምርጫዎች" : "Notification & app preferences",
+                            loc.isAmharic ? "የመገለጫ እና የማሳወቂያ ምርጫዎች" : "Profile & notification preferences",
                             style: TextStyle(
                               color: textSub,
                               fontSize: 12,
@@ -503,9 +506,87 @@ class HomeScreen extends StatelessWidget {
                     ),
                   ],
                 ),
-                const SizedBox(height: 24),
+                const SizedBox(height: 20),
 
-                // Notification Toggle Card
+                // 1. User Profile Access Card (Dedicated Profile Entry Point)
+                Material(
+                  color: cardBg,
+                  borderRadius: BorderRadius.circular(20),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(20),
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (_) => const ProfileScreen()),
+                      );
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(
+                          color: AppTheme.primaryPink.withValues(alpha: 0.35),
+                          width: 1.5,
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 48,
+                            height: 48,
+                            decoration: BoxDecoration(
+                              color: AppTheme.primaryPink.withValues(alpha: 0.2),
+                              shape: BoxShape.circle,
+                              border: Border.all(color: AppTheme.primaryPink, width: 1.5),
+                            ),
+                            child: Center(
+                              child: Text(
+                                profile.fullName.trim().isNotEmpty
+                                    ? profile.fullName.trim().substring(0, 1).toUpperCase()
+                                    : 'A',
+                                style: const TextStyle(
+                                  color: AppTheme.primaryPink,
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 14),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  profile.fullName.isNotEmpty ? profile.fullName : "Alehulsh User",
+                                  style: TextStyle(
+                                    color: textMain,
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  loc.isAmharic ? "መገለጫዎን ይመልከቱ እና ያርትዑ" : "View & edit profile settings",
+                                  style: TextStyle(
+                                    color: textSub,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const Icon(Icons.arrow_forward_ios_rounded, color: AppTheme.primaryPink, size: 16),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+
+                const SizedBox(height: 16),
+
+                // 2. Notification Toggle Card
                 ValueListenableBuilder<bool>(
                   valueListenable: UserDataService().notificationsEnabledNotifier,
                   builder: (context, notifsEnabled, _) {
