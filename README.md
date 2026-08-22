@@ -107,9 +107,10 @@ The next developer should focus on the following three major milestones:
 ┌───────────────────────────────────────────────────────────────────────┐
 │                           REMAINING ROADMAP                           │
 ├──────────────────────────────────┬────────────────────────────────────┤
-│ 1. Google Authentication         │ Native OAuth 2.0 Sign-In Flow      │
-│ 2. Database Scalability (100k+)  │ Geohash Queries, Caching & Shards  │
-│ 3. Google Play Store Release     │ Signing, Permissions & Bundle      │
+│ 1. iOS version 
+| 2. Google Authentication         │ Native OAuth 2.0 Sign-In Flow      │
+│ 3. Database Scalability (100k+)  │ Geohash Queries, Caching & Shards  │
+│ 4. Google Play Store Release     │ Signing, Permissions & Bundle      │
 └──────────────────────────────────┴────────────────────────────────────┘
 ```
 
