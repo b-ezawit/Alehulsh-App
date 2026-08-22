@@ -148,6 +148,11 @@ object AlehulshSosDispatcher {
                             val email = (data["email"] as? String) ?: (user?.email ?: "")
                             val phone = (data["phoneNumber"] as? String) ?: ""
                             val contacts = parseContacts(data["emergencyContacts"])
+                            val cal = java.util.Calendar.getInstance()
+                            cal.add(java.util.Calendar.HOUR, 2)
+                            val expiresAtDate = cal.time
+                            val expiresAtIso = utcIsoFromDate(expiresAtDate)
+                            val hashVal = GeoHash.encode(lat, lng, 9)
 
                             val alert = hashMapOf<String, Any>(
                                 "id" to uid,
@@ -160,6 +165,10 @@ object AlehulshSosDispatcher {
                                 "longitude" to lng,
                                 "locationName" to "Live GPS",
                                 "timestamp" to iso,
+                                "expiresAt" to expiresAtIso,
+                                "expiresAtTimestamp" to com.google.firebase.Timestamp(expiresAtDate),
+                                "ttlHours" to 2,
+                                "geohash" to hashVal,
                                 "category" to "Urgent Distress Alert",
                                 "message" to "EMERGENCY DISTRESS TRIGGERED! Please send help immediately!",
                                 "isUrgent" to true,
@@ -171,7 +180,7 @@ object AlehulshSosDispatcher {
                                 "emergencyContactNames" to contacts.names,
                                 "emergencyContactUids" to contacts.ids,
                                 "geo" to hashMapOf(
-                                    "geohash" to GeoHash.encode(lat, lng, 9),
+                                    "geohash" to hashVal,
                                     "geopoint" to GeoPoint(lat, lng)
                                 ),
                                 "hardwareSource" to source,
@@ -271,9 +280,13 @@ object AlehulshSosDispatcher {
     }
 
     private fun utcIsoNow(): String {
+        return utcIsoFromDate(Date())
+    }
+
+    private fun utcIsoFromDate(date: Date): String {
         val sdf = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US)
         sdf.timeZone = TimeZone.getTimeZone("UTC")
-        return sdf.format(Date())
+        return sdf.format(date)
     }
 
     private data class ContactLists(

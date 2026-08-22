@@ -1,16 +1,14 @@
 package com.example.alehulsh_app
 
+import android.content.Intent
 import android.os.Bundle
 import android.provider.Settings
-import android.view.KeyEvent
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
     private val channelName = "com.example.alehulsh_app/hardware_sos"
-    private var volumePressCount = 0
-    private var lastVolumePressTime = 0L
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -29,7 +27,7 @@ class MainActivity : FlutterActivity() {
                     result.success(isAccessibilityServiceEnabled())
                 }
                 "openAccessibilitySettings" -> {
-                    startActivity(android.content.Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                    startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
                     result.success(true)
                 }
                 else -> result.notImplemented()
@@ -43,7 +41,7 @@ class MainActivity : FlutterActivity() {
         handleLaunchExtras(intent)
     }
 
-    override fun onNewIntent(intent: android.content.Intent) {
+    override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
         handleLaunchExtras(intent)
@@ -67,29 +65,7 @@ class MainActivity : FlutterActivity() {
         super.onDestroy()
     }
 
-    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
-        if (event.action == KeyEvent.ACTION_DOWN) {
-            val keyCode = event.keyCode
-            if (keyCode == KeyEvent.KEYCODE_VOLUME_DOWN ||
-                keyCode == KeyEvent.KEYCODE_VOLUME_UP
-            ) {
-                val now = System.currentTimeMillis()
-                if (now - lastVolumePressTime > 2500) {
-                    volumePressCount = 1
-                } else {
-                    volumePressCount++
-                }
-                lastVolumePressTime = now
-                if (volumePressCount >= 3) {
-                    volumePressCount = 0
-                    AlehulshSosDispatcher.trigger(this, "Hardware Volume Button SOS")
-                }
-            }
-        }
-        return super.dispatchKeyEvent(event)
-    }
-
-    private fun handleLaunchExtras(intent: android.content.Intent?) {
+    private fun handleLaunchExtras(intent: Intent?) {
         if (intent == null) return
         val openAlerts = intent.getBooleanExtra("open_alerts_tab", false)
         val highlight = intent.getStringExtra("highlight_alert_id")

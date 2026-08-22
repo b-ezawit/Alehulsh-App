@@ -51,10 +51,40 @@ class AlehulshForegroundService : Service(), SensorEventListener {
     private val mainHandler = Handler(Looper.getMainLooper())
     private var shakeValidationRunnable: Runnable? = null
 
+    // 5x Physical Power Button Press Detection (Works 24/7 Even When Screen is Off/Closed)
+    private var powerButtonPressCount = 0
+    private var firstPowerPressTime = 0L
+    private var lastPowerPressTime = 0L
+
     private val screenReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             val action = intent?.action
+            val now = System.currentTimeMillis()
+
             if (action == Intent.ACTION_SCREEN_OFF || action == Intent.ACTION_SCREEN_ON) {
+                // Track 5x consecutive Power Button clicks (each click toggles screen state)
+                if (lastPowerPressTime > 0 && (now - lastPowerPressTime > 3500L)) {
+                    powerButtonPressCount = 0
+                    firstPowerPressTime = 0L
+                }
+                if (powerButtonPressCount == 0 || firstPowerPressTime == 0L) {
+                    firstPowerPressTime = now
+                }
+                powerButtonPressCount++
+                lastPowerPressTime = now
+                Log.d("AlehulshForeground", "Power button toggle: count=$powerButtonPressCount, elapsed=${now - firstPowerPressTime}ms")
+
+                if (powerButtonPressCount >= 5 && (now - firstPowerPressTime <= 4000L)) {
+                    powerButtonPressCount = 0
+                    firstPowerPressTime = 0L
+                    lastPowerPressTime = 0L
+                    Log.d("AlehulshForeground", "🚨 5x Physical Power Button Consecutive Click Confirmed! Dispatching SOS...")
+                    AlehulshSosDispatcher.trigger(
+                        this@AlehulshForegroundService,
+                        "5x Power Button Gesture"
+                    )
+                }
+
                 // Ensure WakeLock is held and sensor listener stays connected when screen turns off
                 try {
                     if (wakeLock?.isHeld != true) {
@@ -76,7 +106,7 @@ class AlehulshForegroundService : Service(), SensorEventListener {
                 Log.d("AlehulshForeground", "OS Emergency broadcast received: $action")
                 AlehulshSosDispatcher.trigger(
                     this@AlehulshForegroundService,
-                    "Android Emergency SOS"
+                    "5x Power Button Gesture / Android OS SOS"
                 )
             }
         }
