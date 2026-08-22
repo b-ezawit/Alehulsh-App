@@ -34,48 +34,90 @@ class AlehulshForegroundService : Service() {
     private var pingListenerSeeded = false
     private var wakeLock: PowerManager.WakeLock? = null
 
-    // 5x Screen Toggle Counter (Screen Off -> Screen On transitions)
-    private var screenToggleCount = 0
-    private var firstToggleTime = 0L
-    private var lastToggleTime = 0L
+    // Power Button Screen-Off counter
+    // Each power-button press from ON state fires ACTION_SCREEN_OFF.
+    // 5x presses from ON state = ~3 SCREEN_OFF events (ON→OFF→ON→OFF→ON→OFF pattern)
+    // We also count SCREEN_ON presses as backup to handle ON→OFF→ON→OFF→ON (starts ON) pattern
+    private var screenOffCount = 0
+    private var screenAnyCount = 0
+    private var firstScreenOffTime = 0L
+    private var firstScreenAnyTime = 0L
+    private var lastScreenTime = 0L
 
     private val screenReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             val action = intent?.action
             val now = System.currentTimeMillis()
 
-            if (action == Intent.ACTION_SCREEN_OFF || action == Intent.ACTION_SCREEN_ON) {
-                if (lastToggleTime > 0 && (now - lastToggleTime > 2500L)) {
-                    screenToggleCount = 0
-                    firstToggleTime = 0L
-                }
-                if (screenToggleCount == 0 || firstToggleTime == 0L) {
-                    firstToggleTime = now
-                }
-                screenToggleCount++
-                lastToggleTime = now
+            // Android Emergency SOS detection for API 31+
+            if (action == "android.intent.action.EMERGENCY_STATE_CHANGED" ||
+                action == "android.telephony.action.SECRET_CODE") {
+                Log.d("AlehulshForeground", "🚨 Android Emergency State Changed! Dispatching SOS...")
+                AlehulshSosDispatcher.trigger(this@AlehulshForegroundService, "5x Power Button Gesture")
+                return
+            }
 
-                // 5 rapid screen transitions within 4 seconds indicates 5x power presses
-                if (screenToggleCount >= 5 && (now - firstToggleTime <= 4000L)) {
-                    screenToggleCount = 0
-                    firstToggleTime = 0L
-                    lastToggleTime = 0L
-                    Log.d("AlehulshForeground", "🚨 5x Screen Toggles Confirmed! Dispatching SOS...")
-                    AlehulshSosDispatcher.trigger(
-                        this@AlehulshForegroundService,
-                        "5x Power Button Gesture"
-                    )
+            if (action == Intent.ACTION_SCREEN_OFF) {
+                // Reset if too long since last event
+                if (lastScreenTime > 0 && (now - lastScreenTime > 3000L)) {
+                    screenOffCount = 0
+                    screenAnyCount = 0
+                    firstScreenOffTime = 0L
+                    firstScreenAnyTime = 0L
                 }
+                if (firstScreenOffTime == 0L) firstScreenOffTime = now
+                if (firstScreenAnyTime == 0L) firstScreenAnyTime = now
+                screenOffCount++
+                screenAnyCount++
+                lastScreenTime = now
+                Log.d("AlehulshForeground", "SCREEN_OFF #$screenOffCount elapsed=${now - firstScreenOffTime}ms")
 
-                try {
-                    if (wakeLock?.isHeld != true) {
-                        wakeLock?.acquire()
-                    }
-                } catch (e: Exception) {
-                    Log.e("AlehulshForeground", "WakeLock error: ${e.message}")
+                // 3 SCREEN_OFF events within 2.5s = 5 power presses (ON→OFF→ON→OFF→ON→OFF)
+                if (screenOffCount >= 3 && (now - firstScreenOffTime <= 2500L)) {
+                    resetScreenCounters()
+                    Log.d("AlehulshForeground", "🚨 3x SCREEN_OFF Confirmed (5x power)! Dispatching SOS...")
+                    AlehulshSosDispatcher.trigger(this@AlehulshForegroundService, "5x Power Button Gesture")
+                    return
                 }
             }
+
+            if (action == Intent.ACTION_SCREEN_ON) {
+                if (lastScreenTime > 0 && (now - lastScreenTime > 3000L)) {
+                    screenOffCount = 0
+                    screenAnyCount = 0
+                    firstScreenOffTime = 0L
+                    firstScreenAnyTime = 0L
+                }
+                if (firstScreenAnyTime == 0L) firstScreenAnyTime = now
+                screenAnyCount++
+                lastScreenTime = now
+                Log.d("AlehulshForeground", "SCREEN_ON #$screenAnyCount elapsed=${now - firstScreenAnyTime}ms")
+
+                // Fallback: 5 any-screen events within 3.5s
+                if (screenAnyCount >= 5 && (now - firstScreenAnyTime <= 3500L)) {
+                    resetScreenCounters()
+                    Log.d("AlehulshForeground", "🚨 5x Screen Toggle Confirmed! Dispatching SOS...")
+                    AlehulshSosDispatcher.trigger(this@AlehulshForegroundService, "5x Power Button Gesture")
+                    return
+                }
+            }
+
+            try {
+                if (wakeLock?.isHeld != true) {
+                    wakeLock?.acquire()
+                }
+            } catch (e: Exception) {
+                Log.e("AlehulshForeground", "WakeLock error: ${e.message}")
+            }
         }
+    }
+
+    private fun resetScreenCounters() {
+        screenOffCount = 0
+        screenAnyCount = 0
+        firstScreenOffTime = 0L
+        firstScreenAnyTime = 0L
+        lastScreenTime = 0L
     }
 
     override fun onCreate() {
@@ -96,11 +138,18 @@ class AlehulshForegroundService : Service() {
             val filter = IntentFilter().apply {
                 addAction(Intent.ACTION_SCREEN_OFF)
                 addAction(Intent.ACTION_SCREEN_ON)
+                // Android 12+ Emergency SOS state change broadcast
+                addAction("android.intent.action.EMERGENCY_STATE_CHANGED")
+                addAction("android.telephony.action.SECRET_CODE")
             }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                ContextCompat.registerReceiver(this, screenReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
-            } else {
+            // Screen events must be registered as not-exported but without RECEIVER_NOT_EXPORTED
+            // restriction because ACTION_SCREEN_OFF/ON are protected system broadcasts
+            try {
                 registerReceiver(screenReceiver, filter)
+            } catch (e: Exception) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    ContextCompat.registerReceiver(this, screenReceiver, filter, ContextCompat.RECEIVER_EXPORTED)
+                }
             }
             startAlertPingListener()
         } catch (e: Exception) {
