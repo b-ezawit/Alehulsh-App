@@ -1,628 +1,458 @@
-<!DOCTYPE html>
-<html lang="en">
+﻿<!DOCTYPE html>
+<html lang="en" data-theme="light">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Alehulsh - The Super App for Women in Ethiopia</title>
+    <title>Alehulsh (አለሁልሽ) - Ethiopia's #1 Emergency Safety App for Women</title>
     <link rel="icon" type="image/png" href="favicon.png">
     <link rel="shortcut icon" type="image/png" href="favicon.png">
-    <meta name="description" content="Alehulsh (አለሁልሽ) is Ethiopia's premier Emergency Safety App for women. Providing instant 500m radius SOS distress alerts, live GPS tracking, live emergency voice notes, and community safety protection.">
-    <meta name="google-site-verification" content="SYEdonWctBPBVHitvr_NkWQhSW72qfyRBRgpzWysqQQ" />
+    <meta name="description" content="Alehulsh (አለሁልሽ) — Ethiopia's Lifeline Emergency Safety App for Women. Instant 500-meter SOS community alerts, live GPS tracking, live emergency voice notes, and rapid emergency contact dispatch.">
     <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Noto+Sans+Ethiopic:wght@400;600;700&display=swap" rel="stylesheet">
-    <!-- FontAwesome for crisp icons -->
+    <!-- FontAwesome -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="styles.css">
-    <script type="application/ld+json">
-    {
-      "@context": "https://schema.org",
-      "@type": "WebSite",
-      "name": "Alehulsh",
-      "url": "https://alehulish.vercel.app"
-    }
-    </script>
 </head>
 <body>
 
-    <!-- Header & Navigation -->
-    <header class="navbar">
-        <div class="nav-container">
-            <a href="#" class="logo">
-                <img src="logo.png" alt="Alehulsh Logo" class="logo-img">
-                <span class="logo-text">Alehulsh</span>
-                <span class="logo-amharic">አለሁልሽ</span>
+    <!-- Ambient Radiant Glows & Grid Mesh -->
+    <div class="ambient-glow glow-1"></div>
+    <div class="ambient-glow glow-2"></div>
+    <div class="bg-grid-overlay"></div>
+
+    <!-- Floating Pill Navigation (3 Items Only + Theme Toggle) -->
+    <header class="floating-nav-wrapper">
+        <nav class="floating-nav">
+            <!-- Brand Left (Logo + Name, NO v1.0) -->
+            <a href="#" class="nav-brand">
+                <img src="logo.png" alt="Alehulsh Logo" class="brand-logo">
+                <div class="brand-info">
+                    <div class="brand-title-row">
+                        <span class="brand-name">Alehulsh</span>
+                        <span class="brand-amharic-mini">አለሁልሽ</span>
+                    </div>
+                    <span class="brand-sub">Women Safety Network</span>
+                </div>
             </a>
-            <nav class="nav-links">
-                <a href="#safety">Safety Shield</a>
-                <a href="#features">How It Works</a>
-                <a href="#future">Future Roadmap</a>
-                <a href="#mission">Our Essence</a>
-                <a href="#faq">FAQ</a>
-                <a href="#contact">Contact</a>
-            </nav>
-            <div class="nav-cta">
-                <a href="#download" class="btn btn-primary nav-btn">
-                    <i class="fa-solid fa-cloud-arrow-down"></i> Get App
+
+            <!-- Center Navigation (3 Non-Generic Items) -->
+            <div class="nav-center-links">
+                <a href="#safety" class="nav-item">Emergency Radar</a>
+                <a href="#features" class="nav-item">Protection Network</a>
+                <a href="#faq" class="nav-item">Help &amp; FAQ</a>
+            </div>
+
+            <!-- Right Actions (Theme Switcher + Live Status + Get App) -->
+            <div class="nav-right-actions">
+                <!-- Theme Switcher Button (Light / Dark) -->
+                <button class="theme-toggle-btn" id="themeToggleBtn" aria-label="Toggle light and dark mode" title="Switch Theme">
+                    <i class="fa-solid fa-moon" id="themeIcon"></i>
+                </button>
+
+                <div class="status-pill">
+                    <span class="status-indicator-dot"></span>
+                    <span class="status-text">500m Active</span>
+                </div>
+                
+                <a href="alehulsh-release.apk" download="alehulsh-release.apk" class="btn-nav-action">
+                    Get App <i class="fa-solid fa-arrow-trend-up"></i>
                 </a>
-                <button class="mobile-toggle" aria-label="Toggle menu" id="mobileMenuBtn">
+
+                <button class="mobile-toggle-btn" id="mobileMenuBtn" aria-label="Toggle menu">
                     <i class="fa-solid fa-bars"></i>
                 </button>
             </div>
-        </div>
+        </nav>
     </header>
 
-    <!-- Mobile Drawer Navigation Backdrop & Menu -->
+    <!-- Mobile Drawer Navigation -->
     <div class="drawer-backdrop" id="drawerBackdrop"></div>
     <div class="mobile-drawer" id="mobileDrawer">
-        <div class="drawer-header">
-            <div class="logo">
-                <img src="logo.png" alt="Alehulsh Logo" class="logo-img">
-                <span class="logo-text">Alehulsh <small>አለሁልሽ</small></span>
+        <div class="drawer-top">
+            <div class="brand-title-row">
+                <img src="logo.png" alt="Logo" class="drawer-logo">
+                <span class="brand-name">Alehulsh</span>
             </div>
-            <button id="closeDrawerBtn"><i class="fa-solid fa-xmark"></i></button>
+            <button id="closeDrawerBtn" class="close-drawer-btn"><i class="fa-solid fa-xmark"></i></button>
         </div>
-        <div class="drawer-links">
-            <a href="#safety" class="drawer-link">Safety Shield</a>
-            <a href="#features" class="drawer-link">How It Works</a>
-            <a href="#future" class="drawer-link">Future Roadmap</a>
-            <a href="#mission" class="drawer-link">Our Essence</a>
-            <a href="#faq" class="drawer-link">FAQ</a>
-            <a href="#contact" class="drawer-link">Contact</a>
-            <a href="#download" class="btn btn-primary drawer-btn">Get App Now</a>
+        <div class="drawer-nav-items">
+            <a href="#safety" class="drawer-link"><i class="fa-solid fa-tower-broadcast"></i> Emergency Radar</a>
+            <a href="#features" class="drawer-link"><i class="fa-solid fa-hand-holding-heart"></i> Protection Network</a>
+            <a href="#faq" class="drawer-link"><i class="fa-solid fa-circle-question"></i> Help &amp; FAQ</a>
+            <div class="drawer-theme-row">
+                <span>Theme Mode</span>
+                <button class="theme-toggle-btn-drawer" id="drawerThemeToggleBtn">
+                    <i class="fa-solid fa-moon"></i> Toggle Theme
+                </button>
+            </div>
+            <a href="alehulsh-release.apk" download="alehulsh-release.apk" class="btn-primary-glow drawer-download-btn">
+                <i class="fa-brands fa-android"></i> Download for Android
+            </a>
         </div>
     </div>
 
-    <!-- Hero Section -->
-    <section class="hero-section">
-        <div class="hero-bg-glow"></div>
-        <div class="container hero-container">
-            <div class="hero-content">
-                <div class="badge-pill">
-                    <span class="pulse-dot"></span> Ethiopia's #1 Emergency Safety App for Women
-                </div>
-                <h1 class="hero-title">
-                    <span class="gradient-text">I am here for you</span>
-                </h1>
-                <p class="hero-subtitle">
-                    Alehulsh (አለሁልሽ) — Ethiopia's Lifeline Emergency Safety App for Women. Instant 500-meter SOS community alerts, live GPS tracking, live emergency voice notes, and rapid emergency contact dispatch.
-                </p>
+    <!-- Main Hero Section -->
+    <main>
+        <section class="hero-section">
+            <div class="hero-container">
+                
+                <!-- Headline, Subtitle, Pillars & Stats -->
+                <div class="hero-header-content">
+                    <div class="hero-pill-badge">
+                        <span class="badge-dot"></span>
+                        <span>Ethiopia's #1 Emergency Safety App for Women</span>
+                    </div>
 
-                <!-- Pillars from Artwork -->
-                <div class="hero-pillars">
-                    <span class="pillar-tag"><i class="fa-solid fa-shield-halved"></i> Protector</span>
-                    <span class="pillar-tag"><i class="fa-solid fa-tower-broadcast"></i> 500m Radar</span>
-                    <span class="pillar-tag"><i class="fa-solid fa-location-crosshairs"></i> Live GPS</span>
-                    <span class="pillar-tag"><i class="fa-solid fa-hand-holding-heart"></i> Giver</span>
-                    <span class="pillar-tag"><i class="fa-solid fa-heart-pulse"></i> Healer</span>
-                </div>
+                    <h1 class="hero-title">
+                        I am here for you <br>
+                        <span class="gradient-text">አለሁልሽ</span>
+                    </h1>
 
-                <div class="hero-actions">
-                    <a href="#download" class="btn btn-primary btn-lg">
-                        <i class="fa-brands fa-android"></i> Download for Android
-                    </a>
-                    <a href="#safety" class="btn btn-secondary btn-lg">
-                        <i class="fa-solid fa-shield-cat"></i> Safety Demo
-                    </a>
-                </div>
+                    <p class="hero-desc">
+                        Alehulsh (አለሁልሽ) — Ethiopia's Lifeline Emergency Safety App for Women. Instant 500-meter SOS community alerts, live GPS tracking, live emergency voice notes, and rapid emergency contact dispatch.
+                    </p>
 
-                <div class="hero-stats">
-                    <div class="stat-item">
-                        <span class="stat-num">500m</span>
-                        <span class="stat-lbl">Instant SOS Alert Radius</span>
+                    <!-- Pillars from Artwork -->
+                    <div class="hero-pillars">
+                        <span class="pillar-tag"><i class="fa-solid fa-shield-halved"></i> Protector</span>
+                        <span class="pillar-tag"><i class="fa-solid fa-tower-broadcast"></i> 500m Radar</span>
+                        <span class="pillar-tag"><i class="fa-solid fa-location-crosshairs"></i> Live GPS</span>
+                        <span class="pillar-tag"><i class="fa-solid fa-hand-holding-heart"></i> Giver</span>
+                        <span class="pillar-tag"><i class="fa-solid fa-heart-pulse"></i> Healer</span>
+                        <span class="pillar-tag"><i class="fa-solid fa-wand-magic-sparkles"></i> Dreamer</span>
+                        <span class="pillar-tag"><i class="fa-solid fa-sparkles"></i> Creator</span>
                     </div>
-                    <div class="stat-divider"></div>
-                    <div class="stat-item">
-                        <span class="stat-num">&lt; 3s</span>
-                        <span class="stat-lbl">Rapid SOS Activation</span>
-                    </div>
-                    <div class="stat-divider"></div>
-                    <div class="stat-item">
-                        <span class="stat-num">100%</span>
-                        <span class="stat-lbl">Focused on Women's Safety</span>
-                    </div>
-                </div>
-            </div>
 
-            <!-- Hero Image Frame -->
-            <div class="hero-image-wrapper">
-                <div class="image-glass-card">
-                    <div class="artwork-frame">
-                        <img src="hero-image.png" alt="Alehulsh - Healer, Giver, Dreamer, Creator, Protector" class="hero-artwork">
-                    </div>
-                    <!-- Floating Badge Cards -->
-                    <div class="floating-badge badge-top-right">
-                        <div class="badge-icon alert-icon"><i class="fa-solid fa-shield-halved"></i></div>
-                        <div>
-                            <strong>500m Safety Shield</strong>
-                            <small>Instant Community Alert Grid</small>
-                        </div>
-                    </div>
-                    <div class="floating-badge badge-bottom-left">
-                        <div class="badge-icon shield-icon"><i class="fa-solid fa-microphone-lines"></i></div>
-                        <div>
-                            <strong>Live Voice Note</strong>
-                            <small>Heard Live by Responders</small>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </section>
-
-    <!-- Download App CTA Banner (Featured Below Hero) -->
-    <section class="download-section" id="download">
-        <div class="container">
-            <div class="download-card">
-                <div class="download-content">
-                    <span class="subhead subhead-light">Join the Alehulsh Sisterhood</span>
-                    <h2>Download Alehulsh Today</h2>
-                    <p>Available on Android & iOS across Ethiopia. Put uncompromising safety, protection, and community support in your pocket.</p>
-                    
-                    <div class="store-buttons">
-                        <a href="alehulsh-release.apk" download="alehulsh-release.apk" class="store-btn store-btn-android" id="downloadAndroidBtn">
-                            <i class="fa-brands fa-android"></i>
-                            <div>
-                                <small>DIRECT APK DOWNLOAD</small>
-                                <strong>Download for Android</strong>
-                            </div>
+                    <!-- Call To Action Buttons -->
+                    <div class="hero-cta-buttons">
+                        <a href="alehulsh-release.apk" download="alehulsh-release.apk" class="btn-primary-glow" id="downloadHeroBtn">
+                            <i class="fa-brands fa-android"></i> Download for Android <i class="fa-solid fa-arrow-right"></i>
                         </a>
-                        <a href="#" class="store-btn store-btn-ios" onclick="showIosComingSoon(event)">
-                            <i class="fa-brands fa-apple"></i>
-                            <div>
-                                <small>IN DEVELOPMENT</small>
-                                <strong>Download for iOS</strong>
-                            </div>
+                        <a href="#safety" class="btn-secondary-glass">
+                            <i class="fa-solid fa-shield-heart"></i> Safety Demo
                         </a>
                     </div>
-                </div>
-                <div class="download-qr">
-                    <div class="qr-box">
-                        <i class="fa-solid fa-qrcode"></i>
+
+                    <!-- 3 High-Impact Quick Stats Metrics -->
+                    <div class="hero-stats-row">
+                        <div class="stat-box">
+                            <span class="stat-num">500m</span>
+                            <span class="stat-label">Instant SOS Alert Radius</span>
+                        </div>
+                        <div class="stat-divider"></div>
+                        <div class="stat-box">
+                            <span class="stat-num">&lt; 3s</span>
+                            <span class="stat-label">Rapid SOS Activation</span>
+                        </div>
+                        <div class="stat-divider"></div>
+                        <div class="stat-box">
+                            <span class="stat-num">100%</span>
+                            <span class="stat-label">Focused on Women's Safety</span>
+                        </div>
                     </div>
-                    <small>Scan or tap to download .APK directly</small>
-                </div>
-            </div>
-        </div>
-    </section>
-
-    <!-- Safety Features / How It Works Overview -->
-    <section class="services-section" id="features">
-        <div class="container">
-            <div class="section-header">
-                <span class="subhead">Alehulsh Protection Ecosystem</span>
-                <h2>How Alehulsh Shields You in Any Emergency</h2>
-                <p>Designed from the ground up to provide immediate community response, real-time tracking, and instant voice communication whenever you need help.</p>
-            </div>
-
-            <div class="services-grid">
-                <!-- Feature 1: 500m Proximity Radar -->
-                <div class="service-card safety-card-highlight">
-                    <div class="card-badge emergency-badge">Core Lifeline</div>
-                    <div class="service-icon emergency-icon"><i class="fa-solid fa-tower-broadcast"></i></div>
-                    <h3>500m Community Radar Grid</h3>
-                    <p>Instantly broadcasts a high-priority distress alert to all active Alehulsh app users and community responders within a 500-meter radius for rapid physical response.</p>
-                    <ul class="service-bullets">
-                        <li><i class="fa-solid fa-check"></i> High-priority heads-up vibration & sound ping</li>
-                        <li><i class="fa-solid fa-check"></i> Accurate WGS-84 distance calculation</li>
-                        <li><i class="fa-solid fa-check"></i> One-tap navigation to alerter's location</li>
-                    </ul>
-                    <button class="btn-card-action" onclick="openSafetyModal()">Test SOS Simulation</button>
                 </div>
 
-                <!-- Feature 2: Emergency Contact Alerting -->
-                <div class="service-card highlight-card">
-                    <div class="card-badge">Instant Reach</div>
-                    <div class="service-icon"><i class="fa-solid fa-phone-flip"></i></div>
-                    <h3>Emergency Contacts Alerting</h3>
-                    <p>Designated emergency contacts bypass distance restrictions and receive immediate high-priority alerts with your live coordinates anywhere in the world.</p>
-                    <ul class="service-bullets">
-                        <li><i class="fa-solid fa-check"></i> Unlimited distance alert for trusted contacts</li>
-                        <li><i class="fa-solid fa-check"></i> Direct one-tap phone calling and messaging</li>
-                        <li><i class="fa-solid fa-check"></i> Real-time live status and updates</li>
-                    </ul>
-                </div>
+                <!-- Hero Visual Stage with Artwork & Floating Animated Cards -->
+                <div class="hero-visual-stage">
 
-                <!-- Feature 3: Real-Time Live GPS Tracking -->
-                <div class="service-card">
-                    <div class="service-icon"><i class="fa-solid fa-location-crosshairs"></i></div>
-                    <h3>Real-Time Live GPS Tracking</h3>
-                    <p>Continuously broadcasts your real-time path and location coordinates so responders and family can navigate to your exact whereabouts even if you are moving.</p>
-                    <ul class="service-bullets">
-                        <li><i class="fa-solid fa-check"></i> Continuous high-accuracy GPS streaming</li>
-                        <li><i class="fa-solid fa-check"></i> Interactive live map for verified responders</li>
-                        <li><i class="fa-solid fa-check"></i> Persistent tracking until safe code is entered</li>
-                    </ul>
-                </div>
-
-                <!-- Feature 4: Live Voice Notes & Hardware Gesture Trigger -->
-                <div class="service-card">
-                    <div class="service-icon"><i class="fa-solid fa-microphone-lines"></i></div>
-                    <h3>Live Voice Notes & Discreet Gestures</h3>
-                    <p>Record a live emergency voice note so responders hear what is happening around you. Trigger help discreetly via 5x Power Button clicks or 3x deliberate Phone Shakes.</p>
-                    <ul class="service-bullets">
-                        <li><i class="fa-solid fa-check"></i> Live voice notes heard immediately by responders</li>
-                        <li><i class="fa-solid fa-check"></i> 5x Power button hardware trigger</li>
-                        <li><i class="fa-solid fa-check"></i> 3x Deliberate phone shake detector</li>
-                    </ul>
-                </div>
-            </div>
-        </div>
-    </section>
-
-    <!-- Deep Dive: 500m Safety Shield Feature -->
-    <section class="safety-deep-section" id="safety">
-        <div class="container">
-            <div class="safety-box">
-                <div class="safety-info">
-                    <span class="subhead subhead-light"><i class="fa-solid fa-lock"></i> Built for Your Protection</span>
-                    <h2>Four Layers of Simultaneous Protection</h2>
-                    <p>Whenever you feel unsafe, activate the Alehulsh SOS trigger. In less than 3 seconds, your safety shield executes four protection layers:</p>
-                    
-                    <div class="safety-steps">
-                        <div class="step-card">
-                            <div class="step-num">01</div>
-                            <div class="step-text">
-                                <h4>500m Radius Nearby Community Alert</h4>
-                                <p>Sends high-priority distress alerts to nearby Alehulsh app users and community responders within 500 meters.</p>
-                            </div>
+                    <!-- Floating Card 1: 500m Radar (Top Left) -->
+                    <div class="floating-glass-card card-pos-top-left float-card-1">
+                        <div class="card-icon-bubble icon-radar">
+                            <i class="fa-solid fa-tower-broadcast"></i>
                         </div>
-
-                        <div class="step-card">
-                            <div class="step-num">02</div>
-                            <div class="step-text">
-                                <h4>Emergency Contacts Immediate Notification</h4>
-                                <p>Automatically alerts your designated emergency contacts anywhere in the country with live location coordinates.</p>
+                        <div class="card-info">
+                            <div class="card-title-row">
+                                <span class="card-title">500m Proximity Radar</span>
+                                <span class="badge-mini badge-live">LIVE</span>
                             </div>
-                        </div>
-
-                        <div class="step-card">
-                            <div class="step-num">03</div>
-                            <div class="step-text">
-                                <h4>Real-Time Live GPS Tracking</h4>
-                                <p>Broadcasting your continuous path so help can reach your exact location even if you move.</p>
-                            </div>
-                        </div>
-
-                        <div class="step-card">
-                            <div class="step-num">04</div>
-                            <div class="step-text">
-                                <h4>Live Emergency Voice Note</h4>
-                                <p>Records a quick voice note heard live by responders and contacts so they can listen and understand your situation.</p>
-                            </div>
+                            <p class="card-text">Instant distress pings to nearby women</p>
                         </div>
                     </div>
 
-                    <div class="safety-cta">
-                        <button class="btn btn-light-danger btn-lg" onclick="openSafetyModal()">
-                            <i class="fa-solid fa-bell"></i> Interactive SOS Demo
+                    <!-- Floating Card 2: 5-Click Power (Bottom Left) -->
+                    <div class="floating-glass-card card-pos-bottom-left float-card-2">
+                        <div class="card-icon-bubble icon-power">
+                            <i class="fa-solid fa-bolt-lightning"></i>
+                        </div>
+                        <div class="card-info">
+                            <div class="card-title-row">
+                                <span class="card-title">5-Click Power SOS</span>
+                                <span class="badge-mini badge-locked">LOCKED PHONE</span>
+                            </div>
+                            <p class="card-text">Trigger SOS without unlocking the screen</p>
+                        </div>
+                    </div>
+
+                    <!-- Floating Card 3: Live Voice Dispatch (Right Center) -->
+                    <div class="floating-glass-card card-pos-right float-card-3">
+                        <div class="card-icon-bubble icon-voice">
+                            <i class="fa-solid fa-microphone-lines"></i>
+                        </div>
+                        <div class="card-info">
+                            <div class="card-title-row">
+                                <span class="card-title">Live Voice Dispatch</span>
+                                <span class="badge-mini badge-rec">REC</span>
+                            </div>
+                            <div class="audio-wave-bars">
+                                <span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+                            </div>
+                            <p class="card-text">Continuous audio note streaming</p>
+                        </div>
+                    </div>
+
+                    <!-- Floating Card 4: Pet's Name Security (Top Right) -->
+                    <div class="floating-glass-card card-pos-top-right float-card-4">
+                        <div class="card-icon-bubble icon-cat">
+                            <i class="fa-solid fa-shield-cat"></i>
+                        </div>
+                        <div class="card-info">
+                            <div class="card-title-row">
+                                <span class="card-title">Pet's Name Security</span>
+                                <span class="badge-mini badge-safe">SAFE PIN</span>
+                            </div>
+                            <p class="card-text">Passcode verified before cancelling SOS</p>
+                        </div>
+                    </div>
+
+                    <!-- Center Hero Image Artwork Frame with Radiant Lighting -->
+                    <div class="hero-artwork-frame">
+                        <div class="artwork-glow-ring"></div>
+                        <img src="hero-image.png" alt="Alehulsh Women Safety Artwork - Protector, Giver, Dreamer, Healer, Creator" class="hero-artwork-img">
+                    </div>
+
+                </div>
+
+            </div>
+        </section>
+
+        <!-- 3 Core Layers of Safety (#safety) -->
+        <section class="section-shield" id="safety">
+            <div class="section-container">
+                <div class="section-header text-center">
+                    <span class="section-tag">CORE SAFETY ENGINE</span>
+                    <h2 class="section-title">3 Layers of Rapid Protection</h2>
+                    <p class="section-desc">Engineered to protect you instantly in any crisis, even before you unlock your phone.</p>
+                </div>
+
+                <div class="bento-grid-3">
+                    <!-- Bento 1 -->
+                    <div class="bento-card">
+                        <div class="bento-icon-box pink-glow">
+                            <i class="fa-solid fa-tower-broadcast"></i>
+                        </div>
+                        <h3 class="bento-title">500m Proximity Radar</h3>
+                        <p class="bento-text">
+                            Instantly sounds high-priority heads-up pings on the phones of all Alehulsh users and designated emergency contacts within a 500-meter radius.
+                        </p>
+                        <div class="bento-badge">Real-Time Geofence</div>
+                    </div>
+
+                    <!-- Bento 2 -->
+                    <div class="bento-card highlight-card">
+                        <div class="bento-icon-box gold-glow">
+                            <i class="fa-solid fa-bolt-lightning"></i>
+                        </div>
+                        <h3 class="bento-title">5-Click Power Trigger</h3>
+                        <p class="bento-text">
+                            No time to look at your screen? Rapidly click your phone's Power button 5 times. SOS dispatches silently in the background with live GPS.
+                        </p>
+                        <div class="bento-badge gold-badge">Zero Screen Time</div>
+                    </div>
+
+                    <!-- Bento 3 -->
+                    <div class="bento-card">
+                        <div class="bento-icon-box violet-glow">
+                            <i class="fa-solid fa-microphone-lines"></i>
+                        </div>
+                        <h3 class="bento-title">Live Voice &amp; GPS Stream</h3>
+                        <p class="bento-text">
+                            Continuous high-definition background voice recording and real-time satellite GPS tracking sent directly to community responders.
+                        </p>
+                        <div class="bento-badge">Real-Time Audio</div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Features Showcase Section (#features) -->
+        <section class="section-features" id="features">
+            <div class="section-container">
+                <div class="section-header text-center">
+                    <span class="section-tag">BUILT FOR REAL PROTECTION</span>
+                    <h2 class="section-title">Everything You Need To Stay Safe</h2>
+                    <p class="section-desc">Tailored specifically for women across Addis Ababa and all Ethiopian regions.</p>
+                </div>
+
+                <div class="features-grid-2">
+                    <!-- Feature 1 -->
+                    <div class="feature-card">
+                        <div class="feat-header">
+                            <div class="feat-icon"><i class="fa-solid fa-person-dress-burst"></i></div>
+                            <div>
+                                <h4>Women-for-Women Network</h4>
+                                <span class="feat-sub">Instant Community Backup</span>
+                            </div>
+                        </div>
+                        <p>When an emergency is triggered, nearby female responders receive an alert with live directions to your coordinates and a one-tap "I am going" response button.</p>
+                    </div>
+
+                    <!-- Feature 2: Pet's Name Security -->
+                    <div class="feature-card">
+                        <div class="feat-header">
+                            <div class="feat-icon"><i class="fa-solid fa-shield-cat"></i></div>
+                            <div>
+                                <h4>Pet's Name Security Passcode</h4>
+                                <span class="feat-sub">Prevents Forced Cancellation</span>
+                            </div>
+                        </div>
+                        <p>An attacker cannot force you to cancel an SOS alert. The distress broadcast can only be stopped by entering your secret pet's name verification answer.</p>
+                    </div>
+
+                    <!-- Feature 3 -->
+                    <div class="feature-card">
+                        <div class="feat-header">
+                            <div class="feat-icon"><i class="fa-solid fa-battery-half"></i></div>
+                            <div>
+                                <h4>Battery-Optimized Background Radar</h4>
+                                <span class="feat-sub">24/7 Protection With 0% Battery Waste</span>
+                            </div>
+                        </div>
+                        <p>Ultra-efficient background listener that only wakes up when high-priority distress signals occur nearby, preserving full phone battery life.</p>
+                    </div>
+
+                    <!-- Feature 4 -->
+                    <div class="feature-card">
+                        <div class="feat-header">
+                            <div class="feat-icon"><i class="fa-solid fa-language"></i></div>
+                            <div>
+                                <h4>Amharic &amp; English Support</h4>
+                                <span class="feat-sub">አማርኛ እና እንግሊዝኛ</span>
+                            </div>
+                        </div>
+                        <p>Fully localized in both Amharic and English with instant language switching and localized distress protocols built-in.</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Download CTA Banner Section (#download) -->
+        <section class="section-download" id="download">
+            <div class="section-container">
+                <div class="download-banner-card">
+                    <div class="download-content-col">
+                        <div class="download-pill">
+                            <span class="badge-dot"></span> DIRECT APK • VERSION 1.0.1
+                        </div>
+                        <h2 class="download-title">Download Alehulsh for Android</h2>
+                        <p class="download-desc">
+                            Get immediate 500m proximity safety on your phone. Completely free, privacy-first, and zero subscriptions.
+                        </p>
+                        
+                        <div class="download-action-row">
+                            <a href="alehulsh-release.apk" download="alehulsh-release.apk" class="btn-primary-glow btn-lg-download" id="downloadAndroidBtn">
+                                <i class="fa-brands fa-android"></i> Download APK (53 MB)
+                            </a>
+                            <a href="#" class="btn-secondary-glass" onclick="showIosComingSoon(event)">
+                                <i class="fa-brands fa-apple"></i> iOS Coming Soon
+                            </a>
+                        </div>
+                        <div class="download-specs">
+                            <span><i class="fa-solid fa-check text-green"></i> Android 8.0 to 15+</span>
+                            <span><i class="fa-solid fa-check text-green"></i> Samsung One UI Compatible</span>
+                            <span><i class="fa-solid fa-check text-green"></i> Verified Clean &amp; Safe</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- FAQ Accordion (#faq) -->
+        <section class="section-faq" id="faq">
+            <div class="section-container">
+                <div class="section-header text-center">
+                    <span class="section-tag">FREQUENTLY ASKED</span>
+                    <h2 class="section-title">Common Questions</h2>
+                </div>
+
+                <div class="faq-accordion-box">
+                    <div class="faq-item active">
+                        <button class="faq-question">
+                            <span>How does the 500m proximity radar work?</span>
+                            <i class="fa-solid fa-chevron-down faq-chevron"></i>
                         </button>
-                    </div>
-                </div>
-
-                <div class="safety-visual">
-                    <div class="radar-circle-wrap">
-                        <div class="radar-pulse ring-1"></div>
-                        <div class="radar-pulse ring-2"></div>
-                        <div class="radar-pulse ring-3"></div>
-                        <div class="center-user">
-                            <i class="fa-solid fa-person-shelter"></i>
-                            <span>YOU</span>
-                        </div>
-                        <div class="radar-node node-1" title="Responder within 150m">
-                            <i class="fa-solid fa-shield"></i>
-                            <small>150m</small>
-                        </div>
-                        <div class="radar-node node-2" title="Community Helper">
-                            <i class="fa-solid fa-hand-holding-heart"></i>
-                            <small>Helper</small>
-                        </div>
-                        <div class="radar-node node-3" title="Nearby User within 380m">
-                            <i class="fa-solid fa-users"></i>
-                            <small>380m</small>
-                        </div>
-                        <div class="radar-node node-4" title="Emergency Contact">
-                            <i class="fa-solid fa-heart"></i>
-                            <small>Contacts</small>
+                        <div class="faq-answer">
+                            <p>When you trigger an SOS, Alehulsh broadcasts an encrypted distress signal to our Firestore network. Any active Alehulsh app or designated emergency contact within 500 meters receives an instant high-priority Heads-Up emergency ping with your live GPS location and directions.</p>
                         </div>
                     </div>
-                </div>
-            </div>
-        </div>
-    </section>
 
-    <!-- Future Promise & Roadmap Section -->
-    <section class="future-roadmap-section" id="future">
-        <div class="container">
-            <div class="section-header text-center" style="max-width: 700px; margin: 0 auto 40px;">
-                <span class="subhead"><i class="fa-solid fa-seedling"></i> Future Roadmap & Promise</span>
-                <h2>Expanding Care & Safety for Ethiopian Women</h2>
-                <p>Alehulsh is built first and foremost as an uncompromising safety lifeline. As our sisterhood grows, we are actively preparing future expansions to protect and support women across every area of life.</p>
-            </div>
-
-            <div class="grid-2col">
-                <!-- Future Promise 1: Emergency Period Essentials -->
-                <div class="feature-spotlight-card">
-                    <div class="spotlight-tag">Future Promise</div>
-                    <div class="spotlight-icon"><i class="fa-solid fa-box-tissue"></i></div>
-                    <h3>Emergency Period & Sanitary Necessities</h3>
-                    <p>In upcoming releases, we plan to introduce rapid, discreet delivery of essential sanitary pads, cycle kits, pain relief hot packs, and comfort necessities right when you need them most.</p>
-                    <div class="pill-group">
-                        <span>Discreet Fast Courier</span>
-                        <span>Sanitary Products</span>
-                        <span>Emergency Care Boxes</span>
-                        <span>Coming Soon</span>
+                    <div class="faq-item">
+                        <button class="faq-question">
+                            <span>Does SOS work when my phone is locked?</span>
+                            <i class="fa-solid fa-chevron-down faq-chevron"></i>
+                        </button>
+                        <div class="faq-answer">
+                            <p>Yes! Simply press the physical Power button 5 times rapidly (or Volume button 3 times). The native Android background service instantly dispatches your SOS without requiring you to unlock the screen or open the app.</p>
+                        </div>
                     </div>
-                </div>
 
-                <!-- Future Promise 2: Emergency Services & Police Integration -->
-                <div class="feature-spotlight-card courier-theme">
-                    <div class="spotlight-tag">Future Roadmap</div>
-                    <div class="spotlight-icon"><i class="fa-solid fa-building-shield"></i></div>
-                    <h3>Emergency Services & Police Dispatch Integration</h3>
-                    <p>We plan to establish formal collaborations and direct digital emergency dispatch channels with local police departments and municipal emergency medical services across Ethiopia.</p>
-                    <div class="pill-group">
-                        <span>Direct Police Routing</span>
-                        <span>Ambulance Dispatch</span>
-                        <span>Institutional Network</span>
-                        <span>Future Vision</span>
+                    <div class="faq-item">
+                        <button class="faq-question">
+                            <span>Why do I need a secret pet's name code?</span>
+                            <i class="fa-solid fa-chevron-down faq-chevron"></i>
+                        </button>
+                        <div class="faq-answer">
+                            <p>This is your personal security pass-code. If an attacker grabs your phone and tries to cancel your emergency alert, they will be blocked unless they know your private pet's name verification answer.</p>
+                        </div>
+                    </div>
+
+                    <div class="faq-item">
+                        <button class="faq-question">
+                            <span>Is Alehulsh free to use?</span>
+                            <i class="fa-solid fa-chevron-down faq-chevron"></i>
+                        </button>
+                        <div class="faq-answer">
+                            <p>Yes, 100% free with no ads and no subscriptions. Alehulsh is built as a non-profit community safety tool dedicated to protecting women across Ethiopia.</p>
+                        </div>
                     </div>
                 </div>
             </div>
-        </div>
-    </section>
+        </section>
+    </main>
 
-    <!-- Our Essence / Values Section -->
-    <section class="mission-section" id="mission">
-        <div class="container text-center">
-            <span class="subhead">Our Core Essence</span>
-            <h2>Protector. Healer. Giver. Dreamer. Creator.</h2>
-            <p class="mission-lead">
-                Inspired by the strength, beauty, and resilience of Ethiopian women. Alehulsh (አለሁልሽ) translates to <em>"I am here for you"</em>—a promise of unwavering safety, protection, and sisterhood.
-            </p>
-
-            <div class="essence-cards">
-                <div class="essence-card">
-                    <i class="fa-solid fa-shield-halved"></i>
-                    <h4>Protector</h4>
-                    <p>Guarding your safety with 500m radius alerts, live GPS tracking, and real-time voice notes.</p>
+    <!-- Minimalist Modern Footer -->
+    <footer class="modern-footer">
+        <div class="section-container footer-content">
+            <div class="footer-brand-col">
+                <div class="brand-title-row">
+                    <img src="logo.png" alt="Logo" class="brand-logo">
+                    <span class="brand-name">Alehulsh</span>
+                    <span class="brand-amharic">አለሁልሽ</span>
                 </div>
-                <div class="essence-card">
-                    <i class="fa-solid fa-hands-holding-child"></i>
-                    <h4>Healer</h4>
-                    <p>Creating safe spaces and future wellness support so you can live with confidence and peace of mind.</p>
-                </div>
-                <div class="essence-card">
-                    <i class="fa-solid fa-gift"></i>
-                    <h4>Giver</h4>
-                    <p>Connecting women across neighborhoods to support one another in moments of critical need.</p>
-                </div>
-                <div class="essence-card">
-                    <i class="fa-solid fa-cloud-moon"></i>
-                    <h4>Dreamer</h4>
-                    <p>Inspiring freedom of movement and ambition by dismantling fear through community safety technology.</p>
-                </div>
-                <div class="essence-card">
-                    <i class="fa-solid fa-palette"></i>
-                    <h4>Creator</h4>
-                    <p>Building local technology tailored to Ethiopian culture, languages, and community solidarity.</p>
-                </div>
-            </div>
-        </div>
-    </section>
-
-    <!-- FAQ Section -->
-    <section class="faq-section" id="faq">
-        <div class="container">
-            <div class="section-header">
-                <span class="subhead">Questions & Answers</span>
-                <h2>Frequently Asked Questions</h2>
-            </div>
-            
-            <div class="faq-accordion">
-                <div class="faq-item">
-                    <button class="faq-question">
-                        <span>What is Alehulsh (አለሁልሽ)?</span>
-                        <i class="fa-solid fa-chevron-down"></i>
-                    </button>
-                    <div class="faq-answer">
-                        <p>Alehulsh is Ethiopia's premier emergency safety app designed specifically for women. It provides instant 500-meter SOS distress alerts, continuous live GPS streaming, emergency contact notifications, and live emergency voice notes.</p>
-                    </div>
-                </div>
-
-                <div class="faq-item">
-                    <button class="faq-question">
-                        <span>How does the 500m Safety Shield work?</span>
-                        <i class="fa-solid fa-chevron-down"></i>
-                    </button>
-                    <div class="faq-answer">
-                        <p>When activated, your phone immediately sends a high-priority distress signal to all registered Alehulsh app users and community responders within a 500-meter radius. Simultaneously, it notifies your personal emergency contacts with your live GPS location and live voice note.</p>
-                    </div>
-                </div>
-
-                <div class="faq-item">
-                    <button class="faq-question">
-                        <span>Do emergency contacts need to be within 500 meters?</span>
-                        <i class="fa-solid fa-chevron-down"></i>
-                    </button>
-                    <div class="faq-answer">
-                        <p>No! Your designated emergency contacts bypass the 500-meter limit entirely. Whether they are 50 meters away, 10 kilometers away, or in another city, they will always receive your distress alert instantly with your live location.</p>
-                    </div>
-                </div>
-
-                <div class="faq-item">
-                    <button class="faq-question">
-                        <span>What is the live emergency voice note?</span>
-                        <i class="fa-solid fa-chevron-down"></i>
-                    </button>
-                    <div class="faq-answer">
-                        <p>When an SOS is sent, a live voice note is recorded so responders and emergency contacts can listen in real time to hear what is happening around you and provide the most effective help.</p>
-                    </div>
-                </div>
-
-                <div class="faq-item">
-                    <button class="faq-question">
-                        <span>Can I trigger SOS without unlocking my phone?</span>
-                        <i class="fa-solid fa-chevron-down"></i>
-                    </button>
-                    <div class="faq-answer">
-                        <p>Yes! Alehulsh features hardware-level emergency triggers: you can press your phone's Power Button 5 times rapidly or perform 3 deliberate firm shakes to trigger an SOS even when the screen is locked or the app is closed.</p>
-                    </div>
-                </div>
-
-                <div class="faq-item">
-                    <button class="faq-question">
-                        <span>What are your future plans for police and emergency services?</span>
-                        <i class="fa-solid fa-chevron-down"></i>
-                    </button>
-                    <div class="faq-answer">
-                        <p>As part of our future roadmap, we plan to build direct integrations with local police departments and emergency medical responders. Today, the app directly alerts nearby community responders and your designated emergency contacts.</p>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </section>
-
-    <!-- Contact Section -->
-    <section class="contact-section" id="contact">
-        <div class="container">
-            <div class="section-header">
-                <span class="subhead">We are here for you</span>
-                <h2>Contact Alehulsh</h2>
-                <p>Have questions, need support, or want to partner with us? Reach out directly via call or Telegram.</p>
+                <p class="footer-tagline">Ethiopia's Lifeline Emergency Safety Network for Women.</p>
             </div>
 
-            <div class="contact-grid">
-                <a href="tel:+251977752327" class="contact-card">
-                    <div class="contact-icon"><i class="fa-solid fa-phone-volume"></i></div>
-                    <div class="contact-info">
-                        <small>Direct Call / Support</small>
-                        <strong>+251 97 775 2327</strong>
-                    </div>
-                    <span class="contact-action">Call Now <i class="fa-solid fa-arrow-right"></i></span>
-                </a>
-
-                <a href="tel:+251924913454" class="contact-card">
-                    <div class="contact-icon"><i class="fa-solid fa-headset"></i></div>
-                    <div class="contact-info">
-                        <small>Emergency / Line 2</small>
-                        <strong>+251 92 491 3454</strong>
-                    </div>
-                    <span class="contact-action">Call Now <i class="fa-solid fa-arrow-right"></i></span>
-                </a>
-            </div>
-        </div>
-    </section>
-
-    <!-- Footer -->
-    <footer class="footer">
-        <div class="container">
-            <div class="footer-top">
-                <div class="footer-brand">
-                    <a href="#" class="logo">
-                        <img src="logo.png" alt="Alehulsh Logo" class="logo-img">
-                        <span class="logo-text">Alehulsh</span>
-                        <span class="logo-amharic">አለሁልሽ</span>
-                    </a>
-                    <p>The Emergency Safety Super App for Women in Ethiopia. Always here for your safety and protection.</p>
+            <div class="footer-hotlines-col">
+                <span class="hotline-title">Emergency Hotlines (Ethiopia)</span>
+                <div class="hotline-badges">
+                    <a href="tel:991" class="hotline-pill"><i class="fa-solid fa-phone"></i> Police: 991</a>
+                    <a href="tel:907" class="hotline-pill"><i class="fa-solid fa-phone"></i> Ambulance: 907</a>
+                    <a href="tel:911" class="hotline-pill"><i class="fa-solid fa-phone"></i> Emergency: 911</a>
                 </div>
+            </div>
 
+            <div class="footer-bottom-row">
+                <span>&copy; 2026 Alehulsh. Built with dedication for the safety of Ethiopian women.</span>
                 <div class="footer-links">
-                    <div class="link-col">
-                        <h4>Safety</h4>
-                        <a href="#safety">500m Safety Shield</a>
-                        <a href="#features">Proximity Radar</a>
-                        <a href="#features">Live Voice Note</a>
-                        <a href="#future">Future Roadmap</a>
-                    </div>
-
-                    <div class="link-col">
-                        <h4>Company</h4>
-                        <a href="#mission">About Alehulsh</a>
-                        <a href="#mission">Our Essence</a>
-                        <a href="#faq">FAQs</a>
-                        <a href="#contact">Contact Us</a>
-                    </div>
-
-                    <div class="link-col">
-                        <h4>Call Us</h4>
-                        <a href="tel:+251977752327"><i class="fa-solid fa-phone"></i> +251 97 775 2327</a>
-                        <a href="tel:+251924913454"><i class="fa-solid fa-phone"></i> +251 92 491 3454</a>
-                        <div class="social-icons" style="margin-top: 12px;">
-                            <a href="#" aria-label="Telegram"><i class="fa-brands fa-telegram"></i></a>
-                            <a href="#" aria-label="Instagram"><i class="fa-brands fa-instagram"></i></a>
-                            <a href="#" aria-label="TikTok"><i class="fa-brands fa-tiktok"></i></a>
-                            <a href="#" aria-label="Facebook"><i class="fa-brands fa-facebook-f"></i></a>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <div class="footer-bottom">
-                <p>&copy; 2026 Alehulsh (አለሁልሽ). All rights reserved. Made with ❤️ for Ethiopia.</p>
-                <div class="legal-links">
-                    <a href="#">Privacy Policy</a>
-                    <a href="#">Terms of Service</a>
-                    <a href="#">Safety Guidelines</a>
+                    <a href="alehulsh-release.apk" download="alehulsh-release.apk">Download APK</a>
+                    <a href="#safety">Radar</a>
+                    <a href="#features">Network</a>
+                    <a href="#faq">FAQ</a>
                 </div>
             </div>
         </div>
     </footer>
-
-    <!-- SOS Interactive Simulation Modal -->
-    <div class="modal-overlay" id="safetyModal">
-        <div class="modal-container">
-            <button class="modal-close" onclick="closeSafetyModal()"><i class="fa-solid fa-xmark"></i></button>
-            <div class="modal-header">
-                <div class="sos-active-badge"><i class="fa-solid fa-triangle-exclamation"></i> SOS SIMULATION ACTIVE</div>
-                <h3>500m Safety Shield Protocol Activated</h3>
-                <p>Simulating live alert sequence for Alehulsh App user in Addis Ababa.</p>
-            </div>
-
-            <div class="simulation-body">
-                <div class="sim-item active" id="simStep1">
-                    <div class="sim-icon"><i class="fa-solid fa-tower-broadcast"></i></div>
-                    <div class="sim-details">
-                        <strong>1. 500m Radius Community Alert Sent</strong>
-                        <span>Broadcasting alert to nearby active users & community helpers</span>
-                    </div>
-                    <div class="sim-status green"><i class="fa-solid fa-circle-check"></i> Active</div>
-                </div>
-
-                <div class="sim-item active" id="simStep2">
-                    <div class="sim-icon"><i class="fa-solid fa-location-crosshairs"></i></div>
-                    <div class="sim-details">
-                        <strong>2. GPS Location Streamed</strong>
-                        <span>Lat: 9.0105° N, Long: 38.7612° E (Updating real-time)</span>
-                    </div>
-                    <div class="sim-status green"><i class="fa-solid fa-circle-check"></i> Live Tracking</div>
-                </div>
-
-                <div class="sim-item active" id="simStep3">
-                    <div class="sim-icon"><i class="fa-solid fa-microphone-lines"></i></div>
-                    <div class="sim-details">
-                        <strong>3. Live Emergency Voice Note</strong>
-                        <span>Voice note recording played live for incoming responders (00:14)</span>
-                    </div>
-                    <div class="sim-status red-pulse"><i class="fa-solid fa-record-vinyl"></i> Live Note Active</div>
-                </div>
-
-                <div class="sim-item active" id="simStep4">
-                    <div class="sim-icon"><i class="fa-solid fa-phone-flip"></i></div>
-                    <div class="sim-details">
-                        <strong>4. Emergency Contacts Dispatched</strong>
-                        <span>Instant notification & location coordinates sent to trusted contacts</span>
-                    </div>
-                    <div class="sim-status green"><i class="fa-solid fa-circle-check"></i> Notified</div>
-                </div>
-            </div>
-
-            <div class="modal-footer">
-                <button class="btn btn-secondary" onclick="closeSafetyModal()">End Simulation</button>
-            </div>
-        </div>
-    </div>
 
     <script src="script.js"></script>
 </body>
