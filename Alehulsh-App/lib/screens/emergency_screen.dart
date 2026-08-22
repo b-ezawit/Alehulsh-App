@@ -464,13 +464,13 @@ class _EmergencyScreenState extends State<EmergencyScreen> with SingleTickerProv
             ElevatedButton(
               onPressed: () async {
                 if (_activeAlertId != null) {
-                  bool success = await _alertService.cancelSOSAlert(
+                  final result = await _alertService.cancelSOSAlert(
                     alertId: _activeAlertId!,
                     userCatName: profile.catName,
                     inputCatName: catNameInputCtrl.text,
                   );
 
-                  if (success) {
+                  if (result.isSuccess) {
                     await _userDataService.setSOSActiveLocally(false);
                     Navigator.pop(ctx);
                     setState(() {
@@ -490,7 +490,15 @@ class _EmergencyScreenState extends State<EmergencyScreen> with SingleTickerProv
                     }
                   } else {
                     setStateModal(() {
-                      errorTxt = _loc.isAmharic ? "የተሳሳተ የደህንነት መልስ። ማረጋገጫው አልተሳካም!" : "Incorrect security code. Verification failed!";
+                      if (result.isSecurityMismatch) {
+                        errorTxt = _loc.isAmharic
+                            ? "የተሳሳተ የደህንነት መልስ። ማረጋገጫው አልተሳካም!"
+                            : "Incorrect security code. Verification failed!";
+                      } else {
+                        errorTxt = _loc.isAmharic
+                            ? "የዳታቤዝ ፍቃድ ስህተት: እባክዎ የFirebase Rules ይመልከቱ።"
+                            : "Database permission error: Please update Firestore Security Rules.";
+                      }
                     });
                   }
                 }

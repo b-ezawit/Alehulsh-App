@@ -482,9 +482,20 @@ class _ProfileScreenState extends State<ProfileScreen> {
               ],
             ),
           ),
-          IconButton(
-            icon: const Icon(Icons.delete_outline_rounded, color: Colors.redAccent, size: 20),
-            onPressed: () => _userDataService.removeEmergencyContact(contact.id),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              IconButton(
+                icon: const Icon(Icons.edit_outlined, color: AppTheme.primaryPink, size: 20),
+                tooltip: _loc.isAmharic ? "አስተካክል" : "Edit Contact",
+                onPressed: () => _showEditContactDialog(contact),
+              ),
+              IconButton(
+                icon: const Icon(Icons.delete_outline_rounded, color: Colors.redAccent, size: 20),
+                tooltip: _loc.isAmharic ? "ሰርዝ" : "Delete",
+                onPressed: () => _userDataService.removeEmergencyContact(contact.id),
+              ),
+            ],
           ),
         ],
       ),
@@ -729,6 +740,87 @@ class _ProfileScreenState extends State<ProfileScreen> {
               },
               style: ElevatedButton.styleFrom(backgroundColor: AppTheme.primaryPink),
               child: Text(_loc.isAmharic ? "ጨምር" : "Add Contact", style: const TextStyle(color: Colors.white)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // DIALOG: Edit Emergency Contact
+  void _showEditContactDialog(EmergencyContact contact) {
+    final nameCtrl = TextEditingController(text: contact.name);
+    final phoneCtrl = TextEditingController(text: contact.phone);
+    final relationCtrl = TextEditingController(text: contact.relationship);
+    final emailCtrl = TextEditingController(text: contact.email);
+    bool isPrimary = contact.isPrimary;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setStateDialog) => AlertDialog(
+          title: Text(_loc.isAmharic ? "የአደጋ ጊዜ እውቂያ አሻሽል" : "Edit Emergency Contact"),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: nameCtrl,
+                  decoration: InputDecoration(labelText: _loc.isAmharic ? "የእውቂያ ስም *" : "Contact Name *"),
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: phoneCtrl,
+                  decoration: InputDecoration(labelText: _loc.isAmharic ? "ስልክ ቁጥር *" : "Phone Number *"),
+                  keyboardType: TextInputType.phone,
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: emailCtrl,
+                  decoration: InputDecoration(labelText: _loc.isAmharic ? "ኢሜይል (ለአደጋ ጥሪ ማሳወቂያ)" : "Email Address"),
+                  keyboardType: TextInputType.emailAddress,
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: relationCtrl,
+                  decoration: InputDecoration(labelText: _loc.isAmharic ? "ዝምድና (ለምሳሌ፡ እህት፣ ጓደኛ)" : "Relationship (e.g. Sister, Friend)"),
+                ),
+                const SizedBox(height: 10),
+                CheckboxListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: Text(
+                    _loc.isAmharic ? "ዋነኛ የአደጋ ጊዜ እውቂያ ይሁን" : "Set as Primary Contact",
+                    style: const TextStyle(fontSize: 13),
+                  ),
+                  value: isPrimary,
+                  activeColor: AppTheme.primaryPink,
+                  onChanged: (val) => setStateDialog(() => isPrimary = val ?? false),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: Text(_loc.isAmharic ? "ሰርዝ" : "Cancel"),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                if (nameCtrl.text.trim().isNotEmpty && phoneCtrl.text.trim().isNotEmpty) {
+                  _userDataService.updateEmergencyContact(
+                    contact.copyWith(
+                      name: nameCtrl.text.trim(),
+                      phone: phoneCtrl.text.trim(),
+                      email: emailCtrl.text.trim(),
+                      relationship: relationCtrl.text.trim().isEmpty ? "Emergency Contact" : relationCtrl.text.trim(),
+                      isPrimary: isPrimary,
+                    ),
+                  );
+                  Navigator.pop(ctx);
+                }
+              },
+              style: ElevatedButton.styleFrom(backgroundColor: AppTheme.primaryPink),
+              child: Text(_loc.isAmharic ? "አስቀምጥ" : "Save Changes", style: const TextStyle(color: Colors.white)),
             ),
           ],
         ),

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/user_profile_model.dart';
+import 'user_data_service.dart';
 
 class AuthService {
   static final AuthService _instance = AuthService._internal();
@@ -81,8 +82,14 @@ class AuthService {
     }
   }
 
-  /// Sign Out
+  /// Sign Out with instantaneous state reset
   Future<void> signOut() async {
-    await _auth.signOut();
+    try {
+      await UserDataService().clearOnSignOut();
+      await _auth.signOut();
+    } catch (e) {
+      debugPrint("[AuthService] Sign out error: $e");
+      await UserDataService().clearOnSignOut();
+    }
   }
 }

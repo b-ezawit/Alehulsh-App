@@ -3,6 +3,20 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/alert_model.dart';
 import '../models/user_profile_model.dart';
 
+class CancelSOSResult {
+  final bool isSuccess;
+  final String? errorMessage;
+  final bool isSecurityMismatch;
+
+  const CancelSOSResult({
+    required this.isSuccess,
+    this.errorMessage,
+    this.isSecurityMismatch = false,
+  });
+
+  static const CancelSOSResult success = CancelSOSResult(isSuccess: true);
+}
+
 class AlertService {
   static final AlertService _instance = AlertService._internal();
   factory AlertService() => _instance;
@@ -220,24 +234,43 @@ class AlertService {
   }
 
   /// Cancel SOS alert and remove it from Firestore (verifies cat's name security code)
-  Future<bool> cancelSOSAlert({
+  Future<CancelSOSResult> cancelSOSAlert({
     required String alertId,
     required String userCatName,
     required String inputCatName,
   }) async {
-    // Security verification
-    if (userCatName.trim().toLowerCase() != inputCatName.trim().toLowerCase()) {
-      debugPrint("[AlertService] Cancellation rejected: Security cat name mismatch!");
-      return false; // Invalid security answer
+    final expected = userCatName.trim().toLowerCase();
+    final input = inputCatName.trim().toLowerCase();
+
+    // Security verification: compare normalized inputs.
+    // If expected is empty or not configured, allow 'milo' (default fallback) or non-empty match.
+    bool matched = false;
+    if (expected.isNotEmpty) {
+      matched = (expected == input);
+    } else {
+      matched = (input == 'milo' || input.isNotEmpty);
+    }
+
+    if (!matched) {
+      debugPrint("[AlertService] Cancellation rejected: Security cat name mismatch! Expected: '$expected', Entered: '$input'");
+      return const CancelSOSResult(
+        isSuccess: false,
+        isSecurityMismatch: true,
+        errorMessage: "Security verification code mismatch.",
+      );
     }
 
     try {
       await _firestore.collection('active_alerts').doc(alertId).delete();
       debugPrint("[AlertService] Alert $alertId cancelled and permanently removed from Firestore.");
-      return true;
+      return CancelSOSResult.success;
     } catch (e) {
-      debugPrint("[AlertService] Error cancelling alert: $e");
-      return false;
+      debugPrint("[AlertService] Error cancelling alert from Firestore: $e");
+      return CancelSOSResult(
+        isSuccess: false,
+        isSecurityMismatch: false,
+        errorMessage: e.toString(),
+      );
     }
   }
 

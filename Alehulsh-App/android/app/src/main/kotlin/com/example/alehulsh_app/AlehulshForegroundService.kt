@@ -65,23 +65,32 @@ class AlehulshForegroundService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        createChannels()
-        startAsForeground()
-        val filter = IntentFilter().apply {
-            addAction(Intent.ACTION_SCREEN_OFF)
-            addAction(Intent.ACTION_SCREEN_ON)
-            addAction("android.intent.action.EMERGENCY_ASSISTANCE")
-            addAction("com.samsung.intent.action.EMERGENCY_STATE_CHANGED")
+        try {
+            createChannels()
+            startAsForeground()
+            val filter = IntentFilter().apply {
+                addAction(Intent.ACTION_SCREEN_OFF)
+                addAction(Intent.ACTION_SCREEN_ON)
+                addAction("android.intent.action.EMERGENCY_ASSISTANCE")
+                addAction("com.samsung.intent.action.EMERGENCY_STATE_CHANGED")
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                ContextCompat.registerReceiver(this, screenReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
+            } else {
+                registerReceiver(screenReceiver, filter)
+            }
+            startAlertPingListener()
+        } catch (e: Exception) {
+            Log.e("AlehulshForeground", "Error initializing service in onCreate: ${e.message}", e)
         }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            ContextCompat.registerReceiver(this, screenReceiver, filter, ContextCompat.RECEIVER_EXPORTED)
-        } else {
-            registerReceiver(screenReceiver, filter)
-        }
-        startAlertPingListener()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        try {
+            startAsForeground()
+        } catch (e: Exception) {
+            Log.e("AlehulshForeground", "Error in onStartCommand: ${e.message}")
+        }
         return START_STICKY
     }
 
@@ -97,18 +106,22 @@ class AlehulshForegroundService : Service() {
     }
 
     private fun startAsForeground() {
-        val notification = NotificationCompat.Builder(this, CHANNEL_RADAR)
-            .setContentTitle(getString(R.string.radar_notification_title))
-            .setContentText(getString(R.string.radar_notification_text))
-            .setSmallIcon(R.mipmap.ic_launcher)
-            .setOngoing(true)
-            .setPriority(NotificationCompat.PRIORITY_MIN)
-            .setSilent(true)
-            .build()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(RADAR_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
-        } else {
-            startForeground(RADAR_ID, notification)
+        try {
+            val notification = NotificationCompat.Builder(this, CHANNEL_RADAR)
+                .setContentTitle(getString(R.string.radar_notification_title))
+                .setContentText(getString(R.string.radar_notification_text))
+                .setSmallIcon(R.mipmap.ic_launcher)
+                .setOngoing(true)
+                .setPriority(NotificationCompat.PRIORITY_MIN)
+                .setSilent(true)
+                .build()
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                startForeground(RADAR_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+            } else {
+                startForeground(RADAR_ID, notification)
+            }
+        } catch (e: Exception) {
+            Log.e("AlehulshForeground", "Failed to startAsForeground: ${e.message}", e)
         }
     }
 
@@ -258,11 +271,15 @@ class AlehulshForegroundService : Service() {
         private const val SENDER_PING_ID = 71002
 
         fun start(context: Context) {
-            val intent = Intent(context, AlehulshForegroundService::class.java)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                context.startForegroundService(intent)
-            } else {
-                context.startService(intent)
+            try {
+                val intent = Intent(context, AlehulshForegroundService::class.java)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    context.startForegroundService(intent)
+                } else {
+                    context.startService(intent)
+                }
+            } catch (e: Exception) {
+                Log.e("AlehulshForeground", "Failed to start foreground service: ${e.message}")
             }
         }
     }

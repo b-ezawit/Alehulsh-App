@@ -79,10 +79,8 @@ class UserDataService {
         debugPrint("[UserDataService] User logged in: ${user.uid}");
         loadProfileFromFirestore(user.uid);
       } else {
-        debugPrint("[UserDataService] No active Firebase Auth user, in Guest Mode");
-        if (profileNotifier.value.uid.isEmpty) {
-          profileNotifier.value = UserProfile.guestProfile();
-        }
+        debugPrint("[UserDataService] No active Firebase Auth user, switching to Guest Mode");
+        clearOnSignOut();
       }
     });
 
@@ -180,6 +178,44 @@ class UserDataService {
       type: "contact_removed",
     );
     syncToFirestore();
+  }
+
+  /// Update existing emergency contact
+  void updateEmergencyContact(EmergencyContact contact) {
+    final updatedContacts = List<EmergencyContact>.from(currentProfile.emergencyContacts);
+    final index = updatedContacts.indexWhere((c) => c.id == contact.id);
+    if (index != -1) {
+      if (contact.isPrimary) {
+        for (int i = 0; i < updatedContacts.length; i++) {
+          updatedContacts[i] = updatedContacts[i].copyWith(isPrimary: false);
+        }
+      }
+      updatedContacts[index] = contact;
+      final updated = currentProfile.copyWith(
+        emergencyContacts: updatedContacts,
+        lastActiveAt: DateTime.now(),
+      );
+      profileNotifier.value = updated;
+      logActivity(
+        title: "Emergency Contact Updated",
+        description: "Updated ${contact.name} (${contact.relationship}) in alert network.",
+        type: "contact_updated",
+      );
+      syncToFirestore();
+    }
+  }
+
+  /// Immediately clear cached profile & UID for instantaneous logout response
+  Future<void> clearOnSignOut() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove('cached_user_profile');
+      await prefs.remove('flutter.active_user_uid');
+      await prefs.remove('active_user_uid');
+    } catch (e) {
+      debugPrint("[UserDataService] Error clearing sign out prefs: $e");
+    }
+    profileNotifier.value = UserProfile.guestProfile();
   }
 
   /// Toggle safety preferences
