@@ -18,9 +18,9 @@ import kotlin.math.sqrt
 
 /**
  * 24/7 Redundant Hardware & Gesture Accessibility Service:
- * - Detects 3x physical Power Button clicks via system key filtering.
+ * - Detects 5x physical Power Button clicks via system key filtering.
  * - Detects 2.0s phone shake even if screen is locked or app is closed.
- * - Detects OS Emergency SOS / 911 UI and ignores OS cancel dialogs.
+ * - Detects OS Emergency SOS / 911 countdown and ignores OS cancel dialogs.
  */
 class HardwareSosAccessibilityService : AccessibilityService(), SensorEventListener {
     private var lastOsSosWindowAt = 0L
@@ -34,7 +34,7 @@ class HardwareSosAccessibilityService : AccessibilityService(), SensorEventListe
     private val mainHandler = Handler(Looper.getMainLooper())
     private var shakeValidationRunnable: Runnable? = null
 
-    // 3x Power Button Key Intercept
+    // 5x Power Button Key Intercept
     private var powerPressCount = 0
     private var firstPowerPressTime = 0L
     private var lastPowerPressTime = 0L
@@ -79,7 +79,7 @@ class HardwareSosAccessibilityService : AccessibilityService(), SensorEventListe
                 keyCode == KeyEvent.KEYCODE_WAKEUP
             ) {
                 val now = System.currentTimeMillis()
-                if (lastPowerPressTime > 0 && (now - lastPowerPressTime > 3000L)) {
+                if (lastPowerPressTime > 0 && (now - lastPowerPressTime > 3500L)) {
                     powerPressCount = 0
                     firstPowerPressTime = 0L
                 }
@@ -90,12 +90,12 @@ class HardwareSosAccessibilityService : AccessibilityService(), SensorEventListe
                 lastPowerPressTime = now
                 Log.d("HardwareSosAccessibility", "Power key click in Accessibility: count=$powerPressCount, elapsed=${now - firstPowerPressTime}ms")
 
-                if (powerPressCount >= 3 && (now - firstPowerPressTime <= 3500L)) {
+                if (powerPressCount >= 5 && (now - firstPowerPressTime <= 5000L)) {
                     powerPressCount = 0
                     firstPowerPressTime = 0L
                     lastPowerPressTime = 0L
-                    Log.d("HardwareSosAccessibility", "🚨 3x Physical Power Button Confirmed in Accessibility! Dispatching SOS...")
-                    AlehulshSosDispatcher.trigger(this, "3x Power Button Gesture")
+                    Log.d("HardwareSosAccessibility", "🚨 5x Physical Power Button Confirmed in Accessibility! Dispatching SOS...")
+                    AlehulshSosDispatcher.trigger(this, "5x Power Button Gesture")
                 }
             }
         }
@@ -192,14 +192,16 @@ class HardwareSosAccessibilityService : AccessibilityService(), SensorEventListe
 
         if (isOsCancelEmergencyUi(texts)) {
             // Explicitly do nothing to Alehulsh SOS.
+            Log.d("HardwareSosAccessibility", "OS Cancel Emergency dialog detected; strictly preserving Alehulsh SOS state.")
             return
         }
 
         if (isOsEmergencySosUi(pkg, className, texts)) {
             val now = System.currentTimeMillis()
-            if (now - lastOsSosWindowAt > 8000) {
+            if (now - lastOsSosWindowAt > 6000) {
                 lastOsSosWindowAt = now
-                AlehulshSosDispatcher.trigger(this, "3x Power Button / Android Emergency SOS")
+                Log.d("HardwareSosAccessibility", "🚨 Android 5x Power Button Emergency SOS / 911 screen detected (pkg=$pkg, class=$className)! Dispatching Alehulsh SOS...")
+                AlehulshSosDispatcher.trigger(this, "5x Power Button / Android Emergency SOS")
             }
         }
     }
@@ -230,22 +232,44 @@ class HardwareSosAccessibilityService : AccessibilityService(), SensorEventListe
     }
 
     private fun isOsEmergencySosUi(pkg: String, className: String, text: String): Boolean {
-        val sosPkg = pkg.contains("systemui") ||
-            pkg.contains("emergency") ||
-            pkg.contains("safetyhub") ||
-            pkg.contains("safetycenter") ||
-            pkg.contains("personal.safety") ||
-            pkg.contains("com.samsung.android.app.telephonyui") ||
-            pkg.contains("com.android.phone")
-        val sosClass = className.contains("Emergency", ignoreCase = true) ||
-            className.contains("Sos", ignoreCase = true)
-        val sosText = text.contains("emergency sos") ||
-            text.contains("call 911") ||
-            text.contains("call emergency") ||
-            text.contains("slide to call") ||
-            text.contains("emergency call") ||
-            text.contains("counting down") ||
-            (text.contains("emergency") && text.contains("911"))
-        return (sosPkg && (sosClass || sosText)) || sosText
+        val lowerPkg = pkg.lowercase()
+        val lowerClass = className.lowercase()
+        val lowerText = text.lowercase()
+
+        val sosPkg = lowerPkg.contains("systemui") ||
+            lowerPkg.contains("emergency") ||
+            lowerPkg.contains("safety") ||
+            lowerPkg.contains("safetyhub") ||
+            lowerPkg.contains("safetycenter") ||
+            lowerPkg.contains("personal.safety") ||
+            lowerPkg.contains("telephony") ||
+            lowerPkg.contains("incall") ||
+            lowerPkg.contains("phone") ||
+            lowerPkg.contains("dialer") ||
+            lowerPkg.contains("sec.android") ||
+            lowerPkg.contains("samsung")
+
+        val sosClass = lowerClass.contains("emergency") ||
+            lowerClass.contains("sos") ||
+            lowerClass.contains("incall") ||
+            lowerClass.contains("dialpad") ||
+            lowerClass.contains("call") ||
+            lowerClass.contains("safety")
+
+        val sosKeywords = lowerText.contains("emergency sos") ||
+            lowerText.contains("call 911") ||
+            lowerText.contains("call emergency") ||
+            lowerText.contains("emergency call") ||
+            lowerText.contains("slide to call") ||
+            lowerText.contains("swipe to call") ||
+            lowerText.contains("counting down") ||
+            lowerText.contains("calling emergency") ||
+            lowerText.contains("emergency sharing") ||
+            lowerText.contains("emergency number") ||
+            lowerText.contains("emergency contacts") ||
+            lowerText.contains("send sos") ||
+            (lowerText.contains("emergency") && (lowerText.contains("911") || lowerText.contains("112") || lowerText.contains("999") || lowerText.contains("call") || lowerText.contains("sos")))
+
+        return (sosPkg && (sosClass || sosKeywords)) || sosKeywords
     }
 }

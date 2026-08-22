@@ -51,7 +51,7 @@ class AlehulshForegroundService : Service(), SensorEventListener {
     private val mainHandler = Handler(Looper.getMainLooper())
     private var shakeValidationRunnable: Runnable? = null
 
-    // 3x Physical Power Button Press Detection (Works 24/7 Even When Screen is Off/Closed)
+    // 5x Physical Power Button Press Detection (Works 24/7 Even When Screen is Off/Closed)
     private var powerButtonPressCount = 0
     private var firstPowerPressTime = 0L
     private var lastPowerPressTime = 0L
@@ -62,7 +62,7 @@ class AlehulshForegroundService : Service(), SensorEventListener {
             val now = System.currentTimeMillis()
 
             if (action == Intent.ACTION_SCREEN_OFF || action == Intent.ACTION_SCREEN_ON || action == Intent.ACTION_USER_PRESENT) {
-                // Track 3x consecutive Power Button clicks (each click toggles screen state)
+                // Track 5x consecutive Power Button clicks (each click toggles screen state)
                 if (lastPowerPressTime > 0 && (now - lastPowerPressTime > 3500L)) {
                     powerButtonPressCount = 0
                     firstPowerPressTime = 0L
@@ -74,14 +74,14 @@ class AlehulshForegroundService : Service(), SensorEventListener {
                 lastPowerPressTime = now
                 Log.d("AlehulshForeground", "Power button toggle: count=$powerButtonPressCount, elapsed=${now - firstPowerPressTime}ms (action=$action)")
 
-                if (powerButtonPressCount >= 3 && (now - firstPowerPressTime <= 4500L)) {
+                if (powerButtonPressCount >= 5 && (now - firstPowerPressTime <= 5000L)) {
                     powerButtonPressCount = 0
                     firstPowerPressTime = 0L
                     lastPowerPressTime = 0L
-                    Log.d("AlehulshForeground", "🚨 3x Physical Power Button Consecutive Click Confirmed! Dispatching SOS...")
+                    Log.d("AlehulshForeground", "🚨 5x Physical Power Button Consecutive Click Confirmed! Dispatching SOS...")
                     AlehulshSosDispatcher.trigger(
                         this@AlehulshForegroundService,
-                        "3x Power Button Gesture"
+                        "5x Power Button Gesture"
                     )
                 }
 

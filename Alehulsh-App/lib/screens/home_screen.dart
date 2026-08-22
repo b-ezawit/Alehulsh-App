@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../theme/app_theme.dart';
 import '../main.dart';
 import '../services/localization_service.dart';
@@ -209,61 +210,86 @@ class HomeScreen extends StatelessWidget {
                 const SizedBox(height: 16),
 
                 // Hardware & Motion SOS Feature Status Card
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: isDarkMode ? const Color(0xFF200F2B) : const Color(0xFFFFF1F2),
-                    borderRadius: BorderRadius.circular(18),
-                    border: Border.all(
-                      color: AppTheme.emergencyRed.withValues(alpha: 0.4),
-                      width: 1.5,
-                    ),
-                    boxShadow: [
-                      BoxShadow(
-                        color: AppTheme.emergencyRed.withValues(alpha: 0.1),
-                        blurRadius: 10,
-                        spreadRadius: 1,
-                      ),
-                    ],
-                  ),
-                  child: Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: AppTheme.emergencyRed.withValues(alpha: 0.15),
-                          shape: BoxShape.circle,
-                        ),
-                        child: const Icon(Icons.vibration_rounded, color: AppTheme.emergencyRed, size: 26),
-                      ),
-                      const SizedBox(width: 14),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              loc.isAmharic ? "የ 3x ፓወር ቁልፍ እና Shake 3x ድንገተኛ SOS" : "3x Power Button & 3x Shake SOS",
-                              style: const TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 14,
-                                color: AppTheme.emergencyRed,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
+                GestureDetector(
+                  onTap: () async {
+                    try {
+                      final platform = MethodChannel('com.example.alehulsh_app/hardware_sos');
+                      final isEnabled = await platform.invokeMethod<bool>('isAccessibilityEnabled') ?? false;
+                      if (!isEnabled && context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(
                               loc.isAmharic
-                                  ? "ስልክዎ ተቆልፎም ቢሆን የፓወር ቁልፉን 3 ጊዜ በፍጥነት በመጫን (3x Power Button) ወይም ለ 2 ሰከንድ በማነቅነቅ የቀጥታ GPS የአደጋ ጥሪ ወዲያውኑ ይላካል"
-                                  : "Press power button 3 times (even when screen is closed/locked) or shake for 2s to instantly broadcast live GPS emergency SOS",
-                              style: TextStyle(
-                                fontSize: 12,
-                                height: 1.35,
-                                color: isDarkMode ? Colors.white70 : Colors.black87,
-                              ),
+                                  ? "ለ 5x ፓወር ቁልፍ የ Accessibility ፈቃድ ይክፈቱ"
+                                  : "Enable Accessibility Service for 5x Power Button SOS",
                             ),
-                          ],
-                        ),
+                            action: SnackBarAction(
+                              label: loc.isAmharic ? "ክፈት" : "Enable",
+                              onPressed: () {
+                                platform.invokeMethod('openAccessibilitySettings');
+                              },
+                            ),
+                          ),
+                        );
+                      }
+                    } catch (_) {}
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: isDarkMode ? const Color(0xFF200F2B) : const Color(0xFFFFF1F2),
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(
+                        color: AppTheme.emergencyRed.withValues(alpha: 0.4),
+                        width: 1.5,
                       ),
-                    ],
+                      boxShadow: [
+                        BoxShadow(
+                          color: AppTheme.emergencyRed.withValues(alpha: 0.1),
+                          blurRadius: 10,
+                          spreadRadius: 1,
+                        ),
+                      ],
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: AppTheme.emergencyRed.withValues(alpha: 0.15),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(Icons.vibration_rounded, color: AppTheme.emergencyRed, size: 26),
+                        ),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                loc.isAmharic ? "የ 5x ፓወር ቁልፍ እና Shake 2s ድንገተኛ SOS" : "5x Power Button & 2s Shake SOS",
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 14,
+                                  color: AppTheme.emergencyRed,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                loc.isAmharic
+                                    ? "ስልክዎ ተቆልፎም ቢሆን የፓወር ቁልፉን 5 ጊዜ በፍጥነት በመጫን (5x Power Button) ወይም ለ 2 ሰከንድ በማነቅነቅ የቀጥታ GPS የአደጋ ጥሪ ወዲያውኑ ይላካል"
+                                    : "Press power button 5 times (even when screen is closed/locked) or shake for 2s to instantly broadcast live GPS emergency SOS",
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  height: 1.35,
+                                  color: isDarkMode ? Colors.white70 : Colors.black87,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
 
