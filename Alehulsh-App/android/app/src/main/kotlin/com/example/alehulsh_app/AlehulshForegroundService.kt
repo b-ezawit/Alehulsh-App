@@ -61,9 +61,9 @@ class AlehulshForegroundService : Service(), SensorEventListener {
             val action = intent?.action
             val now = System.currentTimeMillis()
 
-            if (action == Intent.ACTION_SCREEN_OFF || action == Intent.ACTION_SCREEN_ON) {
+            if (action == Intent.ACTION_SCREEN_OFF || action == Intent.ACTION_SCREEN_ON || action == Intent.ACTION_USER_PRESENT) {
                 // Track 3x consecutive Power Button clicks (each click toggles screen state)
-                if (lastPowerPressTime > 0 && (now - lastPowerPressTime > 2500L)) {
+                if (lastPowerPressTime > 0 && (now - lastPowerPressTime > 3500L)) {
                     powerButtonPressCount = 0
                     firstPowerPressTime = 0L
                 }
@@ -72,9 +72,9 @@ class AlehulshForegroundService : Service(), SensorEventListener {
                 }
                 powerButtonPressCount++
                 lastPowerPressTime = now
-                Log.d("AlehulshForeground", "Power button toggle: count=$powerButtonPressCount, elapsed=${now - firstPowerPressTime}ms")
+                Log.d("AlehulshForeground", "Power button toggle: count=$powerButtonPressCount, elapsed=${now - firstPowerPressTime}ms (action=$action)")
 
-                if (powerButtonPressCount >= 3 && (now - firstPowerPressTime <= 3000L)) {
+                if (powerButtonPressCount >= 3 && (now - firstPowerPressTime <= 4500L)) {
                     powerButtonPressCount = 0
                     firstPowerPressTime = 0L
                     lastPowerPressTime = 0L
@@ -106,7 +106,7 @@ class AlehulshForegroundService : Service(), SensorEventListener {
                 Log.d("AlehulshForeground", "OS Emergency broadcast received: $action")
                 AlehulshSosDispatcher.trigger(
                     this@AlehulshForegroundService,
-                    "5x Power Button Gesture / Android OS SOS"
+                    "3x Power Button Gesture / Android OS SOS"
                 )
             }
         }
@@ -153,6 +153,7 @@ class AlehulshForegroundService : Service(), SensorEventListener {
             val filter = IntentFilter().apply {
                 addAction(Intent.ACTION_SCREEN_OFF)
                 addAction(Intent.ACTION_SCREEN_ON)
+                addAction(Intent.ACTION_USER_PRESENT)
                 addAction("android.intent.action.EMERGENCY_ASSISTANCE")
                 addAction("com.samsung.intent.action.EMERGENCY_STATE_CHANGED")
             }
@@ -174,25 +175,25 @@ class AlehulshForegroundService : Service(), SensorEventListener {
         val z = event.values[2] / SensorManager.GRAVITY_EARTH
         val gForce = sqrt(x * x + y * y + z * z)
 
-        // Require deliberate vigorous force (2.7g)
-        if (gForce > 2.7f) {
+        // Require deliberate vigorous force (2.6g)
+        if (gForce > 2.6f) {
             val now = System.currentTimeMillis()
 
-            // If more than 3.0s since last shake, reset window
-            if (lastShakeTime > 0 && (now - lastShakeTime > 3000L)) {
+            // If more than 2.5s since last shake, reset window
+            if (lastShakeTime > 0 && (now - lastShakeTime > 2500L)) {
                 shakeCount = 0
                 firstShakeTime = 0L
                 isSosDispatchedForCurrentShake = false
                 shakeValidationRunnable?.let { mainHandler.removeCallbacks(it) }
             }
 
-            // Require minimum 350ms between distinct shake peaks
-            if (lastShakeTime == 0L || (now - lastShakeTime >= 350L)) {
+            // Require minimum 300ms between distinct shake peaks
+            if (lastShakeTime == 0L || (now - lastShakeTime >= 300L)) {
                 if (shakeCount == 0 || firstShakeTime == 0L) {
                     firstShakeTime = now
                     isSosDispatchedForCurrentShake = false
 
-                    // Schedule 2.3s validation window
+                    // Schedule 2.0s validation window
                     shakeValidationRunnable?.let { mainHandler.removeCallbacks(it) }
                     val runnable = Runnable {
                         if (shakeCount >= 3 && lastShakeTime > 0) {
@@ -207,7 +208,7 @@ class AlehulshForegroundService : Service(), SensorEventListener {
                         lastShakeTime = 0L
                     }
                     shakeValidationRunnable = runnable
-                    mainHandler.postDelayed(runnable, 2300L)
+                    mainHandler.postDelayed(runnable, 2000L) // 2.0s validation
                 }
 
                 lastShakeTime = now
@@ -215,7 +216,7 @@ class AlehulshForegroundService : Service(), SensorEventListener {
                 Log.d("AlehulshForeground", "Deliberate shake #$shakeCount in background (gForce: $gForce)")
 
                 val elapsed = now - firstShakeTime
-                if (shakeCount >= 3 && elapsed >= 2000L && !isSosDispatchedForCurrentShake) {
+                if (shakeCount >= 3 && elapsed >= 1600L && !isSosDispatchedForCurrentShake) {
                     dispatchShakeSOS()
                 }
             }
@@ -230,10 +231,10 @@ class AlehulshForegroundService : Service(), SensorEventListener {
         shakeCount = 0
         firstShakeTime = 0L
         lastShakeTime = 0L
-        Log.d("AlehulshForeground", "🚨 2.3-Second Sustained Phone Shake SOS Confirmed in Background! Dispatching SOS...")
+        Log.d("AlehulshForeground", "🚨 2-Second Sustained Phone Shake SOS Confirmed in Background! Dispatching SOS...")
         AlehulshSosDispatcher.trigger(
             this@AlehulshForegroundService,
-            "Emergency Shake Gesture (2.3s/3x)"
+            "Emergency Shake Gesture (2s/3x)"
         )
     }
 

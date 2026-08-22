@@ -252,8 +252,8 @@ class HomeScreen extends StatelessWidget {
                             const SizedBox(height: 4),
                             Text(
                               loc.isAmharic
-                                  ? "ስልክዎ ተቆልፎም ቢሆን የፓወር ቁልፉን 3 ጊዜ በፍጥነት በመጫን (3x Power Button) ወይም ለ 3 ሰከንድ በማነቅነቅ የቀጥታ GPS የአደጋ ጥሪ ወዲያውኑ ይላካል"
-                                  : "Press power button 3 times (even when screen is closed/locked) or shake for 3s to instantly broadcast live GPS emergency SOS",
+                                  ? "ስልክዎ ተቆልፎም ቢሆን የፓወር ቁልፉን 3 ጊዜ በፍጥነት በመጫን (3x Power Button) ወይም ለ 2 ሰከንድ በማነቅነቅ የቀጥታ GPS የአደጋ ጥሪ ወዲያውኑ ይላካል"
+                                  : "Press power button 3 times (even when screen is closed/locked) or shake for 2s to instantly broadcast live GPS emergency SOS",
                               style: TextStyle(
                                 fontSize: 12,
                                 height: 1.35,
