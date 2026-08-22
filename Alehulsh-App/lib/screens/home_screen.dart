@@ -242,7 +242,7 @@ class HomeScreen extends StatelessWidget {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              loc.isAmharic ? "የ 5x ፓወር ቁልፍ እና Shake 3x ድንገተኛ SOS" : "5x Power Button & 3x Shake SOS",
+                              loc.isAmharic ? "የ 3x ፓወር ቁልፍ እና Shake 3x ድንገተኛ SOS" : "3x Power Button & 3x Shake SOS",
                               style: const TextStyle(
                                 fontWeight: FontWeight.bold,
                                 fontSize: 14,
@@ -252,8 +252,8 @@ class HomeScreen extends StatelessWidget {
                             const SizedBox(height: 4),
                             Text(
                               loc.isAmharic
-                                  ? "ስልክዎ ተቆልፎም ቢሆን የፓወር ቁልፉን 5 ጊዜ በፍጥነት በመጫን (5x Power Button) ወይም ለ 3 ሰከንድ በማነቅነቅ የቀጥታ GPS የአደጋ ጥሪ ወዲያውኑ ይላካል"
-                                  : "Press power button 5 times (even when screen is closed/locked) or shake for 3s to instantly broadcast live GPS emergency SOS",
+                                  ? "ስልክዎ ተቆልፎም ቢሆን የፓወር ቁልፉን 3 ጊዜ በፍጥነት በመጫን (3x Power Button) ወይም ለ 3 ሰከንድ በማነቅነቅ የቀጥታ GPS የአደጋ ጥሪ ወዲያውኑ ይላካል"
+                                  : "Press power button 3 times (even when screen is closed/locked) or shake for 3s to instantly broadcast live GPS emergency SOS",
                               style: TextStyle(
                                 fontSize: 12,
                                 height: 1.35,
