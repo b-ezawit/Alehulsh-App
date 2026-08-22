@@ -72,10 +72,10 @@ class AlehulshForegroundService : Service() {
                 lastScreenTime = now
                 Log.d("AlehulshForeground", "SCREEN_OFF #$screenOffCount elapsed=${now - firstScreenOffTime}ms")
 
-                // 3 SCREEN_OFF events within 2.5s = 5 power presses (ON→OFF→ON→OFF→ON→OFF)
-                if (screenOffCount >= 3 && (now - firstScreenOffTime <= 2500L)) {
+                // 2 SCREEN_OFF events in rapid sequence (<= 2.5s) indicates rapid power clicks
+                if (screenOffCount >= 2 && (now - firstScreenOffTime <= 2500L)) {
                     resetScreenCounters()
-                    Log.d("AlehulshForeground", "🚨 3x SCREEN_OFF Confirmed (5x power)! Dispatching SOS...")
+                    Log.d("AlehulshForeground", "🚨 2x SCREEN_OFF Confirmed (Rapid power clicks)! Dispatching SOS...")
                     AlehulshSosDispatcher.trigger(this@AlehulshForegroundService, "5x Power Button Gesture")
                     return
                 }
@@ -93,10 +93,10 @@ class AlehulshForegroundService : Service() {
                 lastScreenTime = now
                 Log.d("AlehulshForeground", "SCREEN_ON #$screenAnyCount elapsed=${now - firstScreenAnyTime}ms")
 
-                // Fallback: 5 any-screen events within 3.5s
-                if (screenAnyCount >= 5 && (now - firstScreenAnyTime <= 3500L)) {
+                // 3 screen toggles within 3.0s indicates rapid power presses
+                if (screenAnyCount >= 3 && (now - firstScreenAnyTime <= 3000L)) {
                     resetScreenCounters()
-                    Log.d("AlehulshForeground", "🚨 5x Screen Toggle Confirmed! Dispatching SOS...")
+                    Log.d("AlehulshForeground", "🚨 3x Rapid Screen Toggle Confirmed! Dispatching SOS...")
                     AlehulshSosDispatcher.trigger(this@AlehulshForegroundService, "5x Power Button Gesture")
                     return
                 }

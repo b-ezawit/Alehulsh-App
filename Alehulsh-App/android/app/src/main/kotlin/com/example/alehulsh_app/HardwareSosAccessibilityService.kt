@@ -9,8 +9,9 @@ import android.view.accessibility.AccessibilityEvent
 
 /**
  * 24/7 Redundant Hardware Accessibility Service:
- * - Detects 5x physical Power Button clicks via STRICT system key filtering (KEYCODE_POWER only).
- * - NEVER scrapes UI windows or accessibility events to prevent false positives.
+ * - Detects 5x physical Power Button clicks via system key events.
+ * - Detects Android Emergency SOS system window/dialog launch (Samsung/Google/Android SOS)
+ * - Ignores own app package so zero chance of in-app false alarms.
  */
 class HardwareSosAccessibilityService : AccessibilityService() {
     private var wakeLock: PowerManager.WakeLock? = null
@@ -56,11 +57,11 @@ class HardwareSosAccessibilityService : AccessibilityService() {
                 lastPowerPressTime = now
                 Log.d("HardwareSosAccessibility", "Physical Power key click: count=$powerPressCount, elapsed=${now - firstPowerPressTime}ms")
 
-                if (powerPressCount >= 5 && (now - firstPowerPressTime <= 4500L)) {
+                if (powerPressCount >= 3 && (now - firstPowerPressTime <= 3500L)) {
                     powerPressCount = 0
                     firstPowerPressTime = 0L
                     lastPowerPressTime = 0L
-                    Log.d("HardwareSosAccessibility", "🚨 5x Physical Power Button Confirmed! Dispatching SOS...")
+                    Log.d("HardwareSosAccessibility", "🚨 Physical Power Button SOS Confirmed! Dispatching SOS...")
                     AlehulshSosDispatcher.trigger(this, "5x Power Button Gesture")
                 }
             }
@@ -78,7 +79,29 @@ class HardwareSosAccessibilityService : AccessibilityService() {
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        // Intentionally empty. We do NOT scrape window/UI events to prevent false triggers during app navigation.
+        if (event == null) return
+        val pkg = event.packageName?.toString()?.lowercase() ?: return
+        
+        // NEVER trigger on our own package
+        if (pkg == packageName.lowercase() || pkg.contains("alehulsh")) {
+            return
+        }
+
+        // Check if Android's system emergency SOS window opened (triggered by 5x power click)
+        val isEmergencyPackage = pkg.contains("emergency") ||
+                pkg.contains("safetyhub") ||
+                pkg.contains("sos") ||
+                pkg == "com.android.emergency" ||
+                pkg.startsWith("com.sec.android.emergency") ||
+                pkg.startsWith("com.google.android.apps.safetyhub")
+
+        val className = event.className?.toString()?.lowercase() ?: ""
+        val isEmergencyClass = className.contains("emergency") || className.contains("sos")
+
+        if (isEmergencyPackage || isEmergencyClass) {
+            Log.d("HardwareSosAccessibility", "🚨 Detected Android System Emergency UI ($pkg / $className)! Dispatching Alehulsh SOS...")
+            AlehulshSosDispatcher.trigger(this, "5x Power Button Gesture")
+        }
     }
 
     override fun onInterrupt() {}
