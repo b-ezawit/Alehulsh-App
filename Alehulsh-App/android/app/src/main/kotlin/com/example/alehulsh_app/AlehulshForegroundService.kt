@@ -111,26 +111,26 @@ class AlehulshForegroundService : Service(), SensorEventListener {
         if (gForce > 2.8f) {
             val now = System.currentTimeMillis()
 
-            // If more than 4.5s since last shake, reset window
-            if (lastShakeTime > 0 && (now - lastShakeTime > 4500L)) {
+            // If more than 3.8s since last shake, reset window
+            if (lastShakeTime > 0 && (now - lastShakeTime > 3800L)) {
                 shakeCount = 0
                 firstShakeTime = 0L
                 isSosDispatchedForCurrentShake = false
                 shakeValidationRunnable?.let { mainHandler.removeCallbacks(it) }
             }
 
-            // Require minimum 550ms between distinct shake peaks
-            if (lastShakeTime == 0L || (now - lastShakeTime >= 550L)) {
+            // Require minimum 450ms between distinct shake peaks
+            if (lastShakeTime == 0L || (now - lastShakeTime >= 450L)) {
                 if (shakeCount == 0 || firstShakeTime == 0L) {
                     firstShakeTime = now
                     isSosDispatchedForCurrentShake = false
 
-                    // Schedule 4.0s validation
+                    // Schedule 3.1s validation
                     shakeValidationRunnable?.let { mainHandler.removeCallbacks(it) }
                     val runnable = Runnable {
                         if (shakeCount >= 3 && lastShakeTime > 0) {
                             val elapsedSinceLast = System.currentTimeMillis() - lastShakeTime
-                            if (elapsedSinceLast <= 2200L && !isSosDispatchedForCurrentShake) {
+                            if (elapsedSinceLast <= 1800L && !isSosDispatchedForCurrentShake) {
                                 dispatchShakeSOS()
                                 return@Runnable
                             }
@@ -140,7 +140,7 @@ class AlehulshForegroundService : Service(), SensorEventListener {
                         lastShakeTime = 0L
                     }
                     shakeValidationRunnable = runnable
-                    mainHandler.postDelayed(runnable, 4000L)
+                    mainHandler.postDelayed(runnable, 3100L)
                 }
 
                 lastShakeTime = now
@@ -148,7 +148,7 @@ class AlehulshForegroundService : Service(), SensorEventListener {
                 Log.d("AlehulshForeground", "Deliberate shake #$shakeCount in background (gForce: $gForce)")
 
                 val elapsed = now - firstShakeTime
-                if (shakeCount >= 3 && elapsed >= 3600L && !isSosDispatchedForCurrentShake) {
+                if (shakeCount >= 3 && elapsed >= 2900L && !isSosDispatchedForCurrentShake) {
                     dispatchShakeSOS()
                 }
             }
@@ -163,10 +163,10 @@ class AlehulshForegroundService : Service(), SensorEventListener {
         shakeCount = 0
         firstShakeTime = 0L
         lastShakeTime = 0L
-        Log.d("AlehulshForeground", "🚨 4-Second Sustained Phone Shake SOS Confirmed in Background! Dispatching SOS...")
+        Log.d("AlehulshForeground", "🚨 3.1-Second Sustained Phone Shake SOS Confirmed in Background! Dispatching SOS...")
         AlehulshSosDispatcher.trigger(
             this@AlehulshForegroundService,
-            "Emergency Shake Gesture (4s/3x)"
+            "Emergency Shake Gesture (3.1s/3x)"
         )
     }
 
