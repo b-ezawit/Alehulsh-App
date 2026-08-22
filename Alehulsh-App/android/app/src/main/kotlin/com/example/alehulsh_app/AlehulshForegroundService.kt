@@ -25,9 +25,8 @@ import com.google.firebase.firestore.ListenerRegistration
 
 /**
  * Sticky foreground service:
- * - 24/7 Screen transition listener: Detects 5x physical power button presses even when screen is locked/closed.
+ * - 24/7 Screen transition listener: Detects rapid power button toggles when screen is closed.
  * - Listens to Firestore active_alerts and posts high-priority pings immediately.
- * - Shaking feature is completely removed.
  */
 class AlehulshForegroundService : Service() {
     private var alertsReg: ListenerRegistration? = null
@@ -35,41 +34,39 @@ class AlehulshForegroundService : Service() {
     private var pingListenerSeeded = false
     private var wakeLock: PowerManager.WakeLock? = null
 
-    // 5x Physical Power Button Press Detection (Works 24/7 Even When Screen is Off/Closed)
-    private var powerButtonPressCount = 0
-    private var firstPowerPressTime = 0L
-    private var lastPowerPressTime = 0L
+    // 5x Screen Toggle Counter (Screen Off -> Screen On transitions)
+    private var screenToggleCount = 0
+    private var firstToggleTime = 0L
+    private var lastToggleTime = 0L
 
     private val screenReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             val action = intent?.action
             val now = System.currentTimeMillis()
 
-            if (action == Intent.ACTION_SCREEN_OFF || action == Intent.ACTION_SCREEN_ON || action == Intent.ACTION_USER_PRESENT) {
-                // Track 5x consecutive Power Button clicks (each click toggles screen state)
-                if (lastPowerPressTime > 0 && (now - lastPowerPressTime > 3500L)) {
-                    powerButtonPressCount = 0
-                    firstPowerPressTime = 0L
+            if (action == Intent.ACTION_SCREEN_OFF || action == Intent.ACTION_SCREEN_ON) {
+                if (lastToggleTime > 0 && (now - lastToggleTime > 2500L)) {
+                    screenToggleCount = 0
+                    firstToggleTime = 0L
                 }
-                if (powerButtonPressCount == 0 || firstPowerPressTime == 0L) {
-                    firstPowerPressTime = now
+                if (screenToggleCount == 0 || firstToggleTime == 0L) {
+                    firstToggleTime = now
                 }
-                powerButtonPressCount++
-                lastPowerPressTime = now
-                Log.d("AlehulshForeground", "Power button toggle: count=$powerButtonPressCount, elapsed=${now - firstPowerPressTime}ms (action=$action)")
+                screenToggleCount++
+                lastToggleTime = now
 
-                if (powerButtonPressCount >= 5 && (now - firstPowerPressTime <= 5000L)) {
-                    powerButtonPressCount = 0
-                    firstPowerPressTime = 0L
-                    lastPowerPressTime = 0L
-                    Log.d("AlehulshForeground", "🚨 5x Physical Power Button Consecutive Click Confirmed! Dispatching SOS...")
+                // 5 rapid screen transitions within 4 seconds indicates 5x power presses
+                if (screenToggleCount >= 5 && (now - firstToggleTime <= 4000L)) {
+                    screenToggleCount = 0
+                    firstToggleTime = 0L
+                    lastToggleTime = 0L
+                    Log.d("AlehulshForeground", "🚨 5x Screen Toggles Confirmed! Dispatching SOS...")
                     AlehulshSosDispatcher.trigger(
                         this@AlehulshForegroundService,
                         "5x Power Button Gesture"
                     )
                 }
 
-                // Keep WakeLock alive
                 try {
                     if (wakeLock?.isHeld != true) {
                         wakeLock?.acquire()
@@ -77,14 +74,6 @@ class AlehulshForegroundService : Service() {
                 } catch (e: Exception) {
                     Log.e("AlehulshForeground", "WakeLock error: ${e.message}")
                 }
-            } else if (action == "android.intent.action.EMERGENCY_ASSISTANCE" ||
-                action == "com.samsung.intent.action.EMERGENCY_STATE_CHANGED"
-            ) {
-                Log.d("AlehulshForeground", "OS Emergency broadcast received: $action")
-                AlehulshSosDispatcher.trigger(
-                    this@AlehulshForegroundService,
-                    "5x Power Button Gesture / Android OS SOS"
-                )
             }
         }
     }
@@ -107,9 +96,6 @@ class AlehulshForegroundService : Service() {
             val filter = IntentFilter().apply {
                 addAction(Intent.ACTION_SCREEN_OFF)
                 addAction(Intent.ACTION_SCREEN_ON)
-                addAction(Intent.ACTION_USER_PRESENT)
-                addAction("android.intent.action.EMERGENCY_ASSISTANCE")
-                addAction("com.samsung.intent.action.EMERGENCY_STATE_CHANGED")
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 ContextCompat.registerReceiver(this, screenReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
