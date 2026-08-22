@@ -2,8 +2,12 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'user_data_service.dart';
 import 'emergency_ping_service.dart';
+import 'alert_service.dart';
+import 'location_service.dart';
+import '../models/user_profile_model.dart';
 
 /// Emergency Hardware SOS Service
 /// Listens to: 5x Physical Power Button Press only
@@ -16,6 +20,9 @@ class EmergencyGestureService {
       MethodChannel('com.example.alehulsh_app/hardware_sos');
 
   final UserDataService _userDataService = UserDataService();
+  final AlertService _alertService = AlertService();
+  final LocationService _locationService = LocationService();
+  final FlutterLocalNotificationsPlugin _notificationsPlugin = FlutterLocalNotificationsPlugin();
 
   bool _isListening = false;
   DateTime? _lastTriggerTime;
@@ -40,7 +47,7 @@ class EmergencyGestureService {
       if (call.method == 'onHardwareSOS') {
         final source = call.arguments is Map ? call.arguments['source'] : '5x Power Button Gesture';
         debugPrint("[EmergencyGestureService] 🚨 Native $source received!");
-        handleNativeSosTrigger(triggerSource: source?.toString() ?? "5x Power Button Gesture");
+        await triggerHardwareSOS(triggerSource: source?.toString() ?? "5x Power Button Gesture");
       }
     });
 
@@ -48,8 +55,8 @@ class EmergencyGestureService {
     debugPrint("[EmergencyGestureService] 5x Power Button SOS listener active.");
   }
 
-  /// Handle native SOS trigger: sync state and bring emergency tab to view
-  Future<void> handleNativeSosTrigger({String triggerSource = "5x Power Button Gesture"}) async {
+  /// Full SOS trigger via 5x Power Button — writes Firestore, shows notification, opens Emergency tab
+  Future<void> triggerHardwareSOS({String triggerSource = "5x Power Button Gesture"}) async {
     final now = DateTime.now();
 
     // Check cancellation cooldown (20s)
@@ -58,23 +65,81 @@ class EmergencyGestureService {
       return;
     }
 
-    // Debounce
+    // Debounce to prevent multiple triggers within 20 seconds
     if (_lastTriggerTime != null && now.difference(_lastTriggerTime!).inSeconds < 20) {
       debugPrint("[EmergencyGestureService] Debounced trigger from $triggerSource.");
       return;
     }
     _lastTriggerTime = now;
 
-    final uid = _userDataService.currentProfile.uid.isNotEmpty
-        ? _userDataService.currentProfile.uid
-        : (FirebaseAuth.instance.currentUser?.uid ?? '');
-
-    if (uid.isNotEmpty) {
-      await _userDataService.setSOSActiveLocally(true, uid);
-      _userDataService.recordSOSTriggered();
+    // Check if an SOS is already active — do not double-write
+    final isAlreadyActive = await _userDataService.isSOSActiveLocally();
+    if (isAlreadyActive) {
+      debugPrint("[EmergencyGestureService] SOS already active; navigating to Emergency tab.");
+      EmergencyPingService.targetNavigationTab.value = 0;
+      return;
     }
 
-    // Automatically focus the Emergency tab
+    var profile = _userDataService.currentProfile;
+    if (profile.uid.isEmpty) {
+      final authUid = FirebaseAuth.instance.currentUser?.uid ?? '';
+      if (authUid.isNotEmpty) {
+        profile = profile.copyWith(
+          uid: authUid,
+          fullName: profile.fullName.isNotEmpty
+              ? profile.fullName
+              : (FirebaseAuth.instance.currentUser?.displayName ?? 'Alehulsh User'),
+        );
+      } else {
+        profile = UserProfile.defaultProfile();
+      }
+    }
+
+    try {
+      // Get live location
+      final pos = await _locationService.getCurrentLocation();
+      final lat = pos?.latitude ?? _locationService.currentPosition?.latitude ?? 9.0125;
+      final lng = pos?.longitude ?? _locationService.currentPosition?.longitude ?? 38.7636;
+
+      // Write SOS alert to Firestore — the EmergencyScreen Firestore stream will pick this up
+      final alertId = await _alertService.createSOSAlert(
+        profile: profile,
+        latitude: lat,
+        longitude: lng,
+        locationName: "Live GPS",
+        message: "🚨 EMERGENCY DISTRESS TRIGGERED! Please send help immediately!",
+        isUrgent: true,
+      );
+
+      // Persist locally so the app restores state after reopen
+      await _userDataService.setSOSActiveLocally(true, alertId);
+      _userDataService.recordSOSTriggered();
+
+      // Show high-priority confirmation notification
+      const androidDetails = AndroidNotificationDetails(
+        'emergency_ping_channel',
+        'Emergency Proximity Pings',
+        channelDescription: 'Emergency trigger confirmation',
+        importance: Importance.max,
+        priority: Priority.high,
+        enableVibration: true,
+        playSound: true,
+        color: Color(0xFFE91E63),
+        fullScreenIntent: true,
+      );
+      await _notificationsPlugin.show(
+        71002,
+        "🚨 Your Alert has been sent.",
+        "Emergency SOS broadcast sent via $triggerSource! Help is on the way.",
+        const NotificationDetails(android: androidDetails),
+      );
+
+      debugPrint("[EmergencyGestureService] ✅ SOS fully triggered via $triggerSource! Alert: $alertId");
+    } catch (e) {
+      debugPrint("[EmergencyGestureService] Error triggering SOS: $e");
+    }
+
+    // Navigate to Emergency tab to show active SOS
     EmergencyPingService.targetNavigationTab.value = 0;
   }
 

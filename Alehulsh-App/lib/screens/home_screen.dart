@@ -338,7 +338,7 @@ class HomeScreen extends StatelessWidget {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
-                                  loc.tr('home_sos_btn'),
+                                  'Emergency SOS',
                                   style: const TextStyle(
                                     color: AppTheme.emergencyRed,
                                     fontSize: 18,
