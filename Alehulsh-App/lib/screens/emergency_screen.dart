@@ -11,6 +11,7 @@ import '../services/alert_service.dart';
 import '../services/location_service.dart';
 import '../services/localization_service.dart';
 import '../services/audio_recording_service.dart';
+import '../services/emergency_gesture_service.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'auth_screen.dart';
@@ -472,6 +473,7 @@ class _EmergencyScreenState extends State<EmergencyScreen> with SingleTickerProv
 
                   if (result.isSuccess) {
                     await _userDataService.setSOSActiveLocally(false);
+                    await EmergencyGestureService().recordCancellation();
                     Navigator.pop(ctx);
                     setState(() {
                       _isSOSSent = false;

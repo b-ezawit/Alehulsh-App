@@ -259,7 +259,7 @@ class HomeScreen extends StatelessWidget {
                             color: AppTheme.emergencyRed.withValues(alpha: 0.15),
                             shape: BoxShape.circle,
                           ),
-                          child: const Icon(Icons.vibration_rounded, color: AppTheme.emergencyRed, size: 26),
+                          child: const Icon(Icons.power_settings_new_rounded, color: AppTheme.emergencyRed, size: 26),
                         ),
                         const SizedBox(width: 14),
                         Expanded(
@@ -267,7 +267,7 @@ class HomeScreen extends StatelessWidget {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                loc.isAmharic ? "የ 5x ፓወር ቁልፍ እና Shake 2s ድንገተኛ SOS" : "5x Power Button & 2s Shake SOS",
+                                loc.isAmharic ? "የ 5x ፓወር ቁልፍ ድንገተኛ SOS" : "5x Physical Power Button SOS",
                                 style: const TextStyle(
                                   fontWeight: FontWeight.bold,
                                   fontSize: 14,
@@ -277,8 +277,8 @@ class HomeScreen extends StatelessWidget {
                               const SizedBox(height: 4),
                               Text(
                                 loc.isAmharic
-                                    ? "ስልክዎ ተቆልፎም ቢሆን የፓወር ቁልፉን 5 ጊዜ በፍጥነት በመጫን (5x Power Button) ወይም ለ 2 ሰከንድ በማነቅነቅ የቀጥታ GPS የአደጋ ጥሪ ወዲያውኑ ይላካል"
-                                    : "Press power button 5 times (even when screen is closed/locked) or shake for 2s to instantly broadcast live GPS emergency SOS",
+                                    ? "ስልክዎ ተቆልፎም ቢሆን የፓወር ቁልፉን 5 ጊዜ በፍጥነት በመጫን (5x Power Button) ወይም የ SOS ቁልፍ በመንካት የቀጥታ GPS የአደጋ ጥሪ ወዲያውኑ ይላካል"
+                                    : "Press physical power button 5 times quickly (even when screen is closed/locked) or tap the SOS button to instantly broadcast live GPS emergency SOS",
                                 style: TextStyle(
                                   fontSize: 12,
                                   height: 1.35,

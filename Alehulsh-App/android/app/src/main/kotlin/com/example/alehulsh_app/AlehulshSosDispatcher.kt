@@ -27,9 +27,7 @@ import java.util.TimeZone
 object AlehulshSosDispatcher {
     private const val TAG = "AlehulshSosDispatcher"
     private const val PREFS = "alehulsh_sos"
-    private const val KEY_PENDING = "pending_hardware_sos"
-    private const val KEY_PENDING_SOURCE = "pending_hardware_sos_source"
-    private const val DEBOUNCE_MS = 8000L
+    private const val DEBOUNCE_MS = 20000L
 
     @Volatile
     var methodChannel: MethodChannel? = null
@@ -37,35 +35,31 @@ object AlehulshSosDispatcher {
     @Volatile
     private var lastTriggerAt = 0L
 
+    @Volatile
+    private var lastCancellationAt = 0L
+
+    fun recordCancellation() {
+        val now = System.currentTimeMillis()
+        lastCancellationAt = now
+        lastTriggerAt = now
+        Log.d(TAG, "Manual SOS cancellation recorded. Hardware triggers locked for 20s.")
+    }
+
     fun trigger(context: Context, source: String) {
         val now = System.currentTimeMillis()
+        if (now - lastCancellationAt < 20000L) {
+            Log.d(TAG, "Ignoring trigger: user recently cancelled ($source)")
+            return
+        }
         if (now - lastTriggerAt < DEBOUNCE_MS) {
-            Log.d(TAG, "Debounced SOS from $source")
+            Log.d(TAG, "Debounced SOS from $source (cooldown active)")
             return
         }
         lastTriggerAt = now
 
-        persistPending(context, source)
         notifyFlutter(source)
         writeFirestoreAlert(context, source)
         bringAppToForeground(context)
-    }
-
-    fun consumePendingSource(context: Context): String? {
-        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        val pending = prefs.getBoolean(KEY_PENDING, false)
-        if (!pending) return null
-        val source = prefs.getString(KEY_PENDING_SOURCE, "Emergency Shake Gesture (2.3s/3x)")
-        prefs.edit().putBoolean(KEY_PENDING, false).apply()
-        return source
-    }
-
-    private fun persistPending(context: Context, source: String) {
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .edit()
-            .putBoolean(KEY_PENDING, true)
-            .putString(KEY_PENDING_SOURCE, source)
-            .apply()
     }
 
     private fun notifyFlutter(source: String) {
@@ -83,8 +77,8 @@ object AlehulshSosDispatcher {
         try {
             val launch = context.packageManager.getLaunchIntentForPackage(context.packageName)
             launch?.addFlags(
-                android.content.Intent.FLAG_ACTIVITY_NEW_TASK or
-                    android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP
+                Intent.FLAG_ACTIVITY_NEW_TASK or
+                    Intent.FLAG_ACTIVITY_SINGLE_TOP
             )
             launch?.putExtra("open_alerts_tab", true)
             launch?.putExtra("hardware_sos", true)
@@ -110,11 +104,16 @@ object AlehulshSosDispatcher {
     }
 
     private fun setLocalSosActive(context: Context, alertId: String) {
-        val prefs = context.getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
-        prefs.edit()
-            .putBoolean("flutter.is_sos_active", true)
-            .putString("flutter.active_alert_id", alertId)
-            .apply()
+        try {
+            val prefs = context.getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
+            prefs.edit()
+                .putBoolean("flutter.local_sos_active", true)
+                .putString("flutter.local_sos_alert_id", alertId)
+                .putString("flutter.local_sos_triggered_at", utcIsoNow())
+                .apply()
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not set local SOS state: ${e.message}")
+        }
     }
 
     @Suppress("MissingPermission")
@@ -200,36 +199,21 @@ object AlehulshSosDispatcher {
                                         SetOptions.merge()
                                     )
                                 }
-                                .addOnFailureListener { e ->
-                                    Log.e(TAG, "Native SOS write failed: ${e.message}")
-                                }
                         }
-                        .addOnFailureListener { e ->
-                            Log.e(TAG, "Profile fetch failed: ${e.message}")
-                        }
-                }
-                .addOnFailureListener { e ->
-                    Log.e(TAG, "Active alert check failed: ${e.message}")
                 }
         } catch (e: Exception) {
-            Log.e(TAG, "writeFirestoreAlert: ${e.message}")
+            Log.e(TAG, "writeFirestoreAlert failed: ${e.message}")
         }
     }
 
     @Suppress("MissingPermission")
     private fun lastKnownLocation(context: Context): Location? {
-        return try {
-            val lm = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
-            val gps = lm.getLastKnownLocation(LocationManager.GPS_PROVIDER)
-            val net = lm.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
-            when {
-                gps != null && net != null -> if (gps.time >= net.time) gps else net
-                gps != null -> gps
-                else -> net
-            }
-        } catch (_: Exception) {
-            null
-        }
+        val lm = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager ?: return null
+        val gps = try { lm.getLastKnownLocation(LocationManager.GPS_PROVIDER) } catch (_: Exception) { null }
+        val net = try { lm.getLastKnownLocation(LocationManager.NETWORK_PROVIDER) } catch (_: Exception) { null }
+        val pass = try { lm.getLastKnownLocation(LocationManager.PASSIVE_PROVIDER) } catch (_: Exception) { null }
+        val candidates = listOfNotNull(gps, net, pass)
+        return candidates.maxByOrNull { it.time }
     }
 
     private fun showSenderConfirmation(context: Context) {
@@ -241,22 +225,21 @@ object AlehulshSosDispatcher {
                     "Emergency Proximity Pings",
                     NotificationManager.IMPORTANCE_HIGH
                 ).apply {
-                    description = "Instant SOS pings"
+                    description = "Urgent alerts from nearby women requesting help"
                     enableVibration(true)
-                    enableLights(true)
-                    lockscreenVisibility = android.app.Notification.VISIBILITY_PUBLIC
+                    setShowBadge(true)
                 }
                 nm.createNotificationChannel(channel)
             }
 
             val launch = context.packageManager.getLaunchIntentForPackage(context.packageName)
-            launch?.addFlags(
-                Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
-            )
-            launch?.putExtra("open_alerts_tab", true)
             val pending = if (launch != null) {
+                launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                launch.putExtra("open_alerts_tab", true)
                 android.app.PendingIntent.getActivity(
-                    context, 71002, launch,
+                    context,
+                    71002,
+                    launch,
                     android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
                 )
             } else null

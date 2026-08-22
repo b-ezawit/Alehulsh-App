@@ -1,19 +1,18 @@
 import 'dart:async';
-import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
-import 'package:sensors_plus/sensors_plus.dart';
 import 'alert_service.dart';
 import 'user_data_service.dart';
 import 'location_service.dart';
 import 'localization_service.dart';
 import '../models/user_profile_model.dart';
 
-/// Emergency Gesture & Hardware SOS Service
-/// Listens to: Native Android Power Button (5 rapid presses / screen toggles) & Emergency Phone Shake
+/// Emergency Hardware SOS Service
+/// Listens to: 5x Physical Power Button Press & Android OS Emergency SOS
+/// Shaking is completely disabled.
 class EmergencyGestureService {
   static final EmergencyGestureService _instance = EmergencyGestureService._internal();
   factory EmergencyGestureService() => _instance;
@@ -29,98 +28,49 @@ class EmergencyGestureService {
 
   bool _isListening = false;
   DateTime? _lastTriggerTime;
-  DateTime? _firstShakeTimestamp;
-  DateTime? _lastShakeTimestamp;
-  int _shakeCounter = 0;
-  StreamSubscription<AccelerometerEvent>? _accelSubscription;
+  DateTime? _lastCancellationTime;
 
-  Timer? _shakeValidationTimer;
+  /// Notify native layer and dart layer that user cancelled SOS.
+  /// Prevents any triggers for the next 20 seconds.
+  Future<void> recordCancellation() async {
+    _lastCancellationTime = DateTime.now();
+    _lastTriggerTime = _lastCancellationTime;
+    try {
+      await _platformChannel.invokeMethod('recordCancellation');
+    } catch (_) {}
+    debugPrint("[EmergencyGestureService] SOS cancelled. Hardware triggers locked for 20s.");
+  }
 
-  /// Start monitoring phone shake gesture (2.3 seconds continuous shaking)
+  /// Start monitoring physical power button SOS callbacks
   void startListening() {
     if (_isListening) return;
 
-    // 1. Listen for Native Android Service Callbacks (Background 2.3s Shake / OS Emergency)
+    // Listen for Native Android Service Callbacks (5x Power Button / OS Emergency)
     _platformChannel.setMethodCallHandler((call) async {
       if (call.method == 'onHardwareSOS') {
-        final source = call.arguments is Map ? call.arguments['source'] : 'Emergency Shake Gesture (2.3s/3x)';
+        final source = call.arguments is Map ? call.arguments['source'] : '5x Power Button Gesture';
         debugPrint("[EmergencyGestureService] 🚨 Native $source received!");
-        triggerHardwareSOS(triggerSource: source?.toString() ?? "Emergency Shake Gesture (2.3s/3x)");
+        triggerHardwareSOS(triggerSource: source?.toString() ?? "5x Power Button Gesture");
       }
     });
 
-    // 2. Listen for Emergency Phone Shake Gesture via Accelerometer (Sustained 2s vigorous shaking)
-    try {
-      _accelSubscription = accelerometerEventStream().listen((AccelerometerEvent event) {
-        double gX = event.x / 9.80665;
-        double gY = event.y / 9.80665;
-        double gZ = event.z / 9.80665;
-        double gForce = math.sqrt(gX * gX + gY * gY + gZ * gZ);
+    _isListening = true;
+    debugPrint("[EmergencyGestureService] 5x Power Button SOS listener active.");
+  }
 
-        // Require deliberate vigorous force (2.6g) to prevent false positives
-        if (gForce > 2.6) {
-          final now = DateTime.now();
+  /// Trigger emergency SOS broadcast from 5x Power Button
+  Future<void> triggerHardwareSOS({String triggerSource = "5x Power Button Gesture"}) async {
+    final now = DateTime.now();
 
-          // Reset counter if too much time (2.5s) has passed since the last shake
-          if (_lastShakeTimestamp != null && now.difference(_lastShakeTimestamp!).inMilliseconds > 2500) {
-            _shakeCounter = 0;
-            _firstShakeTimestamp = null;
-            _shakeValidationTimer?.cancel();
-          }
-
-          // Enforce minimum 300ms spacing between distinct shakes
-          if (_lastShakeTimestamp == null || now.difference(_lastShakeTimestamp!).inMilliseconds >= 300) {
-            if (_shakeCounter == 0 || _firstShakeTimestamp == null) {
-              _firstShakeTimestamp = now;
-              _shakeValidationTimer?.cancel();
-              _shakeValidationTimer = Timer(const Duration(milliseconds: 2000), () {
-                if (_shakeCounter >= 3 && _lastShakeTimestamp != null) {
-                  final sinceLast = DateTime.now().difference(_lastShakeTimestamp!).inMilliseconds;
-                  if (sinceLast <= 1500) {
-                    _dispatchShakeSOS();
-                    return;
-                  }
-                }
-                _shakeCounter = 0;
-                _firstShakeTimestamp = null;
-                _lastShakeTimestamp = null;
-              });
-            }
-
-            _lastShakeTimestamp = now;
-            _shakeCounter++;
-
-            debugPrint("[EmergencyGestureService] Deliberate shake $_shakeCounter (gForce: ${gForce.toStringAsFixed(1)})");
-
-            final elapsed = now.difference(_firstShakeTimestamp!).inMilliseconds;
-            if (_shakeCounter >= 3 && elapsed >= 1600) {
-              _dispatchShakeSOS();
-            }
-          }
-        }
-      });
-    } catch (e) {
-      debugPrint("[EmergencyGestureService] Accelerometer init error: $e");
+    // Check cancellation cooldown (20s)
+    if (_lastCancellationTime != null && now.difference(_lastCancellationTime!).inSeconds < 20) {
+      debugPrint("[EmergencyGestureService] Ignoring trigger: user recently cancelled SOS.");
+      return;
     }
 
-    _isListening = true;
-    debugPrint("[EmergencyGestureService] 2-Second 3x Shake SOS listener active.");
-  }
-
-  void _dispatchShakeSOS() {
-    _shakeValidationTimer?.cancel();
-    _shakeCounter = 0;
-    _firstShakeTimestamp = null;
-    _lastShakeTimestamp = null;
-    debugPrint("[EmergencyGestureService] 🚨 Sustained 2-Second 3x Shake SOS Confirmed! Triggering SOS...");
-    triggerHardwareSOS(triggerSource: "Emergency Shake Gesture (2s/3x)");
-  }
-
-  /// Trigger emergency SOS broadcast from phone shake or emergency listener
-  Future<void> triggerHardwareSOS({String triggerSource = "Emergency Shake Gesture (2s/3x)"}) async {
-    // Debounce to prevent multiple triggers within 6 seconds
-    final now = DateTime.now();
-    if (_lastTriggerTime != null && now.difference(_lastTriggerTime!).inSeconds < 6) {
+    // Debounce to prevent multiple triggers within 20 seconds
+    if (_lastTriggerTime != null && now.difference(_lastTriggerTime!).inSeconds < 20) {
+      debugPrint("[EmergencyGestureService] Debounced trigger from $triggerSource.");
       return;
     }
     _lastTriggerTime = now;
@@ -143,7 +93,6 @@ class EmergencyGestureService {
               : (FirebaseAuth.instance.currentUser?.displayName ?? 'Alehulsh User'),
         );
       } else {
-        // Use default profile fallback if guest
         profile = UserProfile.defaultProfile();
       }
     }
@@ -197,7 +146,5 @@ class EmergencyGestureService {
 
   void stopListening() {
     _isListening = false;
-    _accelSubscription?.cancel();
-    _accelSubscription = null;
   }
 }

@@ -20,8 +20,9 @@ class MainActivity : FlutterActivity() {
                     AlehulshForegroundService.start(this)
                     result.success(true)
                 }
-                "consumePendingSos" -> {
-                    result.success(AlehulshSosDispatcher.consumePendingSource(this))
+                "recordCancellation" -> {
+                    AlehulshSosDispatcher.recordCancellation()
+                    result.success(true)
                 }
                 "isAccessibilityEnabled" -> {
                     result.success(isAccessibilityServiceEnabled())
@@ -49,13 +50,7 @@ class MainActivity : FlutterActivity() {
 
     override fun onResume() {
         super.onResume()
-        val pending = AlehulshSosDispatcher.consumePendingSource(this)
-        if (pending != null) {
-            AlehulshSosDispatcher.methodChannel?.invokeMethod(
-                "onHardwareSOS",
-                mapOf("source" to pending, "independentOfOsCancel" to true)
-            )
-        }
+        // Do NOT re-dispatch SOS in onResume to prevent duplicate trigger loops.
     }
 
     override fun onDestroy() {
