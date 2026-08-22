@@ -19,9 +19,6 @@ class HardwareSosAccessibilityService : AccessibilityService() {
     }
 
     override fun onKeyEvent(event: KeyEvent): Boolean {
-        if (event.action == KeyEvent.ACTION_DOWN && event.keyCode == KeyEvent.KEYCODE_POWER) {
-            registerPowerPress()
-        }
         // Never consume — Android OS SOS / 911 UI must still appear.
         return false
     }
@@ -56,18 +53,6 @@ class HardwareSosAccessibilityService : AccessibilityService() {
     }
 
     override fun onInterrupt() {}
-
-    private fun registerPowerPress() {
-        val now = System.currentTimeMillis()
-        synchronized(powerKeyTimestamps) {
-            powerKeyTimestamps.add(now)
-            powerKeyTimestamps.removeAll { now - it > 6000L }
-            if (powerKeyTimestamps.size >= 5) {
-                powerKeyTimestamps.clear()
-                AlehulshSosDispatcher.trigger(this, "Power Button 5-Click SOS")
-            }
-        }
-    }
 
     private fun collectText(event: AccessibilityEvent): String {
         val builder = StringBuilder()

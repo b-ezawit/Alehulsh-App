@@ -178,20 +178,27 @@ class HomeScreen extends StatelessWidget {
                           ],
                         ),
                       ),
-                      const SizedBox(width: 10),
+                      const SizedBox(width: 12),
                       ClipRRect(
-                        borderRadius: BorderRadius.circular(16),
+                        borderRadius: BorderRadius.circular(22),
                         child: Container(
-                          width: 100,
-                          height: 130,
-                          padding: const EdgeInsets.all(4),
+                          width: 125,
+                          height: 155,
+                          padding: const EdgeInsets.all(3),
                           decoration: BoxDecoration(
-                            color: AppTheme.primaryPink.withValues(alpha: 0.08),
-                            borderRadius: BorderRadius.circular(16),
+                            color: AppTheme.primaryPink.withValues(alpha: 0.14),
+                            borderRadius: BorderRadius.circular(22),
+                            border: Border.all(
+                              color: AppTheme.primaryPink.withValues(alpha: 0.3),
+                              width: 1.5,
+                            ),
                           ),
-                          child: Image.asset(
-                            'assets/images/women_community.png',
-                            fit: BoxFit.contain,
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(19),
+                            child: Image.asset(
+                              'assets/images/women_community.png',
+                              fit: BoxFit.cover,
+                            ),
                           ),
                         ),
                       ),
@@ -227,7 +234,7 @@ class HomeScreen extends StatelessWidget {
                           color: AppTheme.emergencyRed.withValues(alpha: 0.15),
                           shape: BoxShape.circle,
                         ),
-                        child: const Icon(Icons.emergency_rounded, color: AppTheme.emergencyRed, size: 26),
+                        child: const Icon(Icons.vibration_rounded, color: AppTheme.emergencyRed, size: 26),
                       ),
                       const SizedBox(width: 14),
                       Expanded(
@@ -235,7 +242,7 @@ class HomeScreen extends StatelessWidget {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              loc.isAmharic ? "የስልክ ድንገተኛ SOS ጥበቃ ንቁ ነው" : "Emergency SOS Gestures Active",
+                              loc.isAmharic ? "የስልክ ድንገተኛ SOS ጥበቃ (Shake 3x)" : "3x Phone Shake SOS Active",
                               style: const TextStyle(
                                 fontWeight: FontWeight.bold,
                                 fontSize: 14,
@@ -245,8 +252,8 @@ class HomeScreen extends StatelessWidget {
                             const SizedBox(height: 4),
                             Text(
                               loc.isAmharic
-                                  ? "የስልክዎን ፓወር (Power) ቁልፍ 5 ጊዜ በፍጥነት በመጫን የቀጥታ GPS የአደጋ ጊዜ ጥሪ ወዲያውኑ ማሰራጨት ይችላሉ"
-                                  : "Press the Power button 5 times rapidly to automatically broadcast live GPS emergency SOS",
+                                  ? "ስልክዎን ለ 4 ሰከንድ 3 ጊዜ በማነቅነቅ (Shake 3x) የቀጥታ GPS የአደጋ ጊዜ ጥሪ ወዲያውኑ ማሰራጨት ይችላሉ"
+                                  : "Shake your phone 3 times continuously for 4 seconds to automatically broadcast live GPS emergency SOS",
                               style: TextStyle(
                                 fontSize: 12,
                                 height: 1.35,

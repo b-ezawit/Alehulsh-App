@@ -34,20 +34,22 @@ class EmergencyGestureService {
   int _shakeCounter = 0;
   StreamSubscription<AccelerometerEvent>? _accelSubscription;
 
-  /// Start monitoring native Power button 5-press events and phone shake
+  Timer? _shakeValidationTimer;
+
+  /// Start monitoring phone shake gesture (4 seconds continuous shaking)
   void startListening() {
     if (_isListening) return;
 
-    // 1. Listen for Native Android Hardware Buttons (Power 5x, Volume 3x, OS SOS)
+    // 1. Listen for Native Android Service Callbacks (Background 4s Shake / OS Emergency)
     _platformChannel.setMethodCallHandler((call) async {
       if (call.method == 'onHardwareSOS') {
-        final source = call.arguments is Map ? call.arguments['source'] : 'Power Button 5-Click SOS';
+        final source = call.arguments is Map ? call.arguments['source'] : 'Emergency Shake Gesture (4s/3x)';
         debugPrint("[EmergencyGestureService] 🚨 Native $source received!");
-        triggerHardwareSOS(triggerSource: source?.toString() ?? "Power Button 5-Click SOS");
+        triggerHardwareSOS(triggerSource: source?.toString() ?? "Emergency Shake Gesture (4s/3x)");
       }
     });
 
-    // 2. Listen for Emergency Phone Shake Gesture via Accelerometer (3 deliberate vigorous shakes)
+    // 2. Listen for Emergency Phone Shake Gesture via Accelerometer (Sustained 4s vigorous shaking)
     try {
       _accelSubscription = accelerometerEventStream().listen((AccelerometerEvent event) {
         double gX = event.x / 9.80665;
@@ -55,30 +57,44 @@ class EmergencyGestureService {
         double gZ = event.z / 9.80665;
         double gForce = math.sqrt(gX * gX + gY * gY + gZ * gZ);
 
-        // Require strong deliberate force (3.2g) to prevent false positives
-        if (gForce > 3.2) {
+        // Require strong deliberate force (2.8g) to prevent false positives
+        if (gForce > 2.8) {
           final now = DateTime.now();
 
-          // Reset counter if too much time (3.5s) has passed since the last shake
-          if (_lastShakeTimestamp != null && now.difference(_lastShakeTimestamp!).inMilliseconds > 3500) {
+          // Reset counter if too much time (4.5s) has passed since the last shake
+          if (_lastShakeTimestamp != null && now.difference(_lastShakeTimestamp!).inMilliseconds > 4500) {
             _shakeCounter = 0;
             _firstShakeTimestamp = null;
+            _shakeValidationTimer?.cancel();
           }
 
-          // Enforce minimum 500ms spacing between distinct shakes
-          if (_lastShakeTimestamp == null || now.difference(_lastShakeTimestamp!).inMilliseconds >= 500) {
+          // Enforce minimum 550ms spacing between distinct shakes
+          if (_lastShakeTimestamp == null || now.difference(_lastShakeTimestamp!).inMilliseconds >= 550) {
+            if (_shakeCounter == 0 || _firstShakeTimestamp == null) {
+              _firstShakeTimestamp = now;
+              _shakeValidationTimer?.cancel();
+              _shakeValidationTimer = Timer(const Duration(milliseconds: 4000), () {
+                if (_shakeCounter >= 3 && _lastShakeTimestamp != null) {
+                  final sinceLast = DateTime.now().difference(_lastShakeTimestamp!).inMilliseconds;
+                  if (sinceLast <= 2200) {
+                    _dispatchShakeSOS();
+                    return;
+                  }
+                }
+                _shakeCounter = 0;
+                _firstShakeTimestamp = null;
+                _lastShakeTimestamp = null;
+              });
+            }
+
             _lastShakeTimestamp = now;
-            _firstShakeTimestamp ??= now;
             _shakeCounter++;
 
-            debugPrint("[EmergencyGestureService] Deliberate shake $_shakeCounter/3 (gForce: ${gForce.toStringAsFixed(1)})");
+            debugPrint("[EmergencyGestureService] Deliberate shake $_shakeCounter (gForce: ${gForce.toStringAsFixed(1)})");
 
-            if (_shakeCounter >= 3) {
-              _shakeCounter = 0;
-              _firstShakeTimestamp = null;
-              _lastShakeTimestamp = null;
-              debugPrint("[EmergencyGestureService] 🚨 3x Deliberate Phone Shake SOS Gesture detected!");
-              triggerHardwareSOS(triggerSource: "Emergency Shake Gesture (3x)");
+            final elapsed = now.difference(_firstShakeTimestamp!).inMilliseconds;
+            if (_shakeCounter >= 3 && elapsed >= 3600) {
+              _dispatchShakeSOS();
             }
           }
         }
@@ -88,11 +104,20 @@ class EmergencyGestureService {
     }
 
     _isListening = true;
-    debugPrint("[EmergencyGestureService] Hardware Power Button & Shake SOS listeners active.");
+    debugPrint("[EmergencyGestureService] 4-Second 3x Shake SOS listener active.");
   }
 
-  /// Trigger emergency SOS broadcast from phone hardware power button or shake
-  Future<void> triggerHardwareSOS({String triggerSource = "Power Button 5-Click SOS"}) async {
+  void _dispatchShakeSOS() {
+    _shakeValidationTimer?.cancel();
+    _shakeCounter = 0;
+    _firstShakeTimestamp = null;
+    _lastShakeTimestamp = null;
+    debugPrint("[EmergencyGestureService] 🚨 Sustained 4-Second 3x Shake SOS Confirmed! Triggering SOS...");
+    triggerHardwareSOS(triggerSource: "Emergency Shake Gesture (4s/3x)");
+  }
+
+  /// Trigger emergency SOS broadcast from phone shake or emergency listener
+  Future<void> triggerHardwareSOS({String triggerSource = "Emergency Shake Gesture (4s/3x)"}) async {
     // Debounce to prevent multiple triggers within 6 seconds
     final now = DateTime.now();
     if (_lastTriggerTime != null && now.difference(_lastTriggerTime!).inSeconds < 6) {

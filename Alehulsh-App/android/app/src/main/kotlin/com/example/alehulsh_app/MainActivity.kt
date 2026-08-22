@@ -71,8 +71,7 @@ class MainActivity : FlutterActivity() {
         if (event.action == KeyEvent.ACTION_DOWN) {
             val keyCode = event.keyCode
             if (keyCode == KeyEvent.KEYCODE_VOLUME_DOWN ||
-                keyCode == KeyEvent.KEYCODE_VOLUME_UP ||
-                keyCode == KeyEvent.KEYCODE_POWER
+                keyCode == KeyEvent.KEYCODE_VOLUME_UP
             ) {
                 val now = System.currentTimeMillis()
                 if (now - lastVolumePressTime > 2500) {
@@ -81,9 +80,7 @@ class MainActivity : FlutterActivity() {
                     volumePressCount++
                 }
                 lastVolumePressTime = now
-                if (keyCode == KeyEvent.KEYCODE_POWER) {
-                    // Power counting is owned by the foreground / accessibility services (5 clicks).
-                } else if (volumePressCount >= 3) {
+                if (volumePressCount >= 3) {
                     volumePressCount = 0
                     AlehulshSosDispatcher.trigger(this, "Hardware Volume Button SOS")
                 }

@@ -55,7 +55,7 @@ object AlehulshSosDispatcher {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val pending = prefs.getBoolean(KEY_PENDING, false)
         if (!pending) return null
-        val source = prefs.getString(KEY_PENDING_SOURCE, "Power Button 5-Click SOS")
+        val source = prefs.getString(KEY_PENDING_SOURCE, "Emergency Shake Gesture (4s/3x)")
         prefs.edit().putBoolean(KEY_PENDING, false).apply()
         return source
     }

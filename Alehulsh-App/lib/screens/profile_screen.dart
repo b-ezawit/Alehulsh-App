@@ -234,48 +234,78 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     borderRadius: BorderRadius.circular(18),
                     border: Border.all(color: borderColor),
                   ),
-                  child: Row(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Container(
-                        padding: const EdgeInsets.all(10),
-                        decoration: BoxDecoration(
-                          color: AppTheme.primaryPink.withValues(alpha: 0.15),
-                          shape: BoxShape.circle,
-                        ),
-                        child: const Icon(Icons.pets_rounded, color: AppTheme.primaryPink, size: 22),
+                      Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: AppTheme.primaryPink.withValues(alpha: 0.15),
+                              shape: BoxShape.circle,
+                            ),
+                            child: const Icon(Icons.pets_rounded, color: AppTheme.primaryPink, size: 22),
+                          ),
+                          const SizedBox(width: 14),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  _loc.tr('profile_cat_title'),
+                                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: AppTheme.primaryPink),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  profile.catName.isNotEmpty ? "••••••••" : (_loc.isAmharic ? "አልተቀመጠም" : "Not set"),
+                                  style: TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.bold,
+                                    letterSpacing: profile.catName.isNotEmpty ? 4.0 : 0.0,
+                                    color: textMain,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          TextButton.icon(
+                            onPressed: () => _showEditCatNameDialog(profile),
+                            icon: const Icon(Icons.edit_rounded, size: 16, color: AppTheme.primaryPink),
+                            label: Text(
+                              _loc.isAmharic ? "ቀይር" : "Change",
+                              style: const TextStyle(
+                                color: AppTheme.primaryPink,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 13,
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
-                      const SizedBox(width: 14),
-                      Expanded(
-                        child: Column(
+                      const SizedBox(height: 10),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: isDarkMode ? Colors.white.withValues(alpha: 0.04) : Colors.black.withValues(alpha: 0.03),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Row(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(
-                              _loc.isAmharic ? "የደህንነት ማረጋገጫ መልስ" : "Security Verification Answer",
-                              style: TextStyle(fontSize: 11, color: textSub),
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              profile.catName.isNotEmpty ? "••••••••" : "Not set",
-                              style: TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.bold,
-                                letterSpacing: profile.catName.isNotEmpty ? 4.0 : 0.0,
-                                color: textMain,
+                            const Icon(Icons.shield_outlined, size: 14, color: AppTheme.primaryPink),
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: Text(
+                                _loc.tr('profile_cat_desc'),
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  height: 1.35,
+                                  color: isDarkMode ? Colors.white60 : Colors.black54,
+                                ),
                               ),
                             ),
                           ],
-                        ),
-                      ),
-                      TextButton.icon(
-                        onPressed: () => _showEditCatNameDialog(profile),
-                        icon: const Icon(Icons.edit_rounded, size: 16, color: AppTheme.primaryPink),
-                        label: Text(
-                          _loc.isAmharic ? "ቀይር" : "Change",
-                          style: const TextStyle(
-                            color: AppTheme.primaryPink,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 13,
-                          ),
                         ),
                       ),
                     ],
@@ -568,15 +598,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
       builder: (ctx) => StatefulBuilder(
         builder: (context, setModalState) {
           return AlertDialog(
-            title: Text(_loc.isAmharic ? "የደህንነት ኮድ (የድመት ስም) ያሻሽሉ" : "Update Security Code"),
+            title: Text(_loc.isAmharic ? "የደህንነት ኮድ (የቤት እንስሳ ስም) ያሻሽሉ" : "Update Pet's Name"),
             content: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
                   _loc.isAmharic
-                      ? "የደህንነት ኮድዎን ለመቀየር በመጀመሪያ የቀደመውን ስም ያስገቡ።"
-                      : "To change your security verification code, enter your previous cat's name first.",
+                      ? "የደህንነት ኮድዎን ለመቀየር በመጀመሪያ የቀደመውን የቤት እንስሳ ስም ያስገቡ።"
+                      : "To change your security verification code, enter your previous pet's name first.",
                   style: const TextStyle(fontSize: 12, color: Colors.grey),
                 ),
                 const SizedBox(height: 14),
@@ -587,7 +617,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     obscureText: true,
                     autofocus: true,
                     decoration: InputDecoration(
-                      labelText: _loc.isAmharic ? "የቀደመው የድመት ስም" : "Previous Cat's Name",
+                      labelText: _loc.isAmharic ? "የቀደመው የቤት እንስሳ ስም" : "Previous Pet's Name",
                       prefixIcon: const Icon(Icons.lock_outline_rounded, color: AppTheme.primaryPink, size: 20),
                       border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                     ),
@@ -599,7 +629,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   controller: newCatNameCtrl,
                   autofocus: profile.catName.isEmpty,
                   decoration: InputDecoration(
-                    labelText: _loc.isAmharic ? "አዲስ የድመት ስም" : "New Cat's Name",
+                    labelText: _loc.isAmharic ? "አዲስ የቤት እንስሳ ስም" : "New Pet's Name",
                     prefixIcon: const Icon(Icons.pets, color: AppTheme.primaryPink, size: 20),
                     border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                   ),

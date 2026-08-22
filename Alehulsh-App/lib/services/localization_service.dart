@@ -66,7 +66,8 @@ class LocalizationService {
       'sos_voice_send_btn': 'Send',
       'sos_security_dialog_title': 'Security SOS Cancel',
       'sos_security_dialog_desc': 'To cancel emergency broadcast, answer your security verification question:',
-      'sos_cat_question': "What is your cat's name?",
+      'sos_cat_question': "What is your pet's name?",
+      'sos_cat_desc': "Secret security answer required to safely cancel an active emergency SOS alert.",
       'sos_confirm_cancel': 'Confirm & Cancel SOS',
       'sos_keep_active': 'Keep SOS Active',
       
@@ -87,8 +88,8 @@ class LocalizationService {
       
       // Profile Screen
       'profile_title': 'Profile',
-      'profile_cat_title': "Your Cat's Name",
-      'profile_cat_desc': "Used as your personal security code to cancel SOS broadcasts.",
+      'profile_cat_title': "Your Pet's Name",
+      'profile_cat_desc': "Secret security answer required to safely cancel an active emergency SOS alert.",
       'profile_contacts_title': 'Emergency Contacts',
       'profile_contacts_desc': 'Contacts notified immediately when you trigger SOS.',
       'profile_add_contact': '+ Add Emergency Contact',
@@ -148,7 +149,8 @@ class LocalizationService {
       'sos_voice_send_btn': 'ላክ',
       'sos_security_dialog_title': 'የደህንነት SOS መሰረዣ',
       'sos_security_dialog_desc': 'የአደጋ ጥሪውን ለመሰረዝ የደህንነት ማረጋገጫ ጥያቄዎን ይመልሱ:',
-      'sos_cat_question': "የድመትዎ ስም ማን ነው?",
+      'sos_cat_question': "የቤት እንስሳዎ ስም ማን ነው?",
+      'sos_cat_desc': "የአደጋ ጊዜ ጥሪን (SOS) ለማቆም የሚያገለግል ሚስጥራዊ የደህንነት ማረጋገጫ ቃል",
       'sos_confirm_cancel': 'አረጋግጥና SOS ሰርዝ',
       'sos_keep_active': 'SOS እንደበራ ይቆይ',
       
@@ -169,8 +171,8 @@ class LocalizationService {
       
       // Profile Screen
       'profile_title': 'መገለጫ',
-      'profile_cat_title': 'የድመትዎ ስም',
-      'profile_cat_desc': 'SOS ለመሰረዝ የሚያገለግል የደህንነት ኮድ።',
+      'profile_cat_title': 'የቤት እንስሳዎ ስም',
+      'profile_cat_desc': 'የአደጋ ጊዜ ጥሪን (SOS) ለማቆም የሚያገለግል ሚስጥራዊ የደህንነት ማረጋገጫ ቃል።',
       'profile_contacts_title': 'የአደጋ ጊዜ እውቂያዎች',
       'profile_contacts_desc': 'SOS ሲልኩ ወዲያውኑ መልእክት የሚደርሳቸው እውቂያዎች።',
       'profile_add_contact': '+ የአደጋ ጊዜ እውቂያ ጨምር',

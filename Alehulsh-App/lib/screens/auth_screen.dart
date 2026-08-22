@@ -459,11 +459,11 @@ class _AuthScreenState extends State<AuthScreen> {
                                   children: [
                                     Row(
                                       children: [
-                                        const Icon(Icons.security_rounded, color: AppTheme.primaryPink, size: 18),
+                                        const Icon(Icons.pets_rounded, color: AppTheme.primaryPink, size: 18),
                                         const SizedBox(width: 6),
                                         Expanded(
                                           child: Text(
-                                            _loc.tr('sos_security_dialog_title'),
+                                            _loc.tr('profile_cat_title'),
                                             style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppTheme.primaryPink),
                                             overflow: TextOverflow.ellipsis,
                                           ),
@@ -473,15 +473,33 @@ class _AuthScreenState extends State<AuthScreen> {
                                     const SizedBox(height: 4),
                                     Text(
                                       _loc.tr('sos_cat_question'),
-                                      style: TextStyle(fontSize: 12, color: isDarkMode ? Colors.white70 : Colors.black87),
+                                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: isDarkMode ? Colors.white70 : Colors.black87),
                                     ),
                                     const SizedBox(height: 8),
                                     TextField(
                                       controller: _catNameCtrl,
                                       decoration: InputDecoration(
-                                        hintText: _loc.isAmharic ? "የድመትዎን ስም ያስገቡ (ለምሳሌ፡ ሚሎ)" : "Enter your cat's name (e.g. Milo)",
+                                        hintText: _loc.isAmharic ? "የቤት እንስሳዎን ስም ያስገቡ (ለምሳሌ፡ ሚሎ)" : "Enter your pet's name (e.g. Milo)",
                                         contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                                       ),
+                                    ),
+                                    const SizedBox(height: 6),
+                                    Row(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        const Icon(Icons.info_outline_rounded, size: 13, color: AppTheme.primaryPink),
+                                        const SizedBox(width: 4),
+                                        Expanded(
+                                          child: Text(
+                                            _loc.tr('sos_cat_desc'),
+                                            style: TextStyle(
+                                              fontSize: 11,
+                                              height: 1.3,
+                                              color: isDarkMode ? Colors.white60 : Colors.black54,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
                                     ),
                                   ],
                                 ),

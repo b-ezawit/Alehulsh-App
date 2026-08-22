@@ -1,47 +1,48 @@
-﻿// Alehulsh (አለሁልሽ) - Interactive Landing Page Scripts
+// Alehulsh (አለሁልሽ) - Interactive Landing Page Scripts
+
+// ----------------------------------------------------------------------
+// 1. Theme Management (Dark Mode Default + Light Mode Switcher)
+// ----------------------------------------------------------------------
+function getInitialTheme() {
+    const saved = localStorage.getItem('alehulsh_theme');
+    if (saved) return saved;
+    return 'dark'; // Always default to Dark Mode on first load
+}
+
+function applyTheme(theme) {
+    document.documentElement.setAttribute('data-theme', theme);
+    if (document.body) {
+        document.body.setAttribute('data-theme', theme);
+    }
+    localStorage.setItem('alehulsh_theme', theme);
+
+    const themeIcon = document.getElementById('themeIcon');
+    const themeBtn = document.getElementById('themeToggleBtn');
+    const drawerThemeBtn = document.getElementById('drawerThemeToggleBtn');
+
+    if (theme === 'light') {
+        if (themeIcon) themeIcon.className = 'fa-solid fa-moon';
+        if (themeBtn) themeBtn.setAttribute('title', 'Switch to Dark Mode');
+        if (drawerThemeBtn) drawerThemeBtn.innerHTML = '<i class="fa-solid fa-moon"></i> Dark Mode';
+    } else {
+        if (themeIcon) themeIcon.className = 'fa-solid fa-sun';
+        if (themeBtn) themeBtn.setAttribute('title', 'Switch to Light Mode');
+        if (drawerThemeBtn) drawerThemeBtn.innerHTML = '<i class="fa-solid fa-sun"></i> Light Mode';
+    }
+}
+
+function toggleTheme() {
+    const currentTheme = document.documentElement.getAttribute('data-theme') || 'dark';
+    const nextTheme = currentTheme === 'dark' ? 'light' : 'dark';
+    applyTheme(nextTheme);
+}
+
+// Immediately apply theme on script load
+applyTheme(getInitialTheme());
 
 document.addEventListener('DOMContentLoaded', () => {
-    
-    // ----------------------------------------------------------------------
-    // 1. Theme Management (Light Mode Default + Dark Mode Switcher)
-    // ----------------------------------------------------------------------
-    const themeToggleBtn = document.getElementById('themeToggleBtn');
-    const drawerThemeToggleBtn = document.getElementById('drawerThemeToggleBtn');
-    const themeIcon = document.getElementById('themeIcon');
-    const htmlElement = document.documentElement;
-
-    // Load saved theme or default to light mode
-    const savedTheme = localStorage.getItem('alehulsh_theme') || 'light';
-    applyTheme(savedTheme);
-
-    function applyTheme(theme) {
-        htmlElement.setAttribute('data-theme', theme);
-        localStorage.setItem('alehulsh_theme', theme);
-        
-        if (themeIcon) {
-            if (theme === 'dark') {
-                themeIcon.className = 'fa-solid fa-sun';
-                themeToggleBtn.setAttribute('title', 'Switch to Light Mode');
-            } else {
-                themeIcon.className = 'fa-solid fa-moon';
-                themeToggleBtn.setAttribute('title', 'Switch to Dark Mode');
-            }
-        }
-    }
-
-    function toggleTheme() {
-        const currentTheme = htmlElement.getAttribute('data-theme') || 'light';
-        const nextTheme = currentTheme === 'light' ? 'dark' : 'light';
-        applyTheme(nextTheme);
-    }
-
-    if (themeToggleBtn) {
-        themeToggleBtn.addEventListener('click', toggleTheme);
-    }
-
-    if (drawerThemeToggleBtn) {
-        drawerThemeToggleBtn.addEventListener('click', toggleTheme);
-    }
+    // Re-verify theme icons on DOM ready
+    applyTheme(getInitialTheme());
 
     // ----------------------------------------------------------------------
     // 2. Mobile Drawer Navigation Toggle
@@ -96,10 +97,8 @@ document.addEventListener('DOMContentLoaded', () => {
             const item = question.parentElement;
             const isOpen = item.classList.contains('active');
 
-            // Close all items
             document.querySelectorAll('.faq-item').forEach(i => i.classList.remove('active'));
 
-            // Toggle clicked item
             if (!isOpen) {
                 item.classList.add('active');
             }
@@ -109,9 +108,9 @@ document.addEventListener('DOMContentLoaded', () => {
     // ----------------------------------------------------------------------
     // 4. Smooth Floating Card Parallax / Tilt on Mouse Move
     // ----------------------------------------------------------------------
-    const stage = document.querySelector('.hero-visual-stage');
+    const stage = document.querySelector('.radar-interactive-stage');
     const cards = document.querySelectorAll('.floating-glass-card');
-    const artwork = document.querySelector('.hero-artwork-img');
+    const phone = document.querySelector('.phone-mockup-frame');
 
     if (stage && window.innerWidth > 992) {
         stage.addEventListener('mousemove', (e) => {
@@ -119,8 +118,8 @@ document.addEventListener('DOMContentLoaded', () => {
             const x = e.clientX - rect.left - rect.width / 2;
             const y = e.clientY - rect.top - rect.height / 2;
 
-            if (artwork) {
-                artwork.style.transform = `scale(1.02) rotateY(${x * 0.03}deg) rotateX(${-y * 0.03}deg)`;
+            if (phone) {
+                phone.style.transform = `rotateY(${x * 0.03}deg) rotateX(${-y * 0.03}deg)`;
             }
 
             cards.forEach((card, index) => {
@@ -130,8 +129,8 @@ document.addEventListener('DOMContentLoaded', () => {
         });
 
         stage.addEventListener('mouseleave', () => {
-            if (artwork) {
-                artwork.style.transform = 'none';
+            if (phone) {
+                phone.style.transform = 'none';
             }
             cards.forEach((card) => {
                 card.style.transform = 'none';
@@ -141,7 +140,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 });
 
-// iOS Coming Soon Modal / Alert
+// iOS Coming Soon Alert
 function showIosComingSoon(event) {
     if (event) event.preventDefault();
     alert("🍎 Alehulsh for iOS is currently under development!\n\nThe iOS version is being built and will be available soon on the Apple App Store.\n\nAndroid users can tap 'Download APK' to get the live app directly.");
