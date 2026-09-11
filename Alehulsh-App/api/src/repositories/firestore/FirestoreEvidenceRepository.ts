@@ -57,6 +57,12 @@ export class FirestoreEvidenceRepository implements EvidenceRepository {
     return snap.docs.map((d) => toRecord(d.id, d.data() as EvidenceDoc));
   }
 
+  async listForOwner(ownerUid: string): Promise<EvidenceRecord[]> {
+    const snap = await this.db.collection(COLLECTION)
+      .where('ownerUid', '==', ownerUid).orderBy('createdAt', 'asc').get();
+    return snap.docs.map((d) => toRecord(d.id, d.data() as EvidenceDoc));
+  }
+
   async markUploaded(id: string, sizeBytes: number | null): Promise<EvidenceRecord> {
     const ref = this.db.collection(COLLECTION).doc(id);
     await ref.update({ uploaded: true, sizeBytes });
