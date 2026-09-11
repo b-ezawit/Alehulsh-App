@@ -46,6 +46,8 @@ export interface AlertRepository {
   updateStatus(id: string, next: AlertStatus, fields: Partial<Alert>): Promise<Alert>;
   /** Records a failed keyword attempt. Never resets. */
   recordFailedAttempt(id: string, at: Date): Promise<Alert>;
+  /** Every alert she has ever raised, terminal ones included. */
+  deleteAllForOwner(ownerUid: string): Promise<number>;
 }
 
 export interface UserRecord {
@@ -68,6 +70,7 @@ export interface UserRepository {
    * them, and is exactly what P3-01 §5 has to answer for.
    */
   findUidByIdentifierHash(hash: string): Promise<string | null>;
+  deleteByUid(uid: string): Promise<number>;
 }
 
 /**
@@ -87,4 +90,16 @@ export interface EmergencyContact {
 
 export interface ContactRepository {
   listByOwner(ownerUid: string): Promise<EmergencyContact[]>;
+  deleteAllForOwner(ownerUid: string): Promise<number>;
+}
+
+/**
+ * Everything holding data about a person, so deletion can be exhaustive rather
+ * than "the places we remembered". P2-01 §6 and C-16.
+ */
+export interface DeletableStore {
+  /** For logs and the deletion receipt. Never a user-facing string. */
+  readonly name: string;
+  /** Returns how many records were removed. */
+  purge(uid: string): Promise<number>;
 }

@@ -57,6 +57,14 @@ export class FakeAlertRepository implements AlertRepository {
     return updated;
   }
 
+  async deleteAllForOwner(ownerUid: string) {
+    let n = 0;
+    for (const [id, a] of [...this.store]) {
+      if (a.ownerId === ownerUid) { this.store.delete(id); n++; }
+    }
+    return n;
+  }
+
   /** Test helper — seed an alert directly. */
   seed(alert: Partial<Alert> & { id: string; ownerId: string }): Alert {
     const now = new Date();
@@ -82,6 +90,8 @@ export class FakeUserRepository implements UserRepository {
     this.store.set(uid, { uid, safetyKeywordHash: null, mustSetKeyword: false, ...rec });
   }
 
+  async deleteByUid(uid: string) { return this.store.delete(uid) ? 1 : 0; }
+
   register(uid: string, ...hashes: string[]): void {
     this.set(uid, {});
     for (const h of hashes) this.identifiers.set(h, uid);
@@ -91,6 +101,11 @@ export class FakeUserRepository implements UserRepository {
 export class FakeContactRepository implements ContactRepository {
   readonly store = new Map<string, EmergencyContact[]>();
   async listByOwner(ownerUid: string) { return this.store.get(ownerUid) ?? []; }
+  async deleteAllForOwner(ownerUid: string) {
+    const n = (this.store.get(ownerUid) ?? []).length;
+    this.store.delete(ownerUid);
+    return n;
+  }
   set(ownerUid: string, contacts: EmergencyContact[]): void {
     this.store.set(ownerUid, contacts);
   }

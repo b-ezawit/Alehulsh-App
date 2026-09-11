@@ -28,4 +28,11 @@ export class FirestoreUserRepository implements UserRepository {
     }
     return null;
   }
+
+  async deleteByUid(uid: string): Promise<number> {
+    const ref = this.db.collection('users').doc(uid);
+    if (!(await ref.get()).exists) return 0;
+    await ref.delete();
+    return 1;
+  }
 }

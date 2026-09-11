@@ -139,4 +139,19 @@ export class FirestoreAlertRepository implements AlertRepository {
       return toAlert(id, { ...current, ...patch });
     });
   }
+
+  async deleteAllForOwner(ownerUid: string): Promise<number> {
+    // Document id is the owner uid, plus any legacy duplicates keyed otherwise.
+    let removed = 0;
+    const own = this.db.collection(COLLECTION).doc(ownerUid);
+    if ((await own.get()).exists) { await own.delete(); removed++; }
+
+    const strays = await this.db.collection(COLLECTION).where('userId', '==', ownerUid).get();
+    for (const doc of strays.docs) {
+      if (doc.id === ownerUid) continue;
+      await doc.ref.delete();
+      removed++;
+    }
+    return removed;
+  }
 }
