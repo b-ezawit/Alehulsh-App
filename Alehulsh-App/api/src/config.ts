@@ -29,6 +29,8 @@ export interface Config {
   keywordAttemptCooldownMs: number;
   /** Shared secret the task runner presents. Not a user credential. */
   taskRunnerSecret: string;
+  /** How many active responders one person may vouch for. P4-07. */
+  maxVouchesPerResponder: number;
 }
 
 function required(name: string): string {
@@ -69,6 +71,7 @@ export function loadConfig(): Config {
     keywordAttemptCap: positiveMs('KEYWORD_ATTEMPT_CAP', 3),
     keywordAttemptCooldownMs: positiveMs('KEYWORD_ATTEMPT_COOLDOWN_MS', 30 * 1000),
     taskRunnerSecret: required('TASK_RUNNER_SECRET'),
+    maxVouchesPerResponder: positiveMs('MAX_VOUCHES_PER_RESPONDER', 5),
     env,
   };
 }

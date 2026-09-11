@@ -94,6 +94,43 @@ export interface ContactRepository {
 }
 
 /**
+ * Responder eligibility by peer vouching.  (P4-07)
+ *
+ * ID verification is phase 2 — it needs reviewers we do not have. Vouching
+ * substitutes accountability for verification: the voucher is named and is
+ * actioned alongside anyone they admitted who causes harm.
+ */
+export type ResponderStatus =
+  /** Vouched for, has not accepted yet. */
+  | 'pending'
+  /** Accepted. Eligible to receive alerts. */
+  | 'active'
+  /** Actioned for cause. Their vouches cascade. */
+  | 'suspended'
+  /** Their voucher was suspended. Not accused of anything — needs a new voucher. */
+  | 'needs_revouch';
+
+export interface ResponderRecord {
+  uid: string;
+  status: ResponderStatus;
+  /** null only for the bootstrap set, who have nobody to vouch for them. */
+  vouchedBy: string | null;
+  vouchedAt: Date | null;
+  activatedAt?: Date;
+  suspendedAt?: Date;
+  suspensionReason?: string;
+}
+
+export interface ResponderRepository {
+  findByUid(uid: string): Promise<ResponderRecord | null>;
+  /** Everyone this person vouched for, for the suspension cascade. */
+  findVouchedBy(voucherUid: string): Promise<ResponderRecord[]>;
+  /** Counts against the per-voucher cap. */
+  countActiveVouchesBy(voucherUid: string): Promise<number>;
+  upsert(record: ResponderRecord): Promise<ResponderRecord>;
+}
+
+/**
  * Everything holding data about a person, so deletion can be exhaustive rather
  * than "the places we remembered". P2-01 §6 and C-16.
  */

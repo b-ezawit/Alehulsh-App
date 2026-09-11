@@ -1,6 +1,6 @@
 import type {
   Alert, AlertRepository, AlertStatus, ContactRepository, EmergencyContact,
-  UserRecord, UserRepository,
+  ResponderRecord, ResponderRepository, UserRecord, UserRepository,
 } from '../src/repositories/types.js';
 import type { TokenVerifier } from '../src/auth/TokenVerifier.js';
 
@@ -111,6 +111,20 @@ export class FakeContactRepository implements ContactRepository {
   }
 }
 
+export class FakeResponderRepository implements ResponderRepository {
+  readonly store = new Map<string, ResponderRecord>();
+  async findByUid(uid: string) { return this.store.get(uid) ?? null; }
+  async findVouchedBy(voucherUid: string) {
+    return [...this.store.values()].filter((r) => r.vouchedBy === voucherUid);
+  }
+  async countActiveVouchesBy(voucherUid: string) {
+    return [...this.store.values()]
+      .filter((r) => r.vouchedBy === voucherUid && (r.status === 'active' || r.status === 'pending'))
+      .length;
+  }
+  async upsert(record: ResponderRecord) { this.store.set(record.uid, record); return record; }
+}
+
 /** Maps a bearer token straight to a uid, so tests can act as anyone. */
 export const fakeVerifier: TokenVerifier = {
   verify: async (t) => {
@@ -132,4 +146,5 @@ export const testConfig = {
   keywordAttemptCap: 3,
   keywordAttemptCooldownMs: 30_000,
   taskRunnerSecret: 'task-secret-for-tests',
+  maxVouchesPerResponder: 3,
 };
