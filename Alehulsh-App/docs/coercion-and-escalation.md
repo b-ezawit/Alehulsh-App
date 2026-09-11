@@ -90,30 +90,43 @@ This is the requirement everything else serves:
 
 > **The immediate on-screen response must be identical in every case.**
 
-### Recommended deviation from the SRD
+### DECIDED — one user-authored message, identical in both cases
 
-The SRD gives two different responses — correct → "All good ✨", wrong →
-"Got it 👍". **These are distinguishable.** A coercer who has seen the flow once,
-or who has read about the app, learns which one means failure. The layer then
-protects only against an adversary who has never encountered it before, which
-is not the adversary we have.
+The SRD gives two different responses: correct → "All good ✨", wrong →
+"Got it 👍". **These are distinguishable.** A coercer who forces her through the
+check twice sees two different messages and infers which one means failure.
 
-Recommendation: **one response, identical in text, timing and animation,
-regardless of outcome.**
+Meron's direction is that the user should write these herself, with a default
+provided. Adopted, with one adjustment:
 
-The obvious objection is that a genuinely safe user then has no confirmation.
-That is real but survivable, and it is answered outside the popup:
+> **One message, not two.** She authors a single response that is shown
+> identically whether the keyword was right or wrong.
 
-- The app's own state reflects the truth when she next looks at it.
-- Her contacts receive either "she is safe" or the escalation — she can confirm
-  with them afterwards.
-- The popup is the surface he is watching *in that moment*; it is the one that
-  has to be silent. It is not her only channel.
+Two different messages — even ones she wrote — still differ from each other, so
+a coercer seeing both learns the tell. A single message removes the signal
+entirely, and being in her own words makes it more plausible than anything we
+would write.
 
-This is the second recommended deviation from the SRD (the first is P1-02 §4).
-Both need your decision.
+**It must be configured in advance.** Changing it during an incident is not
+viable: she cannot navigate Settings under duress, and doing so while he watches
+reveals the app. Set at onboarding alongside the keyword and the question
+(§3), editable any time in calm conditions.
 
----
+Requirements:
+
+- Default provided so the field is never empty.
+- Free text, with a length cap.
+- **Warn on self-defeating content.** A user may write "Alert cancelled!"
+  without realising it announces the mechanism. Warn on the words the UI is
+  already forbidden from using (§3) — emergency, safety, SOS, police, alert,
+  cancel, verify, security.
+- Validated server-side as well as in the UI, since it reaches her device in a
+  moment we do not control.
+
+The obvious objection stands: a genuinely safe user gets no confirmation from
+the popup either. That is answered outside it — the app's own state when she
+next looks, and her contacts receiving either "she is safe" or the escalation.
+The popup is the surface he is watching; it is the one that has to be silent.
 
 ## 6. The forgotten keyword
 
@@ -165,8 +178,8 @@ Both need Amharic review (P4-15). Neither may be delivered as a notification to
 
 ## 9. Open for Meron
 
-1. **§5 — one identical response instead of the SRD's two.** Recommended.
-   This is the deviation that most changes the SRD's described behaviour.
+1. ~~**§5 — one identical response.**~~ **DECIDED — one user-authored message,
+   identical in both cases, set in advance.**
 2. **User-authored safety question** at onboarding, rather than a fixed one.
    Recommended; adds an onboarding step (P4-03).
 3. **No cancel button at all between trigger and the 2-minute check.** This is
