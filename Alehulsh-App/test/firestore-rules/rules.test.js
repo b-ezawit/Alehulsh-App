@@ -168,3 +168,71 @@ describe('queries — what the rules allow at collection level', () => {
   test('reading the whole collection is denied', () =>
     assertFails(getDocs(collection(alice, 'active_alerts'))));
 });
+
+/* ------------------------------------------------------------------ */
+describe('inbox — per-recipient projections (P2-05, P1-10)', () => {
+  const projection = {
+    alertId: 'alert_1',
+    displayName: '',
+    fuzzedLat: 9.01,
+    fuzzedLng: 38.76,
+    fuzzedPrecision: '~150m',
+    audience: 'responder',
+  };
+
+  const seed = (uid, alertId) =>
+    env.withSecurityRulesDisabled((ctx) =>
+      setDoc(doc(ctx.firestore(), 'inbox', uid, 'alerts', alertId), projection));
+
+  test('a recipient reads her own inbox', async () => {
+    await seed(ALICE, 'alert_1');
+    await assertSucceeds(getDoc(doc(alice, 'inbox', ALICE, 'alerts', 'alert_1')));
+  });
+
+  test('a signed-in stranger cannot read it', async () => {
+    await seed(ALICE, 'alert_1');
+    await assertFails(getDoc(doc(bob, 'inbox', ALICE, 'alerts', 'alert_1')));
+  });
+
+  test('unauthenticated cannot read it', async () => {
+    await seed(ALICE, 'alert_1');
+    await assertFails(getDoc(doc(nobody, 'inbox', ALICE, 'alerts', 'alert_1')));
+  });
+
+  test('listing her own inbox is allowed — this is the responder read path', async () => {
+    await seed(ALICE, 'alert_1');
+    await assertSucceeds(getDocs(collection(alice, 'inbox', ALICE, 'alerts')));
+  });
+
+  test('nobody may write an inbox, not even its owner', async () => {
+    // A responder who could write her own inbox could invent an alert that
+    // was never raised, or quietly remove one she was asked to answer.
+    // Every write comes from the API layer through the admin SDK.
+    await assertFails(setDoc(doc(alice, 'inbox', ALICE, 'alerts', 'alert_2'), projection));
+  });
+
+  test('nobody may delete from an inbox', async () => {
+    await seed(ALICE, 'alert_1');
+    await assertFails(deleteDoc(doc(alice, 'inbox', ALICE, 'alerts', 'alert_1')));
+  });
+
+  test('acceptances are server-only — no client may read or write them', async () => {
+    await env.withSecurityRulesDisabled((ctx) =>
+      setDoc(doc(ctx.firestore(), 'alert_acceptances', 'alert_1', 'responders', ALICE), {
+        alertId: 'alert_1', responderUid: ALICE, audience: 'responder',
+      }));
+    await assertFails(getDoc(doc(alice, 'alert_acceptances', 'alert_1', 'responders', ALICE)));
+    await assertFails(setDoc(doc(alice, 'alert_acceptances', 'alert_1', 'responders', ALICE), {}));
+  });
+
+  test('the reveal audit trail is server-only', async () => {
+    // If a responder could read this, he could see who else is nearby and
+    // whether anyone has already been given her exact position.
+    await env.withSecurityRulesDisabled((ctx) =>
+      setDoc(doc(ctx.firestore(), 'location_reveals', 'r1'), {
+        alertId: 'alert_1', responderUid: ALICE, granted: true,
+      }));
+    await assertFails(getDoc(doc(alice, 'location_reveals', 'r1')));
+    await assertFails(setDoc(doc(alice, 'location_reveals', 'r2'), {}));
+  });
+});

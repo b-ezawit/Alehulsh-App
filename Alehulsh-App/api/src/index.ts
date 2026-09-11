@@ -1,21 +1,24 @@
 import { initializeApp, applicationDefault } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
+import { getFirestore } from 'firebase-admin/firestore';
 import { loadConfig } from './config.js';
 import { createLogger } from './logger.js';
 import { buildServer } from './server.js';
 import { FirebaseTokenVerifier } from './auth/FirebaseTokenVerifier.js';
-import { InMemoryTaskQueue } from './queue/TaskQueue.js';
+import { buildTaskQueue } from './queue/buildTaskQueue.js';
 import { InMemorySlidingWindowLimiter } from './rate/RateLimiter.js';
-import type {
-  AcceptanceRepository, AlertRepository, InboxRepository,
-  LocationRevealRepository, UserRepository,
-} from './repositories/types.js';
+import { FirestoreAlertRepository } from './repositories/firestore/FirestoreAlertRepository.js';
+import { FirestoreUserRepository } from './repositories/firestore/FirestoreUserRepository.js';
+import { FirestoreInboxRepository } from './repositories/firestore/FirestoreInboxRepository.js';
+import { FirestoreAcceptanceRepository } from './repositories/firestore/FirestoreAcceptanceRepository.js';
+import { FirestoreLocationRevealRepository } from './repositories/firestore/FirestoreLocationRevealRepository.js';
 
 /**
  * Composition root. The only file that knows which implementations are wired
- * in — so C-04 changes this file and the three implementation classes, nothing
- * else. See docs/api-layer.md.
+ * in — so C-04 changes this file and the implementation classes, nothing else.
+ * See docs/api-layer.md.
  */
+
 async function main(): Promise<void> {
   const config = loadConfig();
   const logger = createLogger(config.logLevel);
@@ -24,35 +27,27 @@ async function main(): Promise<void> {
     credential: applicationDefault(),
     projectId: config.firebaseProjectId,
   });
+  const db = getFirestore(firebase);
 
-  // The composition root is still unwired on purpose. FirestoreAlertRepository
-  // and FirestoreUserRepository exist, but there are no Firestore
-  // implementations of InboxRepository or AcceptanceRepository yet, so wiring
-  // half of them would produce a service that starts, accepts traffic and then
-  // fails mid-request. Failing at the first call, loudly and by name, is the
-  // safer shape until the set is complete.
-  const notImplemented = (name: string) => () => {
-    throw new Error(`${name} not implemented — composition root is not wired yet`);
-  };
-  const stub = <T extends object>() =>
-    new Proxy({} as T, { get: (_t, p) => notImplemented(String(p)) });
-
-  const alerts = stub<AlertRepository>();
-  const users = stub<UserRepository>();
-  const inbox = stub<InboxRepository>();
-  const acceptances = stub<AcceptanceRepository>();
-  const reveals = stub<LocationRevealRepository>();
+  const queue = buildTaskQueue(config.env);
+  if (config.env !== 'production') {
+    logger.warn('using the in-memory task queue — scheduled tasks will NOT fire', {
+      detail: 'development only; see M-07',
+    });
+  }
 
   const app = buildServer({
     config,
     logger,
     tokenVerifier: new FirebaseTokenVerifier(getAuth(firebase)),
-    alerts,
-    users,
-    inbox,
-    acceptances,
-    reveals,
-    queue: new InMemoryTaskQueue(),
+    alerts: new FirestoreAlertRepository(db, config.activeWindowMs),
+    users: new FirestoreUserRepository(db),
+    inbox: new FirestoreInboxRepository(db),
+    acceptances: new FirestoreAcceptanceRepository(db),
+    reveals: new FirestoreLocationRevealRepository(db),
+    queue,
+    // Per-instance and lost on restart, which is fine: nothing safety-critical
+    // rides on it. See rate/RateLimiter.ts.
     limiter: new InMemorySlidingWindowLimiter(),
   });
 
