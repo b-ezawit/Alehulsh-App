@@ -137,7 +137,11 @@ jobs:
         run: |
           # Firebase client keys are public by design and live in the committed
           # config files, so they are excluded. Anything else matching is not.
-          bad=$(git grep -nIE 'BEGIN [A-Z ]*PRIVATE KEY|-----BEGIN|"private_key"' -- . \
+          #
+          # The bracketed letters keep this pattern from matching its own text
+          # in this file. Excluding the workflow instead would create a blind
+          # spot exactly where a secret is easiest to hide.
+          bad=$(git grep -nIE 'BEG[I]N [A-Z ]*PRIVATE KEY|-----BEG[I]N|"private_ke[y]"' -- . \
                 ':!*google-services.json' ':!*GoogleService-Info.plist' || true)
           if [ -n "$bad" ]; then echo "possible secret:"; echo "$bad"; exit 1; fi
           echo "clean"

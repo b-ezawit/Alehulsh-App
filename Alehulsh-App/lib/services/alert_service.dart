@@ -27,7 +27,6 @@ class AlertService {
 
   /// Optimized Real-time stream of active alerts with 2-hour TTL filtering
   Stream<List<EmergencyAlert>> get alertsStream {
-    final now = DateTime.now();
     return _firestore
         .collection('active_alerts')
         .where('status', isEqualTo: 'active')
