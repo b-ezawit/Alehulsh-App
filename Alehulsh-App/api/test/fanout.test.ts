@@ -217,3 +217,39 @@ describe('fuzzing primitives', () => {
     assert.ok(Math.hypot(dLat, dLng) < 120, `drift was ${Math.hypot(dLat, dLng)}m`);
   });
 });
+
+describe('P3-13 — recipients can see how old the position is', () => {
+  test('a queued alert carries its delay into every projection', async () => {
+    locations.set(NEARBY, encodeGeohash(ADDIS.lat, ADDIS.lng, 9));
+    await makeEligible(NEARBY);
+
+    // Triggered three hours ago with no signal, replayed on reconnect. The
+    // coordinates describe where she was then, and a responder must be able
+    // to see that rather than assume the alert is happening now.
+    await fanout.dispatch(alert({
+      deviceReportedAt: new Date(Date.now() - 3 * 60 * 60 * 1000),
+      reportedDelayMs: 3 * 60 * 60 * 1000,
+    }));
+
+    assert.equal(inbox.projectionFor(NEARBY, OWNER)?.reportedDelayMs, 3 * 60 * 60 * 1000);
+  });
+
+  test('a fresh alert reports no delay rather than a fabricated zero', async () => {
+    locations.set(NEARBY, encodeGeohash(ADDIS.lat, ADDIS.lng, 9));
+    await makeEligible(NEARBY);
+    await fanout.dispatch(alert());
+    assert.equal(inbox.projectionFor(NEARBY, OWNER)?.reportedDelayMs, null);
+  });
+
+  test('a contact sees the age too — she must not be told a stale alert is live', async () => {
+    contactRepo.set(OWNER, [{
+      id: 'c1', ownerUid: OWNER, name: 'Sister',
+      phoneHash: null, emailHash: null, isPrimary: true,
+    }]);
+    await fanout.dispatch(alert({ reportedDelayMs: 90 * 60 * 1000 }));
+    // Whatever the audience, the age travels with the projection.
+    for (const [, box] of inbox.store) {
+      for (const [, p] of box) assert.equal(p.reportedDelayMs, 90 * 60 * 1000);
+    }
+  });
+});

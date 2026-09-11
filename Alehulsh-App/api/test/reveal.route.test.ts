@@ -34,7 +34,7 @@ const projection = (): AlertProjection => ({
   alertId: ALERT, displayName: '',
   fuzzedLat: 9.0125, fuzzedLng: 38.7636, fuzzedPrecision: '~150m',
   isUrgent: false, status: 'active', createdAt: new Date('2026-09-11T10:00:00Z'),
-  hasVoiceNote: false, audience: 'responder',
+  hasVoiceNote: false, reportedDelayMs: null, audience: 'responder',
 });
 
 beforeEach(() => {

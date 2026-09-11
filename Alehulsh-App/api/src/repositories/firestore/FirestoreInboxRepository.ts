@@ -23,6 +23,7 @@ interface ProjectionDoc {
   status: 'active' | 'escalated';
   createdAt: Timestamp;
   hasVoiceNote: boolean;
+  reportedDelayMs: number | null;
   audience: 'responder' | 'contact';
 }
 
@@ -44,6 +45,7 @@ export class FirestoreInboxRepository implements InboxRepository {
       status: p.status,
       createdAt: Timestamp.fromDate(p.createdAt),
       hasVoiceNote: p.hasVoiceNote,
+      reportedDelayMs: p.reportedDelayMs,
       audience: p.audience,
     };
     // set, not create: re-running the fan-out must refresh rather than fail,
@@ -69,6 +71,7 @@ export class FirestoreInboxRepository implements InboxRepository {
       status: d.status,
       createdAt: d.createdAt.toDate(),
       hasVoiceNote: d.hasVoiceNote === true,
+      reportedDelayMs: d.reportedDelayMs ?? null,
       audience: d.audience,
     };
   }

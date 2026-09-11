@@ -35,6 +35,7 @@ function projection(audience: 'responder' | 'contact'): AlertProjection {
     status: 'active',
     createdAt: new Date('2026-09-11T10:00:00Z'),
     hasVoiceNote: false,
+    reportedDelayMs: null,
     audience,
   };
 }

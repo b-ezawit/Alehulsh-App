@@ -7,6 +7,7 @@ import type {
   ResponderRecord, ResponderRepository, UserRecord, UserRepository,
 } from '../src/repositories/types.js';
 import type { TokenVerifier } from '../src/auth/TokenVerifier.js';
+import { reportedDelayMs } from '../src/staleness.js';
 
 import type { Deps } from '../src/server.js';
 import { createLogger } from '../src/logger.js';
@@ -30,7 +31,7 @@ export class FakeAlertRepository implements AlertRepository {
     return a && (a.status === 'active' || a.status === 'escalated') ? a : null;
   }
 
-  async create(input: { requestId: string; ownerId: string; latitude: number | null; longitude: number | null }) {
+  async create(input: { requestId: string; ownerId: string; latitude: number | null; longitude: number | null; occurredAt?: Date | null }) {
     this.createCalls++;
     const existing = this.store.get(input.ownerId);
     if (existing && (existing.status === 'active' || existing.status === 'escalated')) {
@@ -47,6 +48,8 @@ export class FakeAlertRepository implements AlertRepository {
       longitude: input.longitude,
       geohash: input.latitude !== null ? 'sc04zjw4b' : null,
       attemptCount: 0,
+      ...(input.occurredAt ? { deviceReportedAt: input.occurredAt } : {}),
+      reportedDelayMs: reportedDelayMs(now, input.occurredAt ?? null),
     };
     this.store.set(alert.id, alert);
     return { alert, created: true };

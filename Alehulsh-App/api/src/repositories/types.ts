@@ -24,6 +24,18 @@ export interface Alert {
   resolvedBy?: 'owner' | 'owner_late';
   escalatedAt?: Date;
   escalationReason?: 'wrong_keyword' | 'no_answer' | 'attempts_exhausted';
+  /**
+   * When the device says the trigger happened. Device clock, therefore never
+   * trusted for any decision — see docs/alert-lifecycle.md §3 and P3-13. It
+   * exists only to tell recipients how old the position is.
+   */
+  deviceReportedAt?: Date;
+  /**
+   * createdAt - deviceReportedAt, server-computed, null when we cannot tell.
+   * A large value means the alert sat in the offline queue and the coordinates
+   * describe where she was then, not where she is.
+   */
+  reportedDelayMs?: number | null;
   /** Failed keyword attempts. A cluster of these is itself evidence. */
   attemptCount: number;
   lastAttemptAt?: Date;
@@ -42,6 +54,8 @@ export interface AlertRepository {
     ownerId: string;
     latitude: number | null;
     longitude: number | null;
+    /** Device-reported trigger time. Stored, never trusted. */
+    occurredAt?: Date | null;
   }): Promise<{ alert: Alert; created: boolean }>;
   updateStatus(id: string, next: AlertStatus, fields: Partial<Alert>): Promise<Alert>;
   /** Records a failed keyword attempt. Never resets. */
@@ -104,6 +118,12 @@ export interface AlertProjection {
   createdAt: Date;
   /** Whether a voice note exists — not the note. */
   hasVoiceNote: boolean;
+  /**
+   * How long the alert sat before reaching us, when we can tell. A responder
+   * must be able to see that a position is two hours old rather than assume
+   * every alert is happening now.
+   */
+  reportedDelayMs: number | null;
   /** 'responder' sees less than 'contact'. */
   audience: 'responder' | 'contact';
 }
