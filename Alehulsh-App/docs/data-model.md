@@ -67,8 +67,8 @@ So the split is not public/private. It is:
 | `phoneNumber` | **keep**, private + hashed index | Needed for contact matching (P2-09). The raw value never leaves the server |
 | `email` | **keep**, private + hashed index | Same |
 | `avatarUrl` | **drop** | Always empty in practice; no upload path exists |
-| `bloodType` | **PENDING P2-02** | Health data — the heaviest obligation in the model, and Art 2(5) sensitive. No code path reads it |
-| `medicalNotes` | **PENDING P2-02** | As above |
+| `bloodType` | **DROP** (decided) | Health data, Art 2(5) sensitive, read by nothing |
+| `medicalNotes` | **DROP** (decided) | As above |
 | `homeAddress` | **PENDING P2-02** | Collected at signup, read by nothing. Defaults to a real Addis sub-city string for users who never entered one |
 | `catName` | **replaced** | Becomes `safetyKeywordHash` + `mustSetKeyword` (P1-11). Plaintext is deleted, not migrated |
 | `emergencyContacts[]` | **own entity** | §4 |
@@ -180,9 +180,12 @@ Step 4 is irreversible. Run it on a copy first, as with P1-11.
 
 ## 7. Open for Meron
 
-1. **P2-02 — `bloodType`, `medicalNotes`, `homeAddress`.** All three collected,
-   none read by any code. Health data carries the heaviest obligations of
-   anything here. Drop, or give each a named consumer and a retention period.
+1. ~~**P2-02 — `bloodType`, `medicalNotes`**~~ **DECIDED — drop both.** Removing
+   the most heavily regulated category in the model, which nothing read.
+   **`homeAddress` is still undecided** — it was in the same group and was not
+   named in the decision. Nothing reads it either, and it defaults to
+   `'Bole Sub-city, Addis Ababa'`, so users who never entered an address have a
+   plausible but false one stored about them.
 2. **`safetyScore` (P4-12).** Remove, or define it as something real.
 3. **Do we keep raw phone and email at all**, or only the hashes? Raw values are
    needed to *display* her contact list back to her. If the in-app contact alert

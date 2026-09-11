@@ -120,12 +120,25 @@ Write, do not query. A responder's client reads only
   responder's inbox is never a history of other people's emergencies.
 - Status changes update existing entries rather than appending.
 
-**Who gets selected is not decided here.** That depends on P4-07, the responder
-verification policy, which is unanswered. P2-05 must therefore ship with
-eligibility behind an explicit predicate that **returns nobody by default** —
-an inert fan-out is correct, whereas one that guesses at eligibility would
-broadcast a woman's position to unverified strangers. That is the safe failure
-direction and it should be deliberate, not incidental.
+**Who gets selected — DECIDED (P4-07): women only, verified by national ID
+photo.** Eligibility still sits behind an explicit predicate, and it still
+returns nobody until verification exists, because a policy without an
+implementation selects no one safely.
+
+Three consequences that follow, and are not optional:
+
+1. **Verify and discard.** An ID photo is among the most sensitive documents a
+   person owns, and a stored one is a honeypot that grows. Extract what
+   verification needs — a decision, and at most a document-number hash — then
+   delete the image. Retaining ID photos would create a worse breach exposure
+   than the one we have just closed.
+2. **Someone has to review them.** The SRD assumes manual review for the first
+   1,000 users. That is operational work with a person looking at strangers'
+   identity documents, which needs its own access control and audit trail.
+3. **It is an adoption barrier, deliberately.** Fewer responders, verified,
+   beats more responders, unverified — but it means the responder network stays
+   small for a while, which makes the contact channel (P3-01) the one carrying
+   the weight at launch.
 
 ---
 

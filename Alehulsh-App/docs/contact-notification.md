@@ -99,8 +99,28 @@ happen.
 
 ## 5. The no-app fallback
 
-Unresolved — **P3-05 is Meron's decision.** Stating the options here because
-this design is incomplete without one.
+**DECIDED: option A — her own phone sends it.** Chosen because it costs nothing,
+which was the reason the channel moved off SMS in the first place, and because
+it never touches our servers and is therefore residency-clean by construction.
+
+**What is actually achievable, and what is not.** Android splits this in two:
+
+| | Permission | Works when |
+|---|---|---|
+| `sms:` intent — opens her SMS app pre-filled | **none** | She can tap send |
+| Auto-send | `SEND_SMS` | Play restricts this to apps whose core function is SMS. An exception is possible but not assured |
+
+So the version that ships without a Play negotiation requires **a tap**.
+
+That is enough for the case it was designed for. P1-06 offers the fallback when
+the alert itself fails — she has just pressed SOS and is looking at the screen,
+so a tap is plausible.
+
+It is **not** enough for the hardware trigger with the phone in her pocket. In
+that case, if the network is gone, nothing reaches anyone. That gap is real and
+should not be papered over; it is the strongest argument for eventually
+applying for the `SEND_SMS` exception, and the reason P3-02 (showing her which
+contacts are reachable) matters more, not less.
 
 | Option | For | Against |
 |---|---|---|
@@ -130,7 +150,9 @@ This makes contact onboarding (P3-02) a core flow, not a nicety.
 
 ## 7. Open
 
-1. **P3-05** — the fallback channel (§5). Blocks P3-05b.
+1. ~~**P3-05** — the fallback channel.~~ **DECIDED — device-originated SMS.**
+   Open sub-question: do we apply for the `SEND_SMS` Play exception so the
+   pocket case works, or accept the tap requirement?
 2. **Escalation interval.** P1-03 sets the safety check at 2 minutes; contact
    escalation is a separate clock and needs its own number.
 3. **Does an acknowledging contact see her location?** P1-01 §4 says yes, and
