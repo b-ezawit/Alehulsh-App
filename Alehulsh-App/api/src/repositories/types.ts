@@ -199,6 +199,36 @@ export interface ResponderRepository {
 }
 
 /**
+ * A piece of evidence — today always a voice note.  (P2-10.3)
+ *
+ * The document holds a path and metadata, never bytes. Base64 in the alert
+ * document capped total evidence at roughly 90 seconds against Firestore's
+ * 1MiB limit, after which the write failed and the recording was lost with no
+ * error surfaced to her.
+ */
+export interface EvidenceRecord {
+  id: string;
+  alertId: string;
+  ownerUid: string;
+  storagePath: string;
+  contentType: string;
+  /** Set once the object is confirmed present. Null means upload never landed. */
+  sizeBytes: number | null;
+  durationMs: number | null;
+  createdAt: Date;
+  /** False until the client's PUT is confirmed server-side. */
+  uploaded: boolean;
+}
+
+export interface EvidenceRepository {
+  create(record: EvidenceRecord): Promise<EvidenceRecord>;
+  findById(id: string): Promise<EvidenceRecord | null>;
+  listForAlert(alertId: string): Promise<EvidenceRecord[]>;
+  markUploaded(id: string, sizeBytes: number | null): Promise<EvidenceRecord>;
+  deleteAllForOwner(ownerUid: string): Promise<number>;
+}
+
+/**
  * One reveal attempt.  (P2-08.3)
  *
  * Append-only, and it records denials as well as grants. A responder working

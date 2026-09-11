@@ -1,6 +1,7 @@
 import { initializeApp, applicationDefault } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
 import { getFirestore } from 'firebase-admin/firestore';
+import { getStorage } from 'firebase-admin/storage';
 import { loadConfig } from './config.js';
 import { createLogger } from './logger.js';
 import { buildServer } from './server.js';
@@ -12,6 +13,8 @@ import { FirestoreUserRepository } from './repositories/firestore/FirestoreUserR
 import { FirestoreInboxRepository } from './repositories/firestore/FirestoreInboxRepository.js';
 import { FirestoreAcceptanceRepository } from './repositories/firestore/FirestoreAcceptanceRepository.js';
 import { FirestoreLocationRevealRepository } from './repositories/firestore/FirestoreLocationRevealRepository.js';
+import { FirestoreEvidenceRepository } from './repositories/firestore/FirestoreEvidenceRepository.js';
+import { FirebaseStorageEvidenceStore } from './evidence/FirebaseStorageEvidenceStore.js';
 
 /**
  * Composition root. The only file that knows which implementations are wired
@@ -45,6 +48,8 @@ async function main(): Promise<void> {
     inbox: new FirestoreInboxRepository(db),
     acceptances: new FirestoreAcceptanceRepository(db),
     reveals: new FirestoreLocationRevealRepository(db),
+    evidence: new FirestoreEvidenceRepository(db),
+    evidenceStore: new FirebaseStorageEvidenceStore(getStorage(firebase).bucket()),
     queue,
     // Per-instance and lost on restart, which is fine: nothing safety-critical
     // rides on it. See rate/RateLimiter.ts.

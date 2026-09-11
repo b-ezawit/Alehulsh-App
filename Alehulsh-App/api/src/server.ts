@@ -5,13 +5,15 @@ import type { Logger } from './logger.js';
 import type { TokenVerifier } from './auth/TokenVerifier.js';
 import type {
   AcceptanceRepository, AlertRepository, InboxRepository,
-  LocationRevealRepository, UserRepository,
+  EvidenceRepository, LocationRevealRepository, UserRepository,
 } from './repositories/types.js';
 import type { TaskQueue } from './queue/TaskQueue.js';
 import type { RateLimiter } from './rate/RateLimiter.js';
+import type { EvidenceStore } from './evidence/EvidenceStore.js';
 import { registerAlertRoutes } from './routes/alerts.js';
 import { registerAcceptRoute } from './routes/accept.js';
 import { registerResolveRoute } from './routes/resolve.js';
+import { registerEvidenceRoutes } from './routes/evidence.js';
 import { registerRevealRoute } from './routes/reveal.js';
 import { registerTaskRoutes } from './routes/tasks.js';
 
@@ -30,6 +32,9 @@ export interface Deps {
   acceptances: AcceptanceRepository;
   /** Append-only audit of every precise-location release. P2-08.3. */
   reveals: LocationRevealRepository;
+  /** Paths and metadata. Never bytes — see routes/evidence.ts. */
+  evidence: EvidenceRepository;
+  evidenceStore: EvidenceStore;
   queue: TaskQueue;
   /** Abuse ceilings only — never a safety-critical limit. */
   limiter: RateLimiter;
@@ -84,6 +89,7 @@ export function buildServer(deps: Deps): FastifyInstance {
   registerTaskRoutes(app, deps);
   registerAcceptRoute(app, deps);
   registerRevealRoute(app, deps);
+  registerEvidenceRoutes(app, deps);
 
   return app;
 }

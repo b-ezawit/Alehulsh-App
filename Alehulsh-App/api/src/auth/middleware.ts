@@ -11,6 +11,12 @@ declare module 'fastify' {
 /**
  * Resolves the caller once, at the edge.
  *
+ * Registered as `onRequest`, not `preHandler`, so it runs before body parsing
+ * and schema validation. An unauthenticated caller therefore never reaches the
+ * validator — they get 401 rather than a 400 describing what was wrong with a
+ * request we were never going to process. It only reads a header, so there is
+ * nothing it needs from the parsed body.
+ *
  * CLAUDE.md §9: authentication is not authorization. This establishes *who is
  * calling* and nothing more. Whether they may touch a given resource is decided
  * per-route against stored relationships — see docs/authorization-model.md §5.

@@ -4,7 +4,7 @@ import { buildServer, type Deps } from '../src/server.js';
 import { InMemoryTaskQueue } from '../src/queue/TaskQueue.js';
 import { InMemorySlidingWindowLimiter } from '../src/rate/RateLimiter.js';
 import { createLogger } from '../src/logger.js';
-import { FakeAlertRepository, FakeUserRepository, FakeInboxRepository, FakeAcceptanceRepository, FakeLocationRevealRepository, fakeVerifier, authAs, OWNER, ACTIVE_WINDOW, SAFETY_DELAY, testConfig } from './fakes.js';
+import { FakeAlertRepository, FakeUserRepository, FakeInboxRepository, FakeAcceptanceRepository, FakeLocationRevealRepository, FakeEvidenceRepository, FakeEvidenceStore, fakeVerifier, authAs, OWNER, ACTIVE_WINDOW, SAFETY_DELAY, testConfig } from './fakes.js';
 
 let repo: FakeAlertRepository;
 let queue: InMemoryTaskQueue;
@@ -23,6 +23,8 @@ function server() {
     reveals: new FakeLocationRevealRepository(),
     queue,
     limiter: new InMemorySlidingWindowLimiter(),
+    evidence: new FakeEvidenceRepository(),
+    evidenceStore: new FakeEvidenceStore(),
   };
   return buildServer(deps);
 }

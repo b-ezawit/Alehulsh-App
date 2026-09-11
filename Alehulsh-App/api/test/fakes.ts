@@ -1,6 +1,7 @@
 import type {
   Alert, AlertProjection, AlertRepository, AlertStatus, ContactRepository,
-  Acceptance, AcceptanceRepository, LocationRevealAttempt, LocationRevealRepository,
+  Acceptance, AcceptanceRepository, EvidenceRecord, EvidenceRepository,
+  LocationRevealAttempt, LocationRevealRepository,
   EmergencyContact, InboxRepository, ResponderLocationRepository,
   ResponderRecord, ResponderRepository, UserRecord, UserRepository,
 } from '../src/repositories/types.js';
@@ -241,4 +242,66 @@ export class FakeLocationRevealRepository implements LocationRevealRepository {
     return before - this.log.length;
   }
   granted() { return this.log.filter((a) => a.granted); }
+}
+
+
+export class FakeEvidenceRepository implements EvidenceRepository {
+  readonly store = new Map<string, EvidenceRecord>();
+  async create(r: EvidenceRecord) { this.store.set(r.id, r); return r; }
+  async findById(id: string) { return this.store.get(id) ?? null; }
+  async listForAlert(alertId: string) {
+    return [...this.store.values()]
+      .filter((r) => r.alertId === alertId)
+      .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+  }
+  async markUploaded(id: string, sizeBytes: number | null) {
+    const r = this.store.get(id)!;
+    const updated: EvidenceRecord = { ...r, uploaded: true, sizeBytes };
+    this.store.set(id, updated);
+    return updated;
+  }
+  async deleteAllForOwner(ownerUid: string) {
+    let n = 0;
+    for (const [id, r] of [...this.store]) {
+      if (r.ownerUid === ownerUid) { this.store.delete(id); n++; }
+    }
+    return n;
+  }
+}
+
+/** In-memory stand-in for the bucket. `objects` is what actually landed. */
+export class FakeEvidenceStore {
+  readonly objects = new Map<string, number>();
+  ticketCalls = 0;
+
+  async createUploadTicket(i: {
+    ownerUid: string; alertId: string; evidenceId: string; contentType: string;
+  }) {
+    this.ticketCalls++;
+    return {
+      storagePath: `evidence/${i.ownerUid}/${i.alertId}/${i.evidenceId}`,
+      url: `https://storage.test/signed/${i.evidenceId}?sig=write`,
+      expiresAt: new Date(Date.now() + 15 * 60 * 1000),
+      contentType: i.contentType,
+    };
+  }
+  async createPlaybackUrl(storagePath: string, ttlMs: number) {
+    return {
+      url: `https://storage.test/signed/${encodeURIComponent(storagePath)}?sig=read`,
+      expiresAt: new Date(Date.now() + ttlMs),
+    };
+  }
+  async exists(storagePath: string) { return this.objects.has(storagePath); }
+  async sizeOf(storagePath: string) { return this.objects.get(storagePath) ?? null; }
+  async remove(storagePath: string) { this.objects.delete(storagePath); }
+  async removeAllForOwner(ownerUid: string) {
+    const prefix = `evidence/${ownerUid}/`;
+    let n = 0;
+    for (const k of [...this.objects.keys()]) {
+      if (k.startsWith(prefix)) { this.objects.delete(k); n++; }
+    }
+    return n;
+  }
+  /** Simulates the client completing its PUT. */
+  land(storagePath: string, bytes = 1024) { this.objects.set(storagePath, bytes); }
 }

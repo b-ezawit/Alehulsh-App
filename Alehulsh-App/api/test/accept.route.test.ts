@@ -9,7 +9,7 @@ import { AccountDeleter } from '../src/services/AccountDeleter.js';
 import type { AlertProjection } from '../src/repositories/types.js';
 import {
   FakeAlertRepository, FakeUserRepository, FakeInboxRepository, FakeAcceptanceRepository,
-  FakeLocationRevealRepository,
+  FakeLocationRevealRepository, FakeEvidenceRepository, FakeEvidenceStore,
   fakeVerifier, authAs, OWNER, STRANGER, testConfig,
 } from './fakes.js';
 
@@ -49,6 +49,8 @@ beforeEach(() => {
     config: testConfig, logger: createLogger('error'), tokenVerifier: fakeVerifier,
     alerts, users: new FakeUserRepository(), inbox, acceptances, queue,
     limiter: new InMemorySlidingWindowLimiter(),
+    evidence: new FakeEvidenceRepository(),
+    evidenceStore: new FakeEvidenceStore(),
     reveals: new FakeLocationRevealRepository(),
   };
   app = buildServer(deps);

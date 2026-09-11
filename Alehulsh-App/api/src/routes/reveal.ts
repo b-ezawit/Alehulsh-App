@@ -47,7 +47,7 @@ const DENIED = { granted: false } as const;
 export function registerRevealRoute(app: FastifyInstance, deps: Deps): void {
   app.post<{ Params: { id: string }; Body: Body }>(
     '/v1/alerts/:id/reveal',
-    { schema: { body: bodySchema }, preHandler: requireSubject(deps.tokenVerifier) },
+    { schema: { body: bodySchema }, onRequest: requireSubject(deps.tokenVerifier) },
     async (req, reply) => {
       const { uid } = subjectOf(req);
       const alertId = req.params.id;

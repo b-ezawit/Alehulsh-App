@@ -10,7 +10,7 @@ import { AccountDeleter } from '../src/services/AccountDeleter.js';
 import type { AlertProjection } from '../src/repositories/types.js';
 import {
   FakeAlertRepository, FakeUserRepository, FakeInboxRepository, FakeAcceptanceRepository,
-  FakeLocationRevealRepository, fakeVerifier, authAs, OWNER, testConfig,
+  FakeLocationRevealRepository, FakeEvidenceRepository, FakeEvidenceStore, fakeVerifier, authAs, OWNER, testConfig,
 } from './fakes.js';
 
 const HELPER = 'helper_uid';
@@ -48,6 +48,8 @@ beforeEach(() => {
     alerts, users: new FakeUserRepository(), inbox, acceptances, reveals,
     queue: new InMemoryTaskQueue(),
     limiter: new InMemorySlidingWindowLimiter(),
+    evidence: new FakeEvidenceRepository(),
+    evidenceStore: new FakeEvidenceStore(),
   };
   app = buildServer(deps);
   alerts.seed({ id: ALERT, ownerId: OWNER, status: 'active', latitude: TRUE_LAT, longitude: TRUE_LNG });

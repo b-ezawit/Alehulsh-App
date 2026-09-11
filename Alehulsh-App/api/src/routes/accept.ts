@@ -36,7 +36,7 @@ export function registerAcceptRoute(app: FastifyInstance, deps: Deps): void {
       // No body. (alertId, uid) is the natural key, so a replay is the same
       // request rather than something needing an idempotency token.
       schema: { body: { type: 'object', additionalProperties: false, properties: {} } },
-      preHandler: requireSubject(deps.tokenVerifier),
+      onRequest: requireSubject(deps.tokenVerifier),
     },
     async (req, reply) => {
       const { uid } = subjectOf(req);

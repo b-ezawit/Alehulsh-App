@@ -7,7 +7,7 @@ import { createLogger } from '../src/logger.js';
 import { hashKeyword } from '../src/crypto/keyword.js';
 import { taskKeys } from '../src/tasks.js';
 import {
-  FakeAlertRepository, FakeUserRepository, FakeInboxRepository, FakeAcceptanceRepository, FakeLocationRevealRepository, fakeVerifier, authAs,
+  FakeAlertRepository, FakeUserRepository, FakeInboxRepository, FakeAcceptanceRepository, FakeLocationRevealRepository, FakeEvidenceRepository, FakeEvidenceStore, fakeVerifier, authAs,
   OWNER, STRANGER, PEPPER, testConfig,
 } from './fakes.js';
 
@@ -29,6 +29,8 @@ beforeEach(() => {
     config: testConfig, logger: createLogger('error'), tokenVerifier: fakeVerifier,
     alerts, users, queue,
     limiter: new InMemorySlidingWindowLimiter(),
+    evidence: new FakeEvidenceRepository(),
+    evidenceStore: new FakeEvidenceStore(),
     inbox: new FakeInboxRepository(), acceptances: new FakeAcceptanceRepository(),
     reveals: new FakeLocationRevealRepository(),
   };
