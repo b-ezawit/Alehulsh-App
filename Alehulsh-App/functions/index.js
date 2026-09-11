@@ -32,37 +32,35 @@ exports.onAlertCreated = onDocumentCreated("active_alerts/{alertId}", async (eve
     return;
   }
 
-  const userName = alertData.userName || "Alehulsh User";
-  const locationName = alertData.locationName || "Nearby Location";
-  const latitude = String(alertData.latitude || "");
-  const longitude = String(alertData.longitude || "");
   const geohash = alertData.geohash || (alertData.geo ? alertData.geo.geohash : "");
-  const isUrgent = alertData.isUrgent ? "true" : "false";
 
   // Use 5-character Geohash prefix (~2.4km radius surrounding the 500m zone)
   const geohash5 = geohash ? geohash.substring(0, 5) : "";
   const topicName = geohash5 ? `sos_radar_${geohash5}` : "sos_radar_global";
 
-  logger.info(`🚨 Dispatching Server-Side SOS Broadcast for ${userName} (${alertId}) to topic: ${topicName}`);
+  logger.info(`Dispatching SOS broadcast for ${alertId} to topic: ${topicName}`);
 
-  // High-Priority Push Notification Payload
+  // P0-09 — NO PERSONAL DATA IN THE PAYLOAD.
+  //
+  // This previously carried userName, locationName and exact latitude/longitude.
+  // FCM topic subscription is a client-side operation with no server-side
+  // authorization, so any device could subscribe to every sos_radar_* cell over
+  // Addis Ababa and passively receive the name and precise coordinates of every
+  // SOS raised in the city. (CRIT-03)
+  //
+  // The payload now carries only an opaque alert id. Recipients fetch detail
+  // over an authorized read — which, during containment, they cannot do, so
+  // responder notifications are non-functional until the fan-out in P2-04/P2-05
+  // replaces topics with server-selected device tokens.
   const message = {
     topic: topicName,
     data: {
       alertId: String(alertId),
-      userId: String(alertData.userId || alertId),
-      userName: String(userName),
-      locationName: String(locationName),
-      latitude: latitude,
-      longitude: longitude,
-      category: String(alertData.category || "Emergency SOS Alert"),
-      isUrgent: isUrgent,
-      timestamp: String(alertData.timestamp || new Date().toISOString()),
       click_action: "FLUTTER_NOTIFICATION_CLICK",
     },
     notification: {
-      title: `🚨 EMERGENCY ALERT: ${userName}`,
-      body: `Someone near you in ${locationName} requested emergency assistance!`,
+      title: "Alehulsh",
+      body: "Open Alehulsh to see if you can help nearby.",
     },
     android: {
       priority: "high",
@@ -71,7 +69,9 @@ exports.onAlertCreated = onDocumentCreated("active_alerts/{alertId}", async (eve
         priority: "max",
         defaultSound: true,
         defaultVibrateTimings: true,
-        visibility: "public",
+        // P1-05 will take this further: lock-screen visibility must not reveal
+        // that an emergency is in progress at all.
+        visibility: "private",
         clickAction: "FLUTTER_NOTIFICATION_CLICK",
       },
     },
@@ -79,9 +79,9 @@ exports.onAlertCreated = onDocumentCreated("active_alerts/{alertId}", async (eve
 
   try {
     const response = await admin.messaging().send(message);
-    logger.info(`✅ Successfully broadcasted SOS ${alertId} to topic ${topicName}: Message ID ${response}`);
+    logger.info(`Broadcast SOS ${alertId} to topic ${topicName}: ${response}`);
   } catch (error) {
-    logger.error(`❌ Error broadcasting SOS to topic ${topicName}:`, error);
+    logger.error(`Error broadcasting SOS to topic ${topicName}:`, error);
   }
 });
 
