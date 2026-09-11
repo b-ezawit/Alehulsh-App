@@ -97,8 +97,9 @@ the one place this document **departs from the SRD**.
 The SRD's schema has `resolved_by TEXT -- 'user', 'helper', 'police', 'timeout'`,
 which implies a helper or an officer can mark an alert resolved.
 
-**Recommendation: they cannot.** Only the owner, with a verified keyword, moves
-an alert to `resolved`.
+**DECIDED (Meron, confirmed): they cannot.** Only the owner, with a verified
+keyword, moves an alert to `resolved` — including when a responder reports she
+arrived and found her safe. A responder's report is recorded, not trusted.
 
 The reason is the threat model. If a helper can close an alert, then an attacker
 who registers as a helper can close his victim's alert — silencing the very
@@ -120,7 +121,7 @@ changes the safety status:
 evidence that nobody confirmed safety, which is `escalated` or `expired`, never
 `resolved`.
 
-**This needs Meron's sign-off**, since it contradicts the SRD schema.
+**Decided.** This overrides the SRD schema, which is updated to follow.
 
 ---
 
@@ -181,8 +182,7 @@ explicit rather than remaining a side effect of the document id:
 
 ## 8. Open for Meron
 
-1. **§4 — only the owner can resolve.** This contradicts the SRD's
-   `resolved_by` values. I recommend the deviation; it needs your decision.
+1. ~~**§4 — only the owner can resolve.**~~ **DECIDED — owner only.**
 2. **Active window length.** 2 hours is inherited from the current code, not
    from the SRD. Is 2 hours right, given the safety check fires at 2 minutes?
 3. **`expired` alarm routing.** It signals our escalation failed. Who gets

@@ -47,7 +47,7 @@ she is in danger. The tolerance for false positives is close to zero.
 
 ## 3. Recommendation
 
-### Delete paths 2 and 3
+### Delete paths 2 and 3 — DECIDED
 
 They are proxies for a thing we can measure directly, and they are the source of
 essentially all false positives. A proxy that fires during normal phone use is
@@ -145,12 +145,12 @@ the app; a false trigger under the P1-03 rules is not.
 
 ## 7. Open for Meron
 
-1. **Deleting paths 2 and 3 means no hardware trigger without the accessibility
-   permission.** Recommended, but it is a real capability loss and you should
-   decide it consciously.
+1. ~~**Deleting paths 2 and 3.**~~ **DECIDED — delete them.** The hardware
+   trigger now requires the accessibility permission. If it is not granted, the
+   app must say so plainly rather than fall back to a guess.
 2. **Five presses, 4 s window, 1.2 s max gap.** Reasoned defaults, to be
    confirmed by §6.
-3. **Removing the post-cancellation lockout** (§5). I consider this a bug fix
-   rather than a preference, but it changes behaviour Beza wrote deliberately.
+3. ~~**Removing the post-cancellation lockout** (§5).~~ **DECIDED — remove it.**
+   Covered by "do what is best"; it is an exploitable hole, not a preference.
 4. **The 3-second abort window** creates a narrow coercion surface. I judge it
    worth it; you may not.
