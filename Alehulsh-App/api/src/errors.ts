@@ -63,6 +63,24 @@ export interface ClientErrorBody {
 }
 
 /**
+ * Fastify raises schema failures as its own error type, not an AppError. Left
+ * unhandled these became 500 "Something went wrong on our side" — the wrong
+ * status, and it blamed us for the caller's malformed request.
+ */
+interface FastifyValidationError {
+  code?: string;
+  validation?: unknown[];
+  validationContext?: string;
+  message?: string;
+}
+
+function asValidationError(err: unknown): FastifyValidationError | null {
+  if (typeof err !== 'object' || err === null) return null;
+  const e = err as FastifyValidationError;
+  return e.code === 'FST_ERR_VALIDATION' || Array.isArray(e.validation) ? e : null;
+}
+
+/**
  * Maps anything thrown into a response. An unrecognised error becomes a plain
  * 500 — we never surface a message we did not write.
  */
@@ -72,6 +90,17 @@ export function toClientError(err: unknown): {
   /** For the log only. */
   internal: Record<string, unknown>;
 } {
+  const validation = asValidationError(err);
+  if (validation) {
+    return {
+      status: 400,
+      body: { error: { code: 'invalid_request', message: PUBLIC_MESSAGE.invalid_request } },
+      // Ajv's message names the offending field and sometimes its value, so it
+      // goes to the log and never to the caller.
+      internal: { code: 'invalid_request', detail: validation.message, where: validation.validationContext },
+    };
+  }
+
   if (err instanceof AppError) {
     return {
       status: err.status,

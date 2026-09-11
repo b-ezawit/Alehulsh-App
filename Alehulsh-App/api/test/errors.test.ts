@@ -35,3 +35,27 @@ describe('client error contract', () => {
     assert.equal(toClientError(new AppError('conflict')).status, 409);
   });
 });
+
+describe('Fastify validation errors', () => {
+  test('map to 400, not 500', () => {
+    const err = Object.assign(new Error("body must have required property 'requestId'"), {
+      code: 'FST_ERR_VALIDATION',
+      validation: [{ instancePath: '/requestId' }],
+      validationContext: 'body',
+    });
+    const { status, body } = toClientError(err);
+    assert.equal(status, 400);
+    assert.equal(body.error.code, 'invalid_request');
+  });
+
+  test('do not leak the Ajv message, which names fields and values', () => {
+    const err = Object.assign(new Error('body/latitude must be <= 90'), {
+      code: 'FST_ERR_VALIDATION',
+      validation: [{ instancePath: '/latitude' }],
+      validationContext: 'body',
+    });
+    const { body, internal } = toClientError(err);
+    assert.ok(!JSON.stringify(body).includes('latitude'));
+    assert.ok(String(internal['detail']).includes('latitude'));
+  });
+});

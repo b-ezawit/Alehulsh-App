@@ -29,13 +29,17 @@ export interface Alert {
 export interface AlertRepository {
   findById(id: string): Promise<Alert | null>;
   findActiveByOwner(ownerId: string): Promise<Alert | null>;
-  /** Must be idempotent on requestId — alert-lifecycle.md §7. */
+  /**
+   * Idempotent — alert-lifecycle.md §7. `created` is false when an alert was
+   * already live, so the caller knows not to reschedule the safety check.
+   * Re-triggering must not let someone postpone escalation indefinitely.
+   */
   create(input: {
     requestId: string;
     ownerId: string;
     latitude: number | null;
     longitude: number | null;
-  }): Promise<Alert>;
+  }): Promise<{ alert: Alert; created: boolean }>;
   updateStatus(id: string, next: AlertStatus, fields: Partial<Alert>): Promise<Alert>;
 }
 

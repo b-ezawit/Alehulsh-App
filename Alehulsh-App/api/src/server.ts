@@ -5,6 +5,7 @@ import type { Logger } from './logger.js';
 import type { TokenVerifier } from './auth/TokenVerifier.js';
 import type { AlertRepository, UserRepository } from './repositories/types.js';
 import type { TaskQueue } from './queue/TaskQueue.js';
+import { registerAlertRoutes } from './routes/alerts.js';
 
 /**
  * Everything the handlers need, injected. No module reaches for a global
@@ -27,6 +28,20 @@ export function buildServer(deps: Deps): FastifyInstance {
     // Trust the platform proxy for client IP — needed by rate limiting (P1-14).
     trustProxy: true,
     bodyLimit: 64 * 1024,
+    ajv: {
+      customOptions: {
+        // Fastify's defaults are wrong for this API:
+        //   removeAdditional strips unknown fields silently, so a client
+        //     sending `status` or `userId` gets a 201 instead of an error and
+        //     we never learn it tried;
+        //   coerceTypes turns "999" into 999, which defeats range checks and
+        //     hides client bugs we would rather see.
+        // Reject, do not repair.
+        removeAdditional: false,
+        coerceTypes: false,
+        allErrors: false,
+      },
+    },
   });
 
   app.setErrorHandler((err, req, reply) => {
@@ -49,8 +64,8 @@ export function buildServer(deps: Deps): FastifyInstance {
   // Liveness. Deliberately reveals nothing about state or dependencies.
   app.get('/healthz', async () => ({ ok: true }));
 
-  // Routes land here in P1-08 (POST /v1/alerts), P1-09 (/resolve),
-  // P1-10 (/accept).
+  registerAlertRoutes(app, deps);
+  // P1-09 (/resolve) and P1-10 (/accept) land next.
 
   return app;
 }

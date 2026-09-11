@@ -13,6 +13,10 @@ export interface Config {
   /** Interim, Firebase-era. Removed at C-04. */
   firebaseProjectId: string;
   env: 'development' | 'production';
+  /** How long an alert stays live before the expiry backstop. alert-lifecycle.md §3. */
+  activeWindowMs: number;
+  /** Delay before the safety check fires. SRD layer 2 says two minutes. */
+  safetyCheckDelayMs: number;
 }
 
 function required(name: string): string {
@@ -35,8 +39,18 @@ export function loadConfig(): Config {
     throw new Error('LOG_LEVEL=debug is not permitted when NODE_ENV=production');
   }
 
+  const positiveMs = (name: string, fallback: number): number => {
+    const raw = process.env[name];
+    if (raw === undefined) return fallback;
+    const n = Number(raw);
+    if (!Number.isFinite(n) || n <= 0) throw new Error(`${name} must be a positive number of ms`);
+    return n;
+  };
+
   return {
     port: Number(process.env['PORT'] ?? 8080),
+    activeWindowMs: positiveMs('ACTIVE_WINDOW_MS', 2 * 60 * 60 * 1000),
+    safetyCheckDelayMs: positiveMs('SAFETY_CHECK_DELAY_MS', 2 * 60 * 1000),
     logLevel: level as Config['logLevel'],
     firebaseProjectId: required('FIREBASE_PROJECT_ID'),
     env,
