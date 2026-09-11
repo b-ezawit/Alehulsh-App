@@ -1,4 +1,5 @@
 import { encodeGeohash } from '../geo.js';
+import { reportedDelayMs } from '../staleness.js';
 import { FUZZ_LABEL, FUZZ_PRECISION, fuzzFromGeohash } from '../geoFuzz.js';
 import type { Logger } from '../logger.js';
 import type {
@@ -122,6 +123,10 @@ export class AlertFanout {
       status: alert.status === 'escalated' ? 'escalated' : 'active',
       createdAt: alert.createdAt,
       hasVoiceNote: false,
+      // Passed straight through: a responder must be able to see that a
+      // position is two hours old rather than assume it is current (P3-13).
+      reportedDelayMs: alert.reportedDelayMs
+        ?? reportedDelayMs(alert.createdAt, alert.deviceReportedAt ?? null),
       audience,
     };
   }

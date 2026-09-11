@@ -22,6 +22,9 @@ const bodySchema = {
     // "we do not know where she is" is a real state and must survive the wire.
     latitude: { type: ['number', 'null'], minimum: -90, maximum: 90 },
     longitude: { type: ['number', 'null'], minimum: -180, maximum: 180 },
+    // Device clock, for staleness labelling only (P3-13). Never trusted for
+    // expiry, escalation timing, or any authorization decision.
+    occurredAt: { type: ['string', 'null'], format: 'date-time' },
   },
 } as const;
 
@@ -29,6 +32,7 @@ interface Body {
   requestId: string;
   latitude?: number | null;
   longitude?: number | null;
+  occurredAt?: string | null;
 }
 
 export function registerAlertRoutes(app: FastifyInstance, deps: Deps): void {
@@ -79,11 +83,17 @@ export function registerAlertRoutes(app: FastifyInstance, deps: Deps): void {
         }
       }
 
+      // An unparseable date becomes "we do not know", never an error and
+      // never a guess. The alert matters more than the metadata on it.
+      const reported = req.body.occurredAt ? new Date(req.body.occurredAt) : null;
+      const occurredAt = reported && !Number.isNaN(reported.getTime()) ? reported : null;
+
       const { alert, created } = await deps.alerts.create({
         requestId: req.body.requestId,
         ownerId: uid,
         latitude: lat,
         longitude: lon,
+        occurredAt,
       });
 
       if (created) {
@@ -106,6 +116,7 @@ export function registerAlertRoutes(app: FastifyInstance, deps: Deps): void {
         alertId: alert.id,
         subject: uid,
         hasLocation: lat !== null,
+        reportedDelayMs: alert.reportedDelayMs ?? null,
       });
 
       // 201 for a new alert, 200 when an existing one was returned, so the
@@ -117,6 +128,9 @@ export function registerAlertRoutes(app: FastifyInstance, deps: Deps): void {
           createdAt: alert.createdAt.toISOString(),
           expiresAt: alert.expiresAt.toISOString(),
           hasLocation: alert.latitude !== null,
+          // Echoed back so the client can say "this was queued for two hours"
+          // rather than implying it just went out.
+          reportedDelayMs: alert.reportedDelayMs ?? null,
         },
       });
     },

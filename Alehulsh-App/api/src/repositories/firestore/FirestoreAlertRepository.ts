@@ -2,6 +2,7 @@ import type { Firestore } from 'firebase-admin/firestore';
 import { Timestamp } from 'firebase-admin/firestore';
 import { AppError } from '../../errors.js';
 import { encodeGeohash } from '../../geo.js';
+import { reportedDelayMs } from '../../staleness.js';
 import type { Alert, AlertRepository, AlertStatus } from '../types.js';
 
 /**
@@ -28,6 +29,8 @@ interface AlertDoc {
   escalationReason?: Alert['escalationReason'];
   attemptCount?: number;
   lastAttemptAt?: Timestamp;
+  deviceReportedAt?: Timestamp;
+  reportedDelayMs?: number | null;
 }
 
 function toAlert(id: string, d: AlertDoc): Alert {
@@ -47,6 +50,8 @@ function toAlert(id: string, d: AlertDoc): Alert {
   if (d.escalatedAt) a.escalatedAt = d.escalatedAt.toDate();
   if (d.escalationReason) a.escalationReason = d.escalationReason;
   if (d.lastAttemptAt) a.lastAttemptAt = d.lastAttemptAt.toDate();
+  if (d.deviceReportedAt) a.deviceReportedAt = d.deviceReportedAt.toDate();
+  a.reportedDelayMs = d.reportedDelayMs ?? null;
   return a;
 }
 
@@ -79,6 +84,7 @@ export class FirestoreAlertRepository implements AlertRepository {
     ownerId: string;
     latitude: number | null;
     longitude: number | null;
+    occurredAt?: Date | null;
   }): Promise<{ alert: Alert; created: boolean }> {
     const ref = this.db.collection(COLLECTION).doc(input.ownerId);
     const now = new Date();
@@ -104,6 +110,11 @@ export class FirestoreAlertRepository implements AlertRepository {
         longitude: input.longitude,
         geohash: hasFix ? encodeGeohash(input.latitude!, input.longitude!) : null,
         attemptCount: 0,
+        // Stored as reported, plus the delay we computed from it. Neither is
+        // ever consulted for expiry — that is the server clock above, which is
+        // what lets a queued alert dispatch instead of arriving pre-expired.
+        ...(input.occurredAt ? { deviceReportedAt: Timestamp.fromDate(input.occurredAt) } : {}),
+        reportedDelayMs: reportedDelayMs(now, input.occurredAt ?? null),
       };
       tx.set(ref, doc);
       return { alert: toAlert(ref.id, doc), created: true };

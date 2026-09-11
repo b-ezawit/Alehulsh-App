@@ -160,3 +160,67 @@ describe('P1-15 — abuse ceiling on alert creation', () => {
     assert.equal(other.statusCode, 201);
   });
 });
+
+describe('P3-13 — expiry is the server clock, staleness is labelled', () => {
+  const raise = (app: ReturnType<typeof server>, body: Record<string, unknown>) =>
+    app.inject({ method: 'POST', url: '/v1/alerts', headers: AUTH, payload: body });
+
+  test('an alert queued offline beyond the window still dispatches', async () => {
+    const app = server();
+    // Triggered three hours ago with no signal, replayed now. Under a
+    // device-stamped expiry this arrives already expired and is discarded.
+    const threeHoursAgo = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString();
+    const res = await raise(app, { requestId: 'queued-request-1', occurredAt: threeHoursAgo });
+
+    assert.equal(res.statusCode, 201);
+    const alert = repo.store.get(OWNER)!;
+    // Its window starts from arrival, not from when she pressed the button.
+    assert.ok(alert.expiresAt.getTime() > Date.now());
+    assert.ok(alert.expiresAt.getTime() - alert.createdAt.getTime() === ACTIVE_WINDOW);
+  });
+
+  test('the delay is reported so nobody thinks a three-hour-old position is current', async () => {
+    const app = server();
+    const threeHoursAgo = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString();
+    const res = await raise(app, {
+      requestId: 'queued-request-2', occurredAt: threeHoursAgo, latitude: 9.01, longitude: 38.76,
+    });
+    const delay = res.json().alert.reportedDelayMs as number;
+    assert.ok(delay >= 3 * 60 * 60 * 1000 - 5000, `got ${delay}`);
+  });
+
+  test('a fresh alert reports no meaningful delay', async () => {
+    const app = server();
+    const res = await raise(app, { requestId: 'fresh-request-1', occurredAt: new Date().toISOString() });
+    assert.ok((res.json().alert.reportedDelayMs as number) < 5000);
+  });
+
+  test('no reported time is fine — the alert is what matters', async () => {
+    const app = server();
+    const res = await raise(app, { requestId: 'no-time-request-1' });
+    assert.equal(res.statusCode, 201);
+    assert.equal(res.json().alert.reportedDelayMs, null);
+  });
+
+  test('a device clock running ahead does not produce a negative age', async () => {
+    const app = server();
+    const future = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+    const res = await raise(app, { requestId: 'future-request-1', occurredAt: future });
+    assert.equal(res.statusCode, 201);
+    assert.equal(res.json().alert.reportedDelayMs, null);
+  });
+
+  test('a malformed occurredAt is rejected rather than guessed at', async () => {
+    const app = server();
+    const res = await raise(app, { requestId: 'bad-time-request-1', occurredAt: 'yesterday-ish' });
+    assert.equal(res.statusCode, 400);
+  });
+
+  test('the device clock never shortens the window', async () => {
+    const app = server();
+    const ancient = new Date(Date.now() - 20 * 60 * 60 * 1000).toISOString();
+    await raise(app, { requestId: 'ancient-request-1', occurredAt: ancient });
+    const alert = repo.store.get(OWNER)!;
+    assert.equal(alert.expiresAt.getTime() - alert.createdAt.getTime(), ACTIVE_WINDOW);
+  });
+});
