@@ -5,6 +5,7 @@ import { createLogger } from './logger.js';
 import { buildServer } from './server.js';
 import { FirebaseTokenVerifier } from './auth/FirebaseTokenVerifier.js';
 import { InMemoryTaskQueue } from './queue/TaskQueue.js';
+import { InMemorySlidingWindowLimiter } from './rate/RateLimiter.js';
 import type {
   AcceptanceRepository, AlertRepository, InboxRepository,
   LocationRevealRepository, UserRepository,
@@ -52,6 +53,7 @@ async function main(): Promise<void> {
     acceptances,
     reveals,
     queue: new InMemoryTaskQueue(),
+    limiter: new InMemorySlidingWindowLimiter(),
   });
 
   await app.listen({ port: config.port, host: '0.0.0.0' });

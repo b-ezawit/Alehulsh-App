@@ -2,6 +2,7 @@ import { test, describe, beforeEach, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildServer, type Deps } from '../src/server.js';
 import { InMemoryTaskQueue } from '../src/queue/TaskQueue.js';
+import { InMemorySlidingWindowLimiter } from '../src/rate/RateLimiter.js';
 import { createLogger } from '../src/logger.js';
 import { hashKeyword } from '../src/crypto/keyword.js';
 import { taskKeys } from '../src/tasks.js';
@@ -27,6 +28,7 @@ beforeEach(() => {
   const deps: Deps = {
     config: testConfig, logger: createLogger('error'), tokenVerifier: fakeVerifier,
     alerts, users, queue,
+    limiter: new InMemorySlidingWindowLimiter(),
     inbox: new FakeInboxRepository(), acceptances: new FakeAcceptanceRepository(),
     reveals: new FakeLocationRevealRepository(),
   };

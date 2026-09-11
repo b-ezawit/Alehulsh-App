@@ -44,6 +44,12 @@ export interface Config {
    */
   revealAttemptCap: number;
   revealAttemptWindowMs: number;
+  /**
+   * Abuse ceiling on NEW alerts per user per window. Set high on purpose: this
+   * exists to stop a script, not to ration emergencies. See routes/alerts.ts.
+   */
+  alertCreateCap: number;
+  alertCreateWindowMs: number;
 }
 
 function required(name: string): string {
@@ -88,6 +94,8 @@ export function loadConfig(): Config {
     revealRadiusM: positiveMs('REVEAL_RADIUS_M', 50),
     revealAttemptCap: positiveMs('REVEAL_ATTEMPT_CAP', 10),
     revealAttemptWindowMs: positiveMs('REVEAL_ATTEMPT_WINDOW_MS', 10 * 60 * 1000),
+    alertCreateCap: positiveMs('ALERT_CREATE_CAP', 20),
+    alertCreateWindowMs: positiveMs('ALERT_CREATE_WINDOW_MS', 60 * 60 * 1000),
     env,
   };
 }
