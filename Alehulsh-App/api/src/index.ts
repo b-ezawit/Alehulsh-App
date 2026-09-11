@@ -14,6 +14,7 @@ import { FirestoreInboxRepository } from './repositories/firestore/FirestoreInbo
 import { FirestoreAcceptanceRepository } from './repositories/firestore/FirestoreAcceptanceRepository.js';
 import { FirestoreLocationRevealRepository } from './repositories/firestore/FirestoreLocationRevealRepository.js';
 import { FirestoreEvidenceRepository } from './repositories/firestore/FirestoreEvidenceRepository.js';
+import { FirestoreContactRepository } from './repositories/firestore/FirestoreContactRepository.js';
 import { FirebaseStorageEvidenceStore } from './evidence/FirebaseStorageEvidenceStore.js';
 import { FirestoreClientPolicyRepository } from './repositories/firestore/FirestoreClientPolicyRepository.js';
 import { FirestoreVersionTelemetryRepository } from './repositories/firestore/FirestoreVersionTelemetryRepository.js';
@@ -51,6 +52,7 @@ async function main(): Promise<void> {
     acceptances: new FirestoreAcceptanceRepository(db),
     reveals: new FirestoreLocationRevealRepository(db),
     evidence: new FirestoreEvidenceRepository(db),
+    contacts: new FirestoreContactRepository(db, config.keywordPepper),
     evidenceStore: new FirebaseStorageEvidenceStore(getStorage(firebase).bucket()),
     clientPolicy: new FirestoreClientPolicyRepository(db),
     versionTelemetry: new FirestoreVersionTelemetryRepository(db),

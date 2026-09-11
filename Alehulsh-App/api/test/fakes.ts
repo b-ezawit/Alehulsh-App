@@ -263,6 +263,11 @@ export class FakeEvidenceRepository implements EvidenceRepository {
       .filter((r) => r.alertId === alertId)
       .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
   }
+  async listForOwner(ownerUid: string) {
+    return [...this.store.values()]
+      .filter((r) => r.ownerUid === ownerUid)
+      .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+  }
   async markUploaded(id: string, sizeBytes: number | null) {
     const r = this.store.get(id)!;
     const updated: EvidenceRecord = { ...r, uploaded: true, sizeBytes };
@@ -359,6 +364,7 @@ export function makeDeps(overrides: Partial<Deps> = {}): Deps {
     reveals: new FakeLocationRevealRepository(),
     evidence: new FakeEvidenceRepository(),
     evidenceStore: new FakeEvidenceStore(),
+    contacts: new FakeContactRepository(),
     clientPolicy: new FakeClientPolicyRepository(),
     versionTelemetry: new FakeVersionTelemetryRepository(),
     queue: new InMemoryTaskQueue(),

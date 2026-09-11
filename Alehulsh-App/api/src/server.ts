@@ -5,7 +5,7 @@ import type { Logger } from './logger.js';
 import type { TokenVerifier } from './auth/TokenVerifier.js';
 import type {
   AcceptanceRepository, AlertRepository, InboxRepository,
-  ClientPolicyRepository, EvidenceRepository, LocationRevealRepository,
+  ClientPolicyRepository, ContactRepository, EvidenceRepository, LocationRevealRepository,
   UserRepository, VersionTelemetryRepository,
 } from './repositories/types.js';
 import type { TaskQueue } from './queue/TaskQueue.js';
@@ -16,6 +16,7 @@ import { registerAcceptRoute } from './routes/accept.js';
 import { registerResolveRoute } from './routes/resolve.js';
 import { registerAppPolicyRoutes } from './routes/appPolicy.js';
 import { registerEvidenceRoutes } from './routes/evidence.js';
+import { registerExportRoute } from './routes/export.js';
 import { registerRevealRoute } from './routes/reveal.js';
 import { registerTaskRoutes } from './routes/tasks.js';
 
@@ -37,6 +38,7 @@ export interface Deps {
   /** Paths and metadata. Never bytes — see routes/evidence.ts. */
   evidence: EvidenceRepository;
   evidenceStore: EvidenceStore;
+  contacts: ContactRepository;
   /** Remotely raised upgrade floor, and who is on what. P1-26. */
   clientPolicy: ClientPolicyRepository;
   versionTelemetry: VersionTelemetryRepository;
@@ -96,6 +98,7 @@ export function buildServer(deps: Deps): FastifyInstance {
   registerRevealRoute(app, deps);
   registerEvidenceRoutes(app, deps);
   registerAppPolicyRoutes(app, deps);
+  registerExportRoute(app, deps);
 
   return app;
 }

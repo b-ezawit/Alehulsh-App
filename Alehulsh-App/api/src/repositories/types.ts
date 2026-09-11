@@ -285,6 +285,8 @@ export interface EvidenceRepository {
   create(record: EvidenceRecord): Promise<EvidenceRecord>;
   findById(id: string): Promise<EvidenceRecord | null>;
   listForAlert(alertId: string): Promise<EvidenceRecord[]>;
+  /** Everything of hers, for the export (P2-21). */
+  listForOwner(ownerUid: string): Promise<EvidenceRecord[]>;
   markUploaded(id: string, sizeBytes: number | null): Promise<EvidenceRecord>;
   deleteAllForOwner(ownerUid: string): Promise<number>;
 }
