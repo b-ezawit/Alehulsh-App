@@ -79,6 +79,22 @@ service cloud.firestore {
     }
 
     // ---------------------------------------------------------------
+    // inbox — per-recipient alert projections written by the server
+    // ---------------------------------------------------------------
+    // This is the collection that lets responder discovery come back safely.
+    // Firestore cannot express "only if you are near this alert", so the
+    // server writes each selected recipient their own copy and the rule only
+    // ever has to answer "is this your own inbox?".
+    //
+    // Read-only for clients. Every write comes from the API layer through the
+    // admin SDK, which bypasses rules — so there is deliberately no allow
+    // write here, not even for the owner. A responder who could write her own
+    // inbox could invent an alert, or delete one she was asked to answer.
+    match /inbox/{recipientUid}/alerts/{alertId} {
+      allow read: if isMe(recipientUid);
+    }
+
+    // ---------------------------------------------------------------
     // Everything else is denied.
     // ---------------------------------------------------------------
     // Firestore already denies by default; this is here so the intent is
