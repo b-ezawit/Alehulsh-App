@@ -88,6 +88,38 @@ export interface EmergencyContact {
   isPrimary: boolean;
 }
 
+/**
+ * What a responder actually receives. Never the alert itself — see
+ * docs/responder-projection.md §2.
+ */
+export interface AlertProjection {
+  alertId: string;
+  displayName: string;
+  /** Centre of the alert's precision-7 geohash cell. Never the true position. */
+  fuzzedLat: number | null;
+  fuzzedLng: number | null;
+  fuzzedPrecision: string;
+  isUrgent: boolean;
+  status: 'active' | 'escalated';
+  createdAt: Date;
+  /** Whether a voice note exists — not the note. */
+  hasVoiceNote: boolean;
+  /** 'responder' sees less than 'contact'. */
+  audience: 'responder' | 'contact';
+}
+
+export interface InboxRepository {
+  /** Idempotent on (recipientUid, alertId). */
+  put(recipientUid: string, projection: AlertProjection): Promise<void>;
+  remove(recipientUid: string, alertId: string): Promise<void>;
+  listRecipients(alertId: string): Promise<string[]>;
+}
+
+/** Active responders whose last known cell falls in one of the given prefixes. */
+export interface ResponderLocationRepository {
+  findByGeohashPrefixes(prefixes: readonly string[]): Promise<Array<{ uid: string }>>;
+}
+
 export interface ContactRepository {
   listByOwner(ownerUid: string): Promise<EmergencyContact[]>;
   deleteAllForOwner(ownerUid: string): Promise<number>;

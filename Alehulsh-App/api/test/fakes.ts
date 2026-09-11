@@ -1,5 +1,6 @@
 import type {
-  Alert, AlertRepository, AlertStatus, ContactRepository, EmergencyContact,
+  Alert, AlertProjection, AlertRepository, AlertStatus, ContactRepository,
+  EmergencyContact, InboxRepository, ResponderLocationRepository,
   ResponderRecord, ResponderRepository, UserRecord, UserRepository,
 } from '../src/repositories/types.js';
 import type { TokenVerifier } from '../src/auth/TokenVerifier.js';
@@ -123,6 +124,37 @@ export class FakeResponderRepository implements ResponderRepository {
       .length;
   }
   async upsert(record: ResponderRecord) { this.store.set(record.uid, record); return record; }
+}
+
+export class FakeInboxRepository implements InboxRepository {
+  /** recipientUid -> alertId -> projection */
+  readonly store = new Map<string, Map<string, AlertProjection>>();
+  putCalls = 0;
+
+  async put(recipientUid: string, projection: AlertProjection) {
+    this.putCalls++;
+    const box = this.store.get(recipientUid) ?? new Map();
+    box.set(projection.alertId, projection);
+    this.store.set(recipientUid, box);
+  }
+  async remove(recipientUid: string, alertId: string) {
+    this.store.get(recipientUid)?.delete(alertId);
+  }
+  async listRecipients(alertId: string) {
+    return [...this.store.entries()].filter(([, b]) => b.has(alertId)).map(([uid]) => uid);
+  }
+  projectionFor(uid: string, alertId: string) { return this.store.get(uid)?.get(alertId); }
+}
+
+export class FakeResponderLocationRepository implements ResponderLocationRepository {
+  /** uid -> geohash */
+  readonly store = new Map<string, string>();
+  async findByGeohashPrefixes(prefixes: readonly string[]) {
+    return [...this.store.entries()]
+      .filter(([, gh]) => prefixes.some((p) => gh.startsWith(p)))
+      .map(([uid]) => ({ uid }));
+  }
+  set(uid: string, geohash: string) { this.store.set(uid, geohash); }
 }
 
 /** Maps a bearer token straight to a uid, so tests can act as anyone. */
