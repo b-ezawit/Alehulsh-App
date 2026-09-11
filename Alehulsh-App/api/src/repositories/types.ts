@@ -24,6 +24,9 @@ export interface Alert {
   resolvedBy?: 'owner' | 'owner_late';
   escalatedAt?: Date;
   escalationReason?: 'wrong_keyword' | 'no_answer' | 'attempts_exhausted';
+  /** Failed keyword attempts. A cluster of these is itself evidence. */
+  attemptCount: number;
+  lastAttemptAt?: Date;
 }
 
 export interface AlertRepository {
@@ -41,12 +44,19 @@ export interface AlertRepository {
     longitude: number | null;
   }): Promise<{ alert: Alert; created: boolean }>;
   updateStatus(id: string, next: AlertStatus, fields: Partial<Alert>): Promise<Alert>;
+  /** Records a failed keyword attempt. Never resets. */
+  recordFailedAttempt(id: string, at: Date): Promise<Alert>;
 }
 
 export interface UserRecord {
   uid: string;
   /** Hash only. The plaintext keyword never enters this process — CRIT-05. */
   safetyKeywordHash: string | null;
+  /**
+   * True for users migrated off the shipped default, or who never had one.
+   * They cannot resolve until they set a real keyword — see P1-11.
+   */
+  mustSetKeyword: boolean;
 }
 
 export interface UserRepository {

@@ -26,6 +26,8 @@ interface AlertDoc {
   resolvedBy?: Alert['resolvedBy'];
   escalatedAt?: Timestamp;
   escalationReason?: Alert['escalationReason'];
+  attemptCount?: number;
+  lastAttemptAt?: Timestamp;
 }
 
 function toAlert(id: string, d: AlertDoc): Alert {
@@ -38,11 +40,13 @@ function toAlert(id: string, d: AlertDoc): Alert {
     latitude: d.latitude ?? null,
     longitude: d.longitude ?? null,
     geohash: d.geohash ?? null,
+    attemptCount: d.attemptCount ?? 0,
   };
   if (d.resolvedAt) a.resolvedAt = d.resolvedAt.toDate();
   if (d.resolvedBy) a.resolvedBy = d.resolvedBy;
   if (d.escalatedAt) a.escalatedAt = d.escalatedAt.toDate();
   if (d.escalationReason) a.escalationReason = d.escalationReason;
+  if (d.lastAttemptAt) a.lastAttemptAt = d.lastAttemptAt.toDate();
   return a;
 }
 
@@ -99,6 +103,7 @@ export class FirestoreAlertRepository implements AlertRepository {
         latitude: input.latitude,
         longitude: input.longitude,
         geohash: hasFix ? encodeGeohash(input.latitude!, input.longitude!) : null,
+        attemptCount: 0,
       };
       tx.set(ref, doc);
       return { alert: toAlert(ref.id, doc), created: true };
@@ -117,6 +122,21 @@ export class FirestoreAlertRepository implements AlertRepository {
       if (fields.escalationReason) patch['escalationReason'] = fields.escalationReason;
       tx.update(ref, patch);
       return toAlert(id, { ...(snap.data() as AlertDoc), ...patch } as AlertDoc);
+    });
+  }
+
+  async recordFailedAttempt(id: string, at: Date): Promise<Alert> {
+    const ref = this.db.collection(COLLECTION).doc(id);
+    return this.db.runTransaction(async (tx) => {
+      const snap = await tx.get(ref);
+      if (!snap.exists) throw new AppError('not_found', `alert ${id} missing`);
+      const current = snap.data() as AlertDoc;
+      const patch = {
+        attemptCount: (current.attemptCount ?? 0) + 1,
+        lastAttemptAt: Timestamp.fromDate(at),
+      };
+      tx.update(ref, patch);
+      return toAlert(id, { ...current, ...patch });
     });
   }
 }

@@ -23,6 +23,10 @@ export interface Config {
    * Rotating it invalidates every stored hash — treat it as permanent.
    */
   keywordPepper: string;
+  /** Failed attempts before throttling. coercion-and-escalation.md §7. */
+  keywordAttemptCap: number;
+  /** Minimum gap between attempts once the cap is reached. Never a lockout. */
+  keywordAttemptCooldownMs: number;
 }
 
 function required(name: string): string {
@@ -60,6 +64,8 @@ export function loadConfig(): Config {
     logLevel: level as Config['logLevel'],
     firebaseProjectId: required('FIREBASE_PROJECT_ID'),
     keywordPepper: required('KEYWORD_PEPPER'),
+    keywordAttemptCap: positiveMs('KEYWORD_ATTEMPT_CAP', 3),
+    keywordAttemptCooldownMs: positiveMs('KEYWORD_ATTEMPT_COOLDOWN_MS', 30 * 1000),
     env,
   };
 }

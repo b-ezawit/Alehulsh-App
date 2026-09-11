@@ -6,6 +6,7 @@ import type { TokenVerifier } from './auth/TokenVerifier.js';
 import type { AlertRepository, UserRepository } from './repositories/types.js';
 import type { TaskQueue } from './queue/TaskQueue.js';
 import { registerAlertRoutes } from './routes/alerts.js';
+import { registerResolveRoute } from './routes/resolve.js';
 
 /**
  * Everything the handlers need, injected. No module reaches for a global
@@ -65,7 +66,8 @@ export function buildServer(deps: Deps): FastifyInstance {
   app.get('/healthz', async () => ({ ok: true }));
 
   registerAlertRoutes(app, deps);
-  // P1-09 (/resolve) and P1-10 (/accept) land next.
+  registerResolveRoute(app, deps);
+  // P1-10 (/accept) lands next.
 
   return app;
 }

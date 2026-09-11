@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { requireSubject, subjectOf } from '../auth/middleware.js';
 import { AppError } from '../errors.js';
 import type { Deps } from '../server.js';
+import { taskKeys } from '../tasks.js';
 
 /**
  * POST /v1/alerts — raise an SOS.  (P1-08)
@@ -55,14 +56,14 @@ export function registerAlertRoutes(app: FastifyInstance, deps: Deps): void {
       if (created) {
         // Scheduled, not polled, so it can be cancelled the moment she resolves.
         await deps.queue.schedule({
-          key: `safety-check:${alert.id}:${alert.createdAt.getTime()}`,
+          key: taskKeys.safetyCheck(alert),
           runAt: new Date(alert.createdAt.getTime() + deps.config.safetyCheckDelayMs),
           payload: { kind: 'safety-check', alertId: alert.id },
         });
         // Backstop. Reaching this means escalation did not run —
         // alert-lifecycle.md §2 treats `expired` as a bug signal.
         await deps.queue.schedule({
-          key: `expiry:${alert.id}:${alert.createdAt.getTime()}`,
+          key: taskKeys.expiry(alert),
           runAt: alert.expiresAt,
           payload: { kind: 'expiry', alertId: alert.id },
         });

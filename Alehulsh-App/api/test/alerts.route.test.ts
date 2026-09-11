@@ -3,57 +3,7 @@ import assert from 'node:assert/strict';
 import { buildServer, type Deps } from '../src/server.js';
 import { InMemoryTaskQueue } from '../src/queue/TaskQueue.js';
 import { createLogger } from '../src/logger.js';
-import type { Alert, AlertRepository, AlertStatus, UserRepository } from '../src/repositories/types.js';
-import type { TokenVerifier } from '../src/auth/TokenVerifier.js';
-
-const OWNER = 'alice_uid';
-const ACTIVE_WINDOW = 2 * 60 * 60 * 1000;
-const SAFETY_DELAY = 2 * 60 * 1000;
-
-/** Mirrors the Firestore repository's contract without needing Firestore. */
-class FakeAlertRepository implements AlertRepository {
-  readonly store = new Map<string, Alert>();
-  createCalls = 0;
-
-  async findById(id: string) { return this.store.get(id) ?? null; }
-  async findActiveByOwner(ownerId: string) {
-    const a = this.store.get(ownerId);
-    return a && (a.status === 'active' || a.status === 'escalated') ? a : null;
-  }
-  async create(input: { requestId: string; ownerId: string; latitude: number | null; longitude: number | null }) {
-    this.createCalls++;
-    const existing = this.store.get(input.ownerId);
-    if (existing && (existing.status === 'active' || existing.status === 'escalated')) {
-      return { alert: existing, created: false };
-    }
-    const now = new Date();
-    const alert: Alert = {
-      id: input.ownerId,
-      ownerId: input.ownerId,
-      status: 'active',
-      createdAt: now,
-      expiresAt: new Date(now.getTime() + ACTIVE_WINDOW),
-      latitude: input.latitude,
-      longitude: input.longitude,
-      geohash: input.latitude !== null ? 'sc04zjw4b' : null,
-    };
-    this.store.set(alert.id, alert);
-    return { alert, created: true };
-  }
-  async updateStatus(id: string, next: AlertStatus, fields: Partial<Alert>) {
-    const a = this.store.get(id)!;
-    const updated = { ...a, ...fields, status: next };
-    this.store.set(id, updated);
-    return updated;
-  }
-}
-
-const verifier: TokenVerifier = {
-  verify: async (t) => {
-    if (t !== 'good-token') throw new Error('bad token');
-    return { uid: OWNER };
-  },
-};
+import { FakeAlertRepository, FakeUserRepository, fakeVerifier, authAs, OWNER, ACTIVE_WINDOW, SAFETY_DELAY, testConfig } from './fakes.js';
 
 let repo: FakeAlertRepository;
 let queue: InMemoryTaskQueue;
@@ -62,21 +12,17 @@ function server() {
   repo = new FakeAlertRepository();
   queue = new InMemoryTaskQueue();
   const deps: Deps = {
-    config: {
-      port: 0, logLevel: 'error', firebaseProjectId: 'test',
-      env: 'development', activeWindowMs: ACTIVE_WINDOW, safetyCheckDelayMs: SAFETY_DELAY,
-      keywordPepper: 'test-pepper',
-    },
+    config: testConfig,
     logger: createLogger('error'),
-    tokenVerifier: verifier,
+    tokenVerifier: fakeVerifier,
     alerts: repo,
-    users: {} as UserRepository,
+    users: new FakeUserRepository(),
     queue,
   };
   return buildServer(deps);
 }
 
-const AUTH = { authorization: 'Bearer good-token' };
+const AUTH = authAs(OWNER);
 let app: ReturnType<typeof server>;
 beforeEach(() => { app = server(); });
 
