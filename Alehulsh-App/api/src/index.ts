@@ -6,7 +6,8 @@ import { buildServer } from './server.js';
 import { FirebaseTokenVerifier } from './auth/FirebaseTokenVerifier.js';
 import { InMemoryTaskQueue } from './queue/TaskQueue.js';
 import type {
-  AcceptanceRepository, AlertRepository, InboxRepository, UserRepository,
+  AcceptanceRepository, AlertRepository, InboxRepository,
+  LocationRevealRepository, UserRepository,
 } from './repositories/types.js';
 
 /**
@@ -39,6 +40,7 @@ async function main(): Promise<void> {
   const users = stub<UserRepository>();
   const inbox = stub<InboxRepository>();
   const acceptances = stub<AcceptanceRepository>();
+  const reveals = stub<LocationRevealRepository>();
 
   const app = buildServer({
     config,
@@ -48,6 +50,7 @@ async function main(): Promise<void> {
     users,
     inbox,
     acceptances,
+    reveals,
     queue: new InMemoryTaskQueue(),
   });
 

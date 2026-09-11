@@ -199,6 +199,38 @@ export interface ResponderRepository {
 }
 
 /**
+ * One reveal attempt.  (P2-08.3)
+ *
+ * Append-only, and it records denials as well as grants. A responder working
+ * through claimed positions to find her looks exactly like a responder who
+ * walked the wrong way — until you can see the sequence. Only the log
+ * distinguishes them, so the failures are the part worth keeping.
+ */
+export interface LocationRevealAttempt {
+  alertId: string;
+  responderUid: string;
+  at: Date;
+  /** What they claimed. Unverified — recorded precisely because of that. */
+  claimedLat: number;
+  claimedLng: number;
+  /** Server-computed. Never returned to the caller: see routes/reveal.ts. */
+  distanceM: number | null;
+  granted: boolean;
+  deniedReason?: 'too_far' | 'not_accepted' | 'alert_has_no_location' | 'throttled';
+}
+
+export interface LocationRevealRepository {
+  /** Append-only. There is no update and no delete by alert. */
+  append(attempt: LocationRevealAttempt): Promise<void>;
+  /** Attempts by this responder on this alert since `since`, granted or not. */
+  countSince(alertId: string, responderUid: string, since: Date): Promise<number>;
+  /** The trail for one alert, oldest first. */
+  listForAlert(alertId: string): Promise<LocationRevealAttempt[]>;
+  /** C-16. Attempts name the responder. */
+  deleteAllForResponder(responderUid: string): Promise<number>;
+}
+
+/**
  * Everything holding data about a person, so deletion can be exhaustive rather
  * than "the places we remembered". P2-01 §6 and C-16.
  */

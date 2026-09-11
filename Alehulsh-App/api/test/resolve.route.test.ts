@@ -6,7 +6,7 @@ import { createLogger } from '../src/logger.js';
 import { hashKeyword } from '../src/crypto/keyword.js';
 import { taskKeys } from '../src/tasks.js';
 import {
-  FakeAlertRepository, FakeUserRepository, FakeInboxRepository, FakeAcceptanceRepository, fakeVerifier, authAs,
+  FakeAlertRepository, FakeUserRepository, FakeInboxRepository, FakeAcceptanceRepository, FakeLocationRevealRepository, fakeVerifier, authAs,
   OWNER, STRANGER, PEPPER, testConfig,
 } from './fakes.js';
 
@@ -28,6 +28,7 @@ beforeEach(() => {
     config: testConfig, logger: createLogger('error'), tokenVerifier: fakeVerifier,
     alerts, users, queue,
     inbox: new FakeInboxRepository(), acceptances: new FakeAcceptanceRepository(),
+    reveals: new FakeLocationRevealRepository(),
   };
   app = buildServer(deps);
 });

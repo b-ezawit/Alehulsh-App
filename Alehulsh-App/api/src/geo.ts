@@ -38,3 +38,23 @@ export function encodeGeohash(lat: number, lon: number, precision = 9): string {
   }
   return hash;
 }
+
+/**
+ * Great-circle distance in metres.
+ *
+ * Used to decide whether a responder is close enough for exact coordinates
+ * (P2-08). Haversine is accurate to well under a metre at the ~50m scale this
+ * is compared against, so the spherical-earth approximation costs nothing here.
+ */
+export function distanceMetres(
+  aLat: number, aLng: number, bLat: number, bLng: number,
+): number {
+  const R = 6_371_008.8; // IUGG mean earth radius
+  const toRad = (d: number) => (d * Math.PI) / 180;
+  const dLat = toRad(bLat - aLat);
+  const dLng = toRad(bLng - aLng);
+  const s =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(aLat)) * Math.cos(toRad(bLat)) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(s)));
+}

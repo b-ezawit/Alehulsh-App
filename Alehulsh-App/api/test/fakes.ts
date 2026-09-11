@@ -1,6 +1,6 @@
 import type {
   Alert, AlertProjection, AlertRepository, AlertStatus, ContactRepository,
-  Acceptance, AcceptanceRepository,
+  Acceptance, AcceptanceRepository, LocationRevealAttempt, LocationRevealRepository,
   EmergencyContact, InboxRepository, ResponderLocationRepository,
   ResponderRecord, ResponderRepository, UserRecord, UserRepository,
 } from '../src/repositories/types.js';
@@ -183,6 +183,9 @@ export const testConfig = {
   keywordAttemptCooldownMs: 30_000,
   taskRunnerSecret: 'task-secret-for-tests',
   maxVouchesPerResponder: 3,
+  revealRadiusM: 50,
+  revealAttemptCap: 10,
+  revealAttemptWindowMs: 10 * 60 * 1000,
 };
 
 
@@ -214,4 +217,26 @@ export class FakeAcceptanceRepository implements AcceptanceRepository {
     }
     return n;
   }
+}
+
+
+export class FakeLocationRevealRepository implements LocationRevealRepository {
+  readonly log: LocationRevealAttempt[] = [];
+  async append(attempt: LocationRevealAttempt) { this.log.push(attempt); }
+  async countSince(alertId: string, responderUid: string, since: Date) {
+    return this.log.filter(
+      (a) => a.alertId === alertId && a.responderUid === responderUid && a.at >= since,
+    ).length;
+  }
+  async listForAlert(alertId: string) {
+    return this.log.filter((a) => a.alertId === alertId);
+  }
+  async deleteAllForResponder(responderUid: string) {
+    const before = this.log.length;
+    for (let i = this.log.length - 1; i >= 0; i--) {
+      if (this.log[i]!.responderUid === responderUid) this.log.splice(i, 1);
+    }
+    return before - this.log.length;
+  }
+  granted() { return this.log.filter((a) => a.granted); }
 }
