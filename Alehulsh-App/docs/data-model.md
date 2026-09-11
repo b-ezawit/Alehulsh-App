@@ -69,7 +69,7 @@ So the split is not public/private. It is:
 | `avatarUrl` | **drop** | Always empty in practice; no upload path exists |
 | `bloodType` | **DROP** (decided) | Health data, Art 2(5) sensitive, read by nothing |
 | `medicalNotes` | **DROP** (decided) | As above |
-| `homeAddress` | **PENDING P2-02** | Collected at signup, read by nothing. Defaults to a real Addis sub-city string for users who never entered one |
+| `homeAddress` | **KEEP, optional** (decided) | No default. A blank address must stay blank — the current `'Bole Sub-city, Addis Ababa'` default stores a plausible but false address about anyone who skipped it |
 | `catName` | **replaced** | Becomes `safetyKeywordHash` + `mustSetKeyword` (P1-11). Plaintext is deleted, not migrated |
 | `emergencyContacts[]` | **own entity** | §4 |
 | `activities[]` | **own entity** | §4 |
@@ -182,10 +182,9 @@ Step 4 is irreversible. Run it on a copy first, as with P1-11.
 
 1. ~~**P2-02 — `bloodType`, `medicalNotes`**~~ **DECIDED — drop both.** Removing
    the most heavily regulated category in the model, which nothing read.
-   **`homeAddress` is still undecided** — it was in the same group and was not
-   named in the decision. Nothing reads it either, and it defaults to
-   `'Bole Sub-city, Addis Ababa'`, so users who never entered an address have a
-   plausible but false one stored about them.
+   **`homeAddress` — DECIDED: keep, but optional and with no default.** The
+   `'Bole Sub-city, Addis Ababa'` fallback must go: storing a plausible but
+   false address about someone is worse than storing nothing.
 2. **`safetyScore` (P4-12).** Remove, or define it as something real.
 3. **Do we keep raw phone and email at all**, or only the hashes? Raw values are
    needed to *display* her contact list back to her. If the in-app contact alert

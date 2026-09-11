@@ -110,7 +110,7 @@ it never touches our servers and is therefore residency-clean by construction.
 | `sms:` intent — opens her SMS app pre-filled | **none** | She can tap send |
 | Auto-send | `SEND_SMS` | Play restricts this to apps whose core function is SMS. An exception is possible but not assured |
 
-So the version that ships without a Play negotiation requires **a tap**.
+**DECIDED: the tap version.** No `SEND_SMS`, no Play negotiation.
 
 That is enough for the case it was designed for. P1-06 offers the fallback when
 the alert itself fails — she has just pressed SOS and is looking at the screen,
@@ -150,9 +150,12 @@ This makes contact onboarding (P3-02) a core flow, not a nicety.
 
 ## 7. Open
 
-1. ~~**P3-05** — the fallback channel.~~ **DECIDED — device-originated SMS.**
-   Open sub-question: do we apply for the `SEND_SMS` Play exception so the
-   pocket case works, or accept the tap requirement?
+1. ~~**P3-05** — the fallback channel.~~ **DECIDED — device-originated SMS via
+   the `sms:` intent, with the tap.** No `SEND_SMS` permission, no Play
+   negotiation. The consequence is recorded in §5 and must be designed around
+   rather than forgotten: **if the hardware trigger fires with her phone in a
+   pocket and the network is down, nothing reaches anyone.** P3-02 (showing her
+   which contacts are reachable) is the mitigation, and it is now load-bearing.
 2. **Escalation interval.** P1-03 sets the safety check at 2 minutes; contact
    escalation is a separate clock and needs its own number.
 3. **Does an acknowledging contact see her location?** P1-01 §4 says yes, and
