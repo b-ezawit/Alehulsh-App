@@ -16,10 +16,11 @@ permissions:
   contents: read
 
 jobs:
-  # The regression suite for CRIT-01, CRIT-02 and CRIT-04. If this job is ever
-  # made non-blocking, the leak can come back silently.
+  # The regression suite for CRIT-01, CRIT-02 and CRIT-04, plus the object
+  # storage rules covering evidence (P2-11). If this job is ever made
+  # non-blocking, the leak can come back silently.
   firestore-rules:
-    name: Firestore rules
+    name: Security rules (Firestore + Storage)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -28,7 +29,7 @@ jobs:
           node-version: '22'
           cache: npm
           cache-dependency-path: Alehulsh-App/test/firestore-rules/package-lock.json
-      # The Firestore emulator is a Java process.
+      # The Firestore and Storage emulators are Java processes.
       - uses: actions/setup-java@v4
         with: { distribution: temurin, java-version: '17' }
       - run: npm ci
