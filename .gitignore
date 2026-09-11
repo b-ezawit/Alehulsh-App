@@ -20,6 +20,9 @@ key.properties
 .env
 .env.*
 
+# Build output
+dist/
+
 # Local tooling
 .venv/
 node_modules/
