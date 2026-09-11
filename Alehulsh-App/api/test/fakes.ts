@@ -96,4 +96,5 @@ export const testConfig = {
   keywordPepper: PEPPER,
   keywordAttemptCap: 3,
   keywordAttemptCooldownMs: 30_000,
+  taskRunnerSecret: 'task-secret-for-tests',
 };

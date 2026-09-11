@@ -27,6 +27,8 @@ export interface Config {
   keywordAttemptCap: number;
   /** Minimum gap between attempts once the cap is reached. Never a lockout. */
   keywordAttemptCooldownMs: number;
+  /** Shared secret the task runner presents. Not a user credential. */
+  taskRunnerSecret: string;
 }
 
 function required(name: string): string {
@@ -66,6 +68,7 @@ export function loadConfig(): Config {
     keywordPepper: required('KEYWORD_PEPPER'),
     keywordAttemptCap: positiveMs('KEYWORD_ATTEMPT_CAP', 3),
     keywordAttemptCooldownMs: positiveMs('KEYWORD_ATTEMPT_COOLDOWN_MS', 30 * 1000),
+    taskRunnerSecret: required('TASK_RUNNER_SECRET'),
     env,
   };
 }

@@ -7,6 +7,7 @@ import type { AlertRepository, UserRepository } from './repositories/types.js';
 import type { TaskQueue } from './queue/TaskQueue.js';
 import { registerAlertRoutes } from './routes/alerts.js';
 import { registerResolveRoute } from './routes/resolve.js';
+import { registerTaskRoutes } from './routes/tasks.js';
 
 /**
  * Everything the handlers need, injected. No module reaches for a global
@@ -67,6 +68,7 @@ export function buildServer(deps: Deps): FastifyInstance {
 
   registerAlertRoutes(app, deps);
   registerResolveRoute(app, deps);
+  registerTaskRoutes(app, deps);
   // P1-10 (/accept) lands next.
 
   return app;
