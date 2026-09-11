@@ -1,5 +1,6 @@
 import type {
   Alert, AlertProjection, AlertRepository, AlertStatus, ContactRepository,
+  Acceptance, AcceptanceRepository,
   EmergencyContact, InboxRepository, ResponderLocationRepository,
   ResponderRecord, ResponderRepository, UserRecord, UserRepository,
 } from '../src/repositories/types.js';
@@ -143,6 +144,9 @@ export class FakeInboxRepository implements InboxRepository {
   async listRecipients(alertId: string) {
     return [...this.store.entries()].filter(([, b]) => b.has(alertId)).map(([uid]) => uid);
   }
+  async get(recipientUid: string, alertId: string) {
+    return this.store.get(recipientUid)?.get(alertId) ?? null;
+  }
   projectionFor(uid: string, alertId: string) { return this.store.get(uid)?.get(alertId); }
 }
 
@@ -180,3 +184,34 @@ export const testConfig = {
   taskRunnerSecret: 'task-secret-for-tests',
   maxVouchesPerResponder: 3,
 };
+
+
+export class FakeAcceptanceRepository implements AcceptanceRepository {
+  /** `${alertId}\u0000${responderUid}` -> acceptance */
+  readonly store = new Map<string, Acceptance>();
+
+  private key(alertId: string, uid: string) { return `${alertId}\u0000${uid}`; }
+
+  async record(acceptance: Acceptance) {
+    const k = this.key(acceptance.alertId, acceptance.responderUid);
+    const existing = this.store.get(k);
+    // First write wins. Re-accepting must not move the timestamp — it is the
+    // audit record of when they actually answered.
+    if (existing) return { acceptance: existing, created: false };
+    this.store.set(k, acceptance);
+    return { acceptance, created: true };
+  }
+  async findFor(alertId: string, responderUid: string) {
+    return this.store.get(this.key(alertId, responderUid)) ?? null;
+  }
+  async listForAlert(alertId: string) {
+    return [...this.store.values()].filter((a) => a.alertId === alertId);
+  }
+  async deleteAllForResponder(responderUid: string) {
+    let n = 0;
+    for (const [k, a] of this.store) {
+      if (a.responderUid === responderUid) { this.store.delete(k); n++; }
+    }
+    return n;
+  }
+}

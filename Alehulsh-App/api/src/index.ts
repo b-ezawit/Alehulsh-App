@@ -5,7 +5,9 @@ import { createLogger } from './logger.js';
 import { buildServer } from './server.js';
 import { FirebaseTokenVerifier } from './auth/FirebaseTokenVerifier.js';
 import { InMemoryTaskQueue } from './queue/TaskQueue.js';
-import type { AlertRepository, UserRepository } from './repositories/types.js';
+import type {
+  AcceptanceRepository, AlertRepository, InboxRepository, UserRepository,
+} from './repositories/types.js';
 
 /**
  * Composition root. The only file that knows which implementations are wired
@@ -21,11 +23,22 @@ async function main(): Promise<void> {
     projectId: config.firebaseProjectId,
   });
 
+  // The composition root is still unwired on purpose. FirestoreAlertRepository
+  // and FirestoreUserRepository exist, but there are no Firestore
+  // implementations of InboxRepository or AcceptanceRepository yet, so wiring
+  // half of them would produce a service that starts, accepts traffic and then
+  // fails mid-request. Failing at the first call, loudly and by name, is the
+  // safer shape until the set is complete.
   const notImplemented = (name: string) => () => {
-    throw new Error(`${name} not implemented — lands with P1-08/P1-09`);
+    throw new Error(`${name} not implemented — composition root is not wired yet`);
   };
-  const alerts = new Proxy({} as AlertRepository, { get: (_t, p) => notImplemented(String(p)) });
-  const users = new Proxy({} as UserRepository, { get: (_t, p) => notImplemented(String(p)) });
+  const stub = <T extends object>() =>
+    new Proxy({} as T, { get: (_t, p) => notImplemented(String(p)) });
+
+  const alerts = stub<AlertRepository>();
+  const users = stub<UserRepository>();
+  const inbox = stub<InboxRepository>();
+  const acceptances = stub<AcceptanceRepository>();
 
   const app = buildServer({
     config,
@@ -33,6 +46,8 @@ async function main(): Promise<void> {
     tokenVerifier: new FirebaseTokenVerifier(getAuth(firebase)),
     alerts,
     users,
+    inbox,
+    acceptances,
     queue: new InMemoryTaskQueue(),
   });
 

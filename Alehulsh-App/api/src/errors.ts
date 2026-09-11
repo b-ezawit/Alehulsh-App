@@ -16,6 +16,9 @@ export type ErrorCode =
   | 'invalid_request'
   | 'rate_limited'
   | 'conflict'
+  /** Terminal alert. One code for resolved, escalated-then-closed and expired
+   *  alike: a responder must stand down, and must not learn which it was. */
+  | 'alert_closed'
   | 'internal';
 
 const STATUS: Record<ErrorCode, number> = {
@@ -25,6 +28,7 @@ const STATUS: Record<ErrorCode, number> = {
   invalid_request: 400,
   rate_limited: 429,
   conflict: 409,
+  alert_closed: 409,
   internal: 500,
 };
 
@@ -40,6 +44,7 @@ const PUBLIC_MESSAGE: Record<ErrorCode, string> = {
   invalid_request: 'The request could not be processed.',
   rate_limited: 'Too many attempts. Try again shortly.',
   conflict: 'That action conflicts with the current state.',
+  alert_closed: 'This alert is no longer active.',
   internal: 'Something went wrong on our side.',
 };
 
