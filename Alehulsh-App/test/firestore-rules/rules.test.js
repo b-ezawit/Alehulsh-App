@@ -240,6 +240,26 @@ describe('inbox — per-recipient projections (P2-05, P1-10)', () => {
     await assertFails(setDoc(doc(alice, 'evidence', 'e2'), {}));
   });
 
+  test('the upgrade floor is server-only — a client must not raise or drop it', async () => {
+    // Writable by clients, this is both a denial-of-service (set the minimum
+    // absurdly high and every install blocks) and a way to dodge P1-27 (drop
+    // it and keep using the old direct-write build).
+    await env.withSecurityRulesDisabled((ctx) =>
+      setDoc(doc(ctx.firestore(), 'app_config', 'client_policy'), {
+        android: { minVersion: '1.2.0' },
+      }));
+    await assertFails(setDoc(doc(alice, 'app_config', 'client_policy'), {
+      android: { minVersion: '99.0.0' },
+    }));
+  });
+
+  test('version telemetry is server-only — adoption numbers gate P1-27', async () => {
+    // Closing direct writes is gated on measured adoption. A client that could
+    // write this could manufacture the evidence for that decision.
+    await assertFails(setDoc(doc(alice, 'client_versions', ALICE), { version: '9.9.9' }));
+    await assertFails(getDoc(doc(alice, 'client_versions', ALICE)));
+  });
+
   test('the reveal audit trail is server-only', async () => {
     // If a responder could read this, he could see who else is nearby and
     // whether anyone has already been given her exact position.

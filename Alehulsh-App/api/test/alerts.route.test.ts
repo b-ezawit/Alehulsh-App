@@ -1,10 +1,8 @@
 import { test, describe, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildServer, type Deps } from '../src/server.js';
+import { buildServer } from '../src/server.js';
 import { InMemoryTaskQueue } from '../src/queue/TaskQueue.js';
-import { InMemorySlidingWindowLimiter } from '../src/rate/RateLimiter.js';
-import { createLogger } from '../src/logger.js';
-import { FakeAlertRepository, FakeUserRepository, FakeInboxRepository, FakeAcceptanceRepository, FakeLocationRevealRepository, FakeEvidenceRepository, FakeEvidenceStore, fakeVerifier, authAs, OWNER, ACTIVE_WINDOW, SAFETY_DELAY, testConfig } from './fakes.js';
+import { makeDeps, FakeAlertRepository, authAs, OWNER, ACTIVE_WINDOW, SAFETY_DELAY, testConfig } from './fakes.js';
 
 let repo: FakeAlertRepository;
 let queue: InMemoryTaskQueue;
@@ -12,21 +10,7 @@ let queue: InMemoryTaskQueue;
 function server() {
   repo = new FakeAlertRepository();
   queue = new InMemoryTaskQueue();
-  const deps: Deps = {
-    config: testConfig,
-    logger: createLogger('error'),
-    tokenVerifier: fakeVerifier,
-    alerts: repo,
-    users: new FakeUserRepository(),
-    inbox: new FakeInboxRepository(),
-    acceptances: new FakeAcceptanceRepository(),
-    reveals: new FakeLocationRevealRepository(),
-    queue,
-    limiter: new InMemorySlidingWindowLimiter(),
-    evidence: new FakeEvidenceRepository(),
-    evidenceStore: new FakeEvidenceStore(),
-  };
-  return buildServer(deps);
+  return buildServer(makeDeps({ alerts: repo, queue }));
 }
 
 const AUTH = authAs(OWNER);
