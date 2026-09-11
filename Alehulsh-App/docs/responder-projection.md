@@ -120,25 +120,44 @@ Write, do not query. A responder's client reads only
   responder's inbox is never a history of other people's emergencies.
 - Status changes update existing entries rather than appending.
 
-**Who gets selected — DECIDED (P4-07): women only, verified by national ID
-photo.** Eligibility still sits behind an explicit predicate, and it still
-returns nobody until verification exists, because a policy without an
-implementation selects no one safely.
+**Who gets selected — DECIDED (P4-07): peer vouching with shared
+accountability.** ID verification moves to phase 2; it needs reviewers we do
+not have.
 
-Three consequences that follow, and are not optional:
+A prospective responder must be vouched for by an existing one. Both are named
+on the vouch, and if the vouched-for person causes harm, **both accounts are
+actioned**. Accountability rather than verification — the voucher is staking
+something real, which is what a self-declared gender field never did.
 
-1. **Verify and discard.** An ID photo is among the most sensitive documents a
-   person owns, and a stored one is a honeypot that grows. Extract what
-   verification needs — a decision, and at most a document-number hash — then
-   delete the image. Retaining ID photos would create a worse breach exposure
-   than the one we have just closed.
-2. **Someone has to review them.** The SRD assumes manual review for the first
-   1,000 users. That is operational work with a person looking at strangers'
-   identity documents, which needs its own access control and audit trail.
-3. **It is an adoption barrier, deliberately.** Fewer responders, verified,
-   beats more responders, unverified — but it means the responder network stays
-   small for a while, which makes the contact channel (P3-01) the one carrying
-   the weight at launch.
+This replaces "check the gender they entered". A dropdown gives a predator a
+box to tick; a vouch gives him a person who has to be willing to answer for him.
+
+### What the mechanism needs to work
+
+Not objections — the parts that make it hold up.
+
+1. **The chain is recorded and traceable.** Every account carries who vouched
+   for it. Without that, "both in trouble" has nobody to point at.
+2. **Removal cascades.** If a voucher is removed for cause, everyone they
+   vouched for is at minimum flagged for re-vouching. Otherwise one bad actor
+   admits a chain and leaves it behind.
+3. **Vouches are capped per person.** Uncapped, a single account can grow an
+   arbitrary network, and the accountability thins to nothing.
+4. **Someone bootstraps.** The first responders have no one to vouch for them,
+   so Meron designates them explicitly — a named starting set, not whoever
+   signs up first.
+5. **"Both in trouble" needs a real consequence.** Realistically that is
+   suspension of both accounts. Legal liability is unlikely to be enforceable
+   and should not be implied to users.
+6. **Declining must be easy.** A woman asked to vouch for someone she is unsure
+   about should be able to say no without it being visible to him.
+
+### Still true regardless
+
+The responder network stays small at launch, which makes the contact channel
+(P3-01) the one carrying the weight. And until vouching is implemented, the
+fan-out predicate returns nobody — a policy without an implementation selects
+no one safely.
 
 ---
 
