@@ -1,0 +1,143 @@
+name: CI
+
+# Security rules were the one part of this system with no tests, which is why
+# the critical findings survived. This is the net that keeps them fixed.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# A second push supersedes the first; no point burning minutes on stale commits.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # The regression suite for CRIT-01, CRIT-02 and CRIT-04. If this job is ever
+  # made non-blocking, the leak can come back silently.
+  firestore-rules:
+    name: Firestore rules
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: Alehulsh-App/test/firestore-rules/package-lock.json
+      # The Firestore emulator is a Java process.
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '17' }
+      - run: npm ci
+        working-directory: Alehulsh-App/test/firestore-rules
+      - run: npm test
+        working-directory: Alehulsh-App/test/firestore-rules
+
+  api:
+    name: API
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - id: exists
+        run: |
+          if [ -d Alehulsh-App/api ]; then echo "found=true" >> "$GITHUB_OUTPUT"
+          else echo "found=false" >> "$GITHUB_OUTPUT"; fi
+      - uses: actions/setup-node@v4
+        if: steps.exists.outputs.found == 'true'
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: Alehulsh-App/api/package-lock.json
+      - run: npm ci
+        if: steps.exists.outputs.found == 'true'
+        working-directory: Alehulsh-App/api
+      - name: Typecheck
+        if: steps.exists.outputs.found == 'true'
+        run: npm run typecheck
+        working-directory: Alehulsh-App/api
+      - name: Tests
+        if: steps.exists.outputs.found == 'true'
+        run: npm test
+        working-directory: Alehulsh-App/api
+      - name: Docker build
+        if: steps.exists.outputs.found == 'true'
+        # The portability claim in docs/api-layer.md is only true if the image
+        # actually builds. Checked here rather than discovered at C-04.
+        run: docker build -t alehulsh-api:ci .
+        working-directory: Alehulsh-App/api
+
+  functions:
+    name: Cloud Functions
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: Alehulsh-App/functions/package-lock.json
+      - run: npm ci
+        working-directory: Alehulsh-App/functions
+      - name: Syntax
+        run: node --check index.js
+        working-directory: Alehulsh-App/functions
+      # Catches a dependency bump that breaks a trigger before deploy does.
+      - name: Triggers still register
+        working-directory: Alehulsh-App/functions
+        env:
+          GCLOUD_PROJECT: ci-placeholder
+          FIREBASE_CONFIG: '{"projectId":"ci-placeholder"}'
+        run: |
+          node -e "
+            const m = require('./index.js');
+            const want = ['onAlertCreated','cleanupExpiredAlerts','onAlertDeleted'];
+            const missing = want.filter(k => typeof m[k] !== 'function');
+            if (missing.length) { console.error('missing triggers: ' + missing); process.exit(1); }
+            console.log('registered: ' + want.join(', '));
+          "
+
+  flutter:
+    name: Flutter
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with: { channel: stable }
+      - run: flutter pub get
+        working-directory: Alehulsh-App
+      # Not --fatal-infos: there is a pre-existing backlog of infos, and
+      # failing on them now would block every PR. Warnings and errors do fail.
+      - name: Analyze
+        run: flutter analyze --no-fatal-infos
+        working-directory: Alehulsh-App
+      - name: Tests
+        run: flutter test
+        working-directory: Alehulsh-App
+
+  hygiene:
+    name: Repository hygiene
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: No AI working files or task spreadsheets
+        # CLAUDE.md §22. These must never reach the repository.
+        run: |
+          bad=$(git ls-files | grep -E '^(CLAUDE\.md|\.ai/|generated/|\.tmp/)|alehulsh-.*\.(xlsx|csv)$' || true)
+          if [ -n "$bad" ]; then echo "must not be tracked:"; echo "$bad"; exit 1; fi
+          echo "clean"
+      - name: No build output or dependencies committed
+        run: |
+          bad=$(git ls-files | grep -E '(^|/)(node_modules|dist|build)/' || true)
+          if [ -n "$bad" ]; then echo "must not be tracked:"; echo "$bad"; exit 1; fi
+          echo "clean"
+      - name: No obvious secrets
+        run: |
+          # Firebase client keys are public by design and live in the committed
+          # config files, so they are excluded. Anything else matching is not.
+          bad=$(git grep -nIE 'BEGIN [A-Z ]*PRIVATE KEY|-----BEGIN|"private_key"' -- . \
+                ':!*google-services.json' ':!*GoogleService-Info.plist' || true)
+          if [ -n "$bad" ]; then echo "possible secret:"; echo "$bad"; exit 1; fi
+          echo "clean"
