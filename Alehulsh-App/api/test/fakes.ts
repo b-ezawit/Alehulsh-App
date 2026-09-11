@@ -1,5 +1,6 @@
 import type {
-  Alert, AlertRepository, AlertStatus, UserRecord, UserRepository,
+  Alert, AlertRepository, AlertStatus, ContactRepository, EmergencyContact,
+  UserRecord, UserRepository,
 } from '../src/repositories/types.js';
 import type { TokenVerifier } from '../src/auth/TokenVerifier.js';
 
@@ -70,9 +71,28 @@ export class FakeAlertRepository implements AlertRepository {
 
 export class FakeUserRepository implements UserRepository {
   readonly store = new Map<string, UserRecord>();
+  /** hash -> uid */
+  readonly identifiers = new Map<string, string>();
+
   async findByUid(uid: string) { return this.store.get(uid) ?? null; }
+
+  async findUidByIdentifierHash(hash: string) { return this.identifiers.get(hash) ?? null; }
+
   set(uid: string, rec: Partial<UserRecord>): void {
     this.store.set(uid, { uid, safetyKeywordHash: null, mustSetKeyword: false, ...rec });
+  }
+
+  register(uid: string, ...hashes: string[]): void {
+    this.set(uid, {});
+    for (const h of hashes) this.identifiers.set(h, uid);
+  }
+}
+
+export class FakeContactRepository implements ContactRepository {
+  readonly store = new Map<string, EmergencyContact[]>();
+  async listByOwner(ownerUid: string) { return this.store.get(ownerUid) ?? []; }
+  set(ownerUid: string, contacts: EmergencyContact[]): void {
+    this.store.set(ownerUid, contacts);
   }
 }
 

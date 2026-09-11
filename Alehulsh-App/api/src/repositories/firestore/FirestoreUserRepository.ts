@@ -17,4 +17,15 @@ export class FirestoreUserRepository implements UserRepository {
       mustSetKeyword: d['mustSetKeyword'] === true,
     };
   }
+
+  async findUidByIdentifierHash(hash: string): Promise<string | null> {
+    // Two single-field queries rather than an OR, which Firestore charges for
+    // as two reads anyway and which keeps the index simple.
+    for (const field of ['phoneHash', 'emailHash']) {
+      const snap = await this.db.collection('users').where(field, '==', hash).limit(1).get();
+      const doc = snap.docs[0];
+      if (doc) return doc.id;
+    }
+    return null;
+  }
 }

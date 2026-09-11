@@ -61,4 +61,30 @@ export interface UserRecord {
 
 export interface UserRepository {
   findByUid(uid: string): Promise<UserRecord | null>;
+  /**
+   * Resolves a hashed phone or email to an account, so the fan-out can reach a
+   * contact who has the app without ever handling her raw number (P2-09).
+   * Returns null when the contact is not a user — which at launch is most of
+   * them, and is exactly what P3-01 §5 has to answer for.
+   */
+  findUidByIdentifierHash(hash: string): Promise<string | null>;
+}
+
+/**
+ * One row per contact, not an array element. P2-01 §4: only rows can be
+ * individually deleted (C-16), carry consent state (P2-23), and answer
+ * "can we reach this person?" (P3-02).
+ */
+export interface EmergencyContact {
+  id: string;
+  ownerUid: string;
+  /** Raw values are shown back to her; they never leave the server otherwise. */
+  name: string;
+  phoneHash: string | null;
+  emailHash: string | null;
+  isPrimary: boolean;
+}
+
+export interface ContactRepository {
+  listByOwner(ownerUid: string): Promise<EmergencyContact[]>;
 }
