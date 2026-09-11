@@ -1,8 +1,6 @@
 import { test, describe, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildServer, type Deps } from '../src/server.js';
-import { InMemoryTaskQueue } from '../src/queue/TaskQueue.js';
-import { InMemorySlidingWindowLimiter } from '../src/rate/RateLimiter.js';
+import { buildServer } from '../src/server.js';
 import { createLogger } from '../src/logger.js';
 import { distanceMetres } from '../src/geo.js';
 import { revealDeletableStore } from '../src/routes/reveal.js';
@@ -11,6 +9,7 @@ import type { AlertProjection } from '../src/repositories/types.js';
 import {
   FakeAlertRepository, FakeUserRepository, FakeInboxRepository, FakeAcceptanceRepository,
   FakeLocationRevealRepository, FakeEvidenceRepository, FakeEvidenceStore, fakeVerifier, authAs, OWNER, testConfig,
+  makeDeps,
 } from './fakes.js';
 
 const HELPER = 'helper_uid';
@@ -43,15 +42,7 @@ beforeEach(() => {
   inbox = new FakeInboxRepository();
   acceptances = new FakeAcceptanceRepository();
   reveals = new FakeLocationRevealRepository();
-  const deps: Deps = {
-    config: testConfig, logger: createLogger('error'), tokenVerifier: fakeVerifier,
-    alerts, users: new FakeUserRepository(), inbox, acceptances, reveals,
-    queue: new InMemoryTaskQueue(),
-    limiter: new InMemorySlidingWindowLimiter(),
-    evidence: new FakeEvidenceRepository(),
-    evidenceStore: new FakeEvidenceStore(),
-  };
-  app = buildServer(deps);
+  app = buildServer(makeDeps({ alerts, inbox, acceptances, reveals }));
   alerts.seed({ id: ALERT, ownerId: OWNER, status: 'active', latitude: TRUE_LAT, longitude: TRUE_LNG });
 });
 

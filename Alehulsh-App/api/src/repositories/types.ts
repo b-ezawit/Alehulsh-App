@@ -199,6 +199,47 @@ export interface ResponderRepository {
 }
 
 /**
+ * Remotely configured client policy.  (P1-26.1)
+ *
+ * Stored rather than configured by environment variable, because the point is
+ * to be able to raise the floor without a restart of a service that is meant to
+ * be receiving SOS traffic at the time.
+ */
+export interface PlatformPolicy {
+  /** Below this, the client blocks. Null or unparseable means never block. */
+  minVersion: string | null;
+  /** Shown as "an update is available". Advisory only. */
+  latestVersion: string | null;
+}
+
+export interface ClientPolicy {
+  android: PlatformPolicy;
+  ios: PlatformPolicy;
+}
+
+export interface ClientPolicyRepository {
+  get(): Promise<ClientPolicy>;
+}
+
+/**
+ * Which app version each account was last seen on.  (P1-26.3)
+ *
+ * P1-27 closes direct client writes, and doing that blind would cut off
+ * whoever had not updated. This is the measurement that makes it a decision
+ * rather than a gamble.
+ *
+ * Keyed on the account uid, deliberately. No device identifier is introduced —
+ * CLAUDE.md §6 — and the uid already exists, so this adds no new way to follow
+ * anyone. It stores a version string and a timestamp, nothing else.
+ */
+export interface VersionTelemetryRepository {
+  record(uid: string, platform: 'android' | 'ios', version: string, at: Date): Promise<void>;
+  /** uid count per version, for the adoption call. */
+  distribution(): Promise<Record<string, number>>;
+  deleteForUid(uid: string): Promise<number>;
+}
+
+/**
  * A piece of evidence — today always a voice note.  (P2-10.3)
  *
  * The document holds a path and metadata, never bytes. Base64 in the alert

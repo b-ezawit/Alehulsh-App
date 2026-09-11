@@ -1,15 +1,13 @@
 import { test, describe, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildServer, type Deps } from '../src/server.js';
-import { InMemoryTaskQueue } from '../src/queue/TaskQueue.js';
-import { InMemorySlidingWindowLimiter } from '../src/rate/RateLimiter.js';
+import { buildServer } from '../src/server.js';
 import { createLogger } from '../src/logger.js';
 import { evidenceDeletableStores } from '../src/routes/evidence.js';
 import { AccountDeleter } from '../src/services/AccountDeleter.js';
 import {
   FakeAlertRepository, FakeUserRepository, FakeInboxRepository, FakeAcceptanceRepository,
   FakeLocationRevealRepository, FakeEvidenceRepository, FakeEvidenceStore,
-  fakeVerifier, authAs, OWNER, STRANGER, testConfig,
+  makeDeps, fakeVerifier, authAs, OWNER, STRANGER, testConfig,
 } from './fakes.js';
 
 const ALERT = OWNER;
@@ -22,15 +20,7 @@ beforeEach(() => {
   alerts = new FakeAlertRepository();
   evidence = new FakeEvidenceRepository();
   evidenceStore = new FakeEvidenceStore();
-  const deps: Deps = {
-    config: testConfig, logger: createLogger('error'), tokenVerifier: fakeVerifier,
-    alerts, users: new FakeUserRepository(),
-    inbox: new FakeInboxRepository(), acceptances: new FakeAcceptanceRepository(),
-    reveals: new FakeLocationRevealRepository(),
-    evidence, evidenceStore,
-    queue: new InMemoryTaskQueue(), limiter: new InMemorySlidingWindowLimiter(),
-  };
-  app = buildServer(deps);
+  app = buildServer(makeDeps({ alerts, evidence, evidenceStore }));
   alerts.seed({ id: ALERT, ownerId: OWNER, status: 'active' });
 });
 

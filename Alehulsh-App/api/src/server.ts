@@ -5,7 +5,8 @@ import type { Logger } from './logger.js';
 import type { TokenVerifier } from './auth/TokenVerifier.js';
 import type {
   AcceptanceRepository, AlertRepository, InboxRepository,
-  EvidenceRepository, LocationRevealRepository, UserRepository,
+  ClientPolicyRepository, EvidenceRepository, LocationRevealRepository,
+  UserRepository, VersionTelemetryRepository,
 } from './repositories/types.js';
 import type { TaskQueue } from './queue/TaskQueue.js';
 import type { RateLimiter } from './rate/RateLimiter.js';
@@ -13,6 +14,7 @@ import type { EvidenceStore } from './evidence/EvidenceStore.js';
 import { registerAlertRoutes } from './routes/alerts.js';
 import { registerAcceptRoute } from './routes/accept.js';
 import { registerResolveRoute } from './routes/resolve.js';
+import { registerAppPolicyRoutes } from './routes/appPolicy.js';
 import { registerEvidenceRoutes } from './routes/evidence.js';
 import { registerRevealRoute } from './routes/reveal.js';
 import { registerTaskRoutes } from './routes/tasks.js';
@@ -35,6 +37,9 @@ export interface Deps {
   /** Paths and metadata. Never bytes — see routes/evidence.ts. */
   evidence: EvidenceRepository;
   evidenceStore: EvidenceStore;
+  /** Remotely raised upgrade floor, and who is on what. P1-26. */
+  clientPolicy: ClientPolicyRepository;
+  versionTelemetry: VersionTelemetryRepository;
   queue: TaskQueue;
   /** Abuse ceilings only — never a safety-critical limit. */
   limiter: RateLimiter;
@@ -90,6 +95,7 @@ export function buildServer(deps: Deps): FastifyInstance {
   registerAcceptRoute(app, deps);
   registerRevealRoute(app, deps);
   registerEvidenceRoutes(app, deps);
+  registerAppPolicyRoutes(app, deps);
 
   return app;
 }

@@ -1,11 +1,17 @@
 import type {
   Alert, AlertProjection, AlertRepository, AlertStatus, ContactRepository,
-  Acceptance, AcceptanceRepository, EvidenceRecord, EvidenceRepository,
+  Acceptance, AcceptanceRepository, ClientPolicy, ClientPolicyRepository,
+  EvidenceRecord, EvidenceRepository, VersionTelemetryRepository,
   LocationRevealAttempt, LocationRevealRepository,
   EmergencyContact, InboxRepository, ResponderLocationRepository,
   ResponderRecord, ResponderRepository, UserRecord, UserRepository,
 } from '../src/repositories/types.js';
 import type { TokenVerifier } from '../src/auth/TokenVerifier.js';
+
+import type { Deps } from '../src/server.js';
+import { createLogger } from '../src/logger.js';
+import { InMemoryTaskQueue } from '../src/queue/TaskQueue.js';
+import { InMemorySlidingWindowLimiter } from '../src/rate/RateLimiter.js';
 
 export const OWNER = 'alice_uid';
 export const STRANGER = 'bob_uid';
@@ -304,4 +310,56 @@ export class FakeEvidenceStore {
   }
   /** Simulates the client completing its PUT. */
   land(storagePath: string, bytes = 1024) { this.objects.set(storagePath, bytes); }
+}
+
+
+export class FakeClientPolicyRepository implements ClientPolicyRepository {
+  policy: ClientPolicy = {
+    android: { minVersion: null, latestVersion: null },
+    ios: { minVersion: null, latestVersion: null },
+  };
+  failNext = false;
+  async get() {
+    if (this.failNext) throw new Error('policy store unreachable');
+    return this.policy;
+  }
+}
+
+export class FakeVersionTelemetryRepository implements VersionTelemetryRepository {
+  readonly store = new Map<string, { platform: string; version: string; at: Date }>();
+  async record(uid: string, platform: 'android' | 'ios', version: string, at: Date) {
+    this.store.set(uid, { platform, version, at });
+  }
+  async distribution() {
+    const out: Record<string, number> = {};
+    for (const { version } of this.store.values()) out[version] = (out[version] ?? 0) + 1;
+    return out;
+  }
+  async deleteForUid(uid: string) { return this.store.delete(uid) ? 1 : 0; }
+}
+
+/**
+ * Builds a complete Deps with working fakes, overridden per test.
+ *
+ * Exists so adding a dependency to Deps does not mean editing every test file
+ * that happens to build a server — which it did, repeatedly, before this.
+ */
+export function makeDeps(overrides: Partial<Deps> = {}): Deps {
+  return {
+    config: testConfig,
+    logger: createLogger('error'),
+    tokenVerifier: fakeVerifier,
+    alerts: new FakeAlertRepository(),
+    users: new FakeUserRepository(),
+    inbox: new FakeInboxRepository(),
+    acceptances: new FakeAcceptanceRepository(),
+    reveals: new FakeLocationRevealRepository(),
+    evidence: new FakeEvidenceRepository(),
+    evidenceStore: new FakeEvidenceStore(),
+    clientPolicy: new FakeClientPolicyRepository(),
+    versionTelemetry: new FakeVersionTelemetryRepository(),
+    queue: new InMemoryTaskQueue(),
+    limiter: new InMemorySlidingWindowLimiter(),
+    ...overrides,
+  };
 }

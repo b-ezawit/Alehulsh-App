@@ -15,6 +15,8 @@ import { FirestoreAcceptanceRepository } from './repositories/firestore/Firestor
 import { FirestoreLocationRevealRepository } from './repositories/firestore/FirestoreLocationRevealRepository.js';
 import { FirestoreEvidenceRepository } from './repositories/firestore/FirestoreEvidenceRepository.js';
 import { FirebaseStorageEvidenceStore } from './evidence/FirebaseStorageEvidenceStore.js';
+import { FirestoreClientPolicyRepository } from './repositories/firestore/FirestoreClientPolicyRepository.js';
+import { FirestoreVersionTelemetryRepository } from './repositories/firestore/FirestoreVersionTelemetryRepository.js';
 
 /**
  * Composition root. The only file that knows which implementations are wired
@@ -50,6 +52,8 @@ async function main(): Promise<void> {
     reveals: new FirestoreLocationRevealRepository(db),
     evidence: new FirestoreEvidenceRepository(db),
     evidenceStore: new FirebaseStorageEvidenceStore(getStorage(firebase).bucket()),
+    clientPolicy: new FirestoreClientPolicyRepository(db),
+    versionTelemetry: new FirestoreVersionTelemetryRepository(db),
     queue,
     // Per-instance and lost on restart, which is fine: nothing safety-critical
     // rides on it. See rate/RateLimiter.ts.
