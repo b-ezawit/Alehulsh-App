@@ -113,6 +113,42 @@ export interface InboxRepository {
   put(recipientUid: string, projection: AlertProjection): Promise<void>;
   remove(recipientUid: string, alertId: string): Promise<void>;
   listRecipients(alertId: string): Promise<string[]>;
+  /**
+   * The authorization surface for P1-10. A projection exists only where the
+   * server chose to write one, so "do you hold one?" is the same question as
+   * "did we select you for this alert?" — asked without trusting the caller.
+   */
+  get(recipientUid: string, alertId: string): Promise<AlertProjection | null>;
+}
+
+/**
+ * A responder or contact answering an alert.  (P1-10)
+ *
+ * Deliberately a record of its own rather than a field on the alert. Appending
+ * to an array on the alert document is what CRIT-03 exploited: a writer who can
+ * append can also overwrite. One row per acceptance, owned by the server, means
+ * nobody can rewrite anyone else's.
+ *
+ * This does NOT change the alert's status. alert-lifecycle.md §6: only she
+ * resolves, only the server escalates or expires. A helper on his way is not
+ * evidence that she is safe.
+ */
+export interface Acceptance {
+  alertId: string;
+  responderUid: string;
+  acceptedAt: Date;
+  /** How they were reached. A chosen contact answering is not the same event
+   *  as a selected stranger answering, and escalation (P3-06) reads this. */
+  audience: 'responder' | 'contact';
+}
+
+export interface AcceptanceRepository {
+  /** Idempotent on (alertId, responderUid) — `created` false on a replay. */
+  record(acceptance: Acceptance): Promise<{ acceptance: Acceptance; created: boolean }>;
+  findFor(alertId: string, responderUid: string): Promise<Acceptance | null>;
+  listForAlert(alertId: string): Promise<Acceptance[]>;
+  /** C-16. Acceptances name the responder, so deletion must reach them. */
+  deleteAllForResponder(responderUid: string): Promise<number>;
 }
 
 /** Active responders whose last known cell falls in one of the given prefixes. */
