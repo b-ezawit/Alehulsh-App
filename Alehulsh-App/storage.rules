@@ -1,0 +1,33 @@
+rules_version = '2';
+
+// Alehulsh — Cloud Storage security rules
+//
+// This file did not exist before P2-10. Whatever was deployed on the bucket
+// was therefore unversioned and unreviewed, exactly the situation P0-02 found
+// on Firestore, where the live ruleset turned out to be far worse than the
+// repo's. Firebase's default storage template is
+//
+//     allow read, write: if request.auth != null;
+//
+// which would let ANY signed-in account read EVERY object — and from P2-10
+// onward those objects are recordings made during assaults. Assume the default
+// was live until the deploy replaces it.
+//
+// THE MODEL: clients never touch the bucket directly, in either direction.
+// Uploads use a short-lived signed URL for one specific server-chosen path;
+// playback uses a short-lived signed read URL issued per request to a caller
+// the API has authorized. Signed URLs are produced with the admin credential,
+// which bypasses these rules — so denying everything here costs the product
+// nothing and removes the entire class of "authenticated stranger reads her
+// evidence" bug.
+//
+// If something stops working after this deploys, the fix is an API endpoint
+// that issues a signed URL. It is never a rule that opens the bucket.
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

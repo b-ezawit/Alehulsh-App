@@ -225,6 +225,21 @@ describe('inbox — per-recipient projections (P2-05, P1-10)', () => {
     await assertFails(setDoc(doc(alice, 'alert_acceptances', 'alert_1', 'responders', ALICE), {}));
   });
 
+  test('evidence metadata is server-only — paths must not leak to clients', async () => {
+    // The document holds the object's address. A client that could read it
+    // could not fetch the object (the bucket denies everything), but it would
+    // still learn that a recording exists and where. Playback goes through a
+    // signed URL the API issues per request.
+    await env.withSecurityRulesDisabled((ctx) =>
+      setDoc(doc(ctx.firestore(), 'evidence', 'e1'), {
+        alertId: 'alert_1', ownerUid: ALICE,
+        storagePath: `evidence/${ALICE}/alert_1/e1`, uploaded: true,
+      }));
+    // Denied even for the owner of the recording.
+    await assertFails(getDoc(doc(alice, 'evidence', 'e1')));
+    await assertFails(setDoc(doc(alice, 'evidence', 'e2'), {}));
+  });
+
   test('the reveal audit trail is server-only', async () => {
     // If a responder could read this, he could see who else is nearby and
     // whether anyone has already been given her exact position.

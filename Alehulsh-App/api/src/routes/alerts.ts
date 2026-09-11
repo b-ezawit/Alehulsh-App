@@ -34,7 +34,7 @@ interface Body {
 export function registerAlertRoutes(app: FastifyInstance, deps: Deps): void {
   app.post<{ Body: Body }>(
     '/v1/alerts',
-    { schema: { body: bodySchema }, preHandler: requireSubject(deps.tokenVerifier) },
+    { schema: { body: bodySchema }, onRequest: requireSubject(deps.tokenVerifier) },
     async (req, reply) => {
       const { uid } = subjectOf(req);
       const lat = req.body.latitude ?? null;

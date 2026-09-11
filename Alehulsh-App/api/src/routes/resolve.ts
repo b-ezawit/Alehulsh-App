@@ -46,7 +46,7 @@ const ACKNOWLEDGED = { acknowledged: true } as const;
 export function registerResolveRoute(app: FastifyInstance, deps: Deps): void {
   app.post<{ Params: { id: string }; Body: { keyword: string } }>(
     '/v1/alerts/:id/resolve',
-    { schema: { body: bodySchema }, preHandler: requireSubject(deps.tokenVerifier) },
+    { schema: { body: bodySchema }, onRequest: requireSubject(deps.tokenVerifier) },
     async (req, reply) => {
       const { uid } = subjectOf(req);
       const alert = await deps.alerts.findById(req.params.id);
