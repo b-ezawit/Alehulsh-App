@@ -9,9 +9,10 @@ describe('encodeGeohash', () => {
   });
 
   test('agrees with the Dart implementation for Addis Ababa', () => {
-    const h = encodeGeohash(9.0125, 38.7636, 9);
-    assert.equal(h.length, 9);
-    assert.match(h, /^[0-9bcdefghjkmnpqrstuvwxyz]+$/);
+    // Pinned on both sides — lib/utils/geohash_util.dart carries the same
+    // fixture. If these drift, the client and the server disagree about who is
+    // nearby and the fan-out selects the wrong responders.
+    assert.equal(encodeGeohash(9.0125, 38.7636, 9), 'scee60dv9');
   });
 
   test('nearby points share a prefix, distant points do not', () => {
