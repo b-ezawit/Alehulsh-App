@@ -94,7 +94,7 @@ jobs:
         run: |
           node -e "
             const m = require('./index.js');
-            const want = ['onAlertCreated','cleanupExpiredAlerts','onAlertDeleted'];
+            const want = ['onAlertCreated','cleanupExpiredAlerts','onAlertClosed','onAlertDeleted'];
             const missing = want.filter(k => typeof m[k] !== 'function');
             if (missing.length) { console.error('missing triggers: ' + missing); process.exit(1); }
             console.log('registered: ' + want.join(', '));
