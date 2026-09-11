@@ -1,43 +1,91 @@
 rules_version = '2';
+
+// Alehulsh — Firestore security rules
+//
+// CONTAINMENT RULESET (P0-05, P0-06, P0-07).
+// Everything here is owner-only. Responder discovery is deliberately switched
+// off until the server-side fan-out lands in P2-04/P2-05; a responder must
+// never read another user's raw alert, because it carries her exact
+// coordinates, her phone number and every one of her emergency contacts.
+//
+// These rules are interim. The durable model is a trusted API layer holding
+// all privileged operations (P1-07 onwards), after which clients lose direct
+// write access entirely (P1-27).
+
 service cloud.firestore {
   match /databases/{database}/documents {
-    
-    // Helper functions
-    function isAuthenticated() {
+
+    function isSignedIn() {
       return request.auth != null;
     }
-    
-    function isOwner(userId) {
-      return isAuthenticated() && request.auth.uid == userId;
+
+    function isMe(uid) {
+      return isSignedIn() && request.auth.uid == uid;
     }
 
-    // Active SOS Alerts collection
-    // 1. Any authenticated user can read active alerts for 500m proximity radar
-    // 2. A user can only create/update their own alert document (id == auth.uid)
-    // 3. Responders can update responders list
+    // ---------------------------------------------------------------
+    // active_alerts — one document per user, keyed by the owner's uid
+    // ---------------------------------------------------------------
+    // Previously `allow read: if isAuthenticated()`, which let any account
+    // read every alert in the database: exact GPS, victim phone and email,
+    // and the name, phone and email of every emergency contact. (CRIT-02)
+    //
+    // The `hasOnly(['responders','voiceNotes'])` update clause let any account
+    // overwrite the evidence array on ANY alert — remote evidence destruction
+    // by an attacker from their own phone. It is removed, not narrowed. (CRIT-04)
+    //
+    // Responder accept/decline returns in P1-10 as a callable function that
+    // appends only the caller's own uid, server-side.
     match /active_alerts/{alertId} {
-      allow read: if isAuthenticated();
-      
-      allow create: if isAuthenticated() && (request.auth.uid == alertId || request.auth.uid == request.resource.data.userId);
-      
-      allow update: if isAuthenticated() && (
-        request.auth.uid == alertId || 
-        request.auth.uid == resource.data.userId || 
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['responders', 'voiceNotes'])
-      );
-      
-      allow delete: if isAuthenticated() && (request.auth.uid == alertId || request.auth.uid == resource.data.userId);
+
+      // Owner reads her own alert by document id. The legacy-duplicate cleanup
+      // query (alert_service.dart:236) is filtered on userId, so it is also
+      // satisfied here without opening the collection to anyone else.
+      allow read: if isMe(alertId) || isMe(resource.data.userId);
+
+      // Document id AND the userId field must both be the caller. Requiring
+      // both prevents planting an alert in another user's slot, which would
+      // block her real SOS — createSOSAlert preserves an existing active doc.
+      allow create: if isMe(alertId) && isMe(request.resource.data.userId);
+
+      // Field-level validation is deliberately NOT added here. It belongs with
+      // the callable layer (P1-08/P1-09), and adding a partial version now
+      // risks blocking a legitimate SOS write for no security gain.
+      allow update: if isMe(alertId) || isMe(resource.data.userId);
+
+      // Deletion stays owner-only for now. It stops being how an alert ends in
+      // P1-09 — cancelling currently destroys all evidence. (CRIT-05)
+      allow delete: if isMe(alertId) || isMe(resource.data.userId);
     }
 
-    // User Profiles Collection
+    // ---------------------------------------------------------------
+    // users — profile documents
+    // ---------------------------------------------------------------
+    // Previously `allow read: if isAuthenticated()`. Combined with the
+    // background location writes in location_service.dart:112-131, any account
+    // could follow any user in near-real-time and read her phone number, home
+    // address, emergency contacts and plaintext safety keyword. (CRIT-01)
+    //
+    // This is the single change that stops the live location exposure.
     match /users/{userId} {
-      allow read: if isAuthenticated();
-      allow write: if isOwner(userId);
+      allow read, write: if isMe(userId);
     }
 
-    // Emergency Contacts Subcollections / metadata
+    // Declared in the original ruleset but unused — contacts currently live in
+    // an array on the profile document. Kept owner-only for when P2-01 splits
+    // the model.
     match /users/{userId}/contacts/{contactId} {
-      allow read, write: if isOwner(userId);
+      allow read, write: if isMe(userId);
+    }
+
+    // ---------------------------------------------------------------
+    // Everything else is denied.
+    // ---------------------------------------------------------------
+    // Firestore already denies by default; this is here so the intent is
+    // explicit. Note it does NOT override the allows above — Firestore grants
+    // access if any match permits it.
+    match /{document=**} {
+      allow read, write: if false;
     }
   }
 }

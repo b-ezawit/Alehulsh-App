@@ -1,0 +1,26 @@
+# AI working files — never commit (CLAUDE.md §22)
+CLAUDE.md
+.ai/
+generated/
+.tmp/
+
+# Task tracking — working documents, they drift the moment ClickUp is updated
+alehulsh-tasks.xlsx
+alehulsh-technical.xlsx
+alehulsh-*.csv
+
+# Build artefacts
+*.apk
+*.aab
+*.keystore
+*.jks
+key.properties
+
+# Secrets
+.env
+.env.*
+
+# Local tooling
+.venv/
+node_modules/
+.DS_Store
