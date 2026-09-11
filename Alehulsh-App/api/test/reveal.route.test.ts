@@ -2,6 +2,7 @@ import { test, describe, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildServer, type Deps } from '../src/server.js';
 import { InMemoryTaskQueue } from '../src/queue/TaskQueue.js';
+import { InMemorySlidingWindowLimiter } from '../src/rate/RateLimiter.js';
 import { createLogger } from '../src/logger.js';
 import { distanceMetres } from '../src/geo.js';
 import { revealDeletableStore } from '../src/routes/reveal.js';
@@ -46,6 +47,7 @@ beforeEach(() => {
     config: testConfig, logger: createLogger('error'), tokenVerifier: fakeVerifier,
     alerts, users: new FakeUserRepository(), inbox, acceptances, reveals,
     queue: new InMemoryTaskQueue(),
+    limiter: new InMemorySlidingWindowLimiter(),
   };
   app = buildServer(deps);
   alerts.seed({ id: ALERT, ownerId: OWNER, status: 'active', latitude: TRUE_LAT, longitude: TRUE_LNG });

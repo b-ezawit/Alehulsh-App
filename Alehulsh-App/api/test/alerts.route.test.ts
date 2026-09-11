@@ -2,6 +2,7 @@ import { test, describe, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildServer, type Deps } from '../src/server.js';
 import { InMemoryTaskQueue } from '../src/queue/TaskQueue.js';
+import { InMemorySlidingWindowLimiter } from '../src/rate/RateLimiter.js';
 import { createLogger } from '../src/logger.js';
 import { FakeAlertRepository, FakeUserRepository, FakeInboxRepository, FakeAcceptanceRepository, FakeLocationRevealRepository, fakeVerifier, authAs, OWNER, ACTIVE_WINDOW, SAFETY_DELAY, testConfig } from './fakes.js';
 
@@ -21,6 +22,7 @@ function server() {
     acceptances: new FakeAcceptanceRepository(),
     reveals: new FakeLocationRevealRepository(),
     queue,
+    limiter: new InMemorySlidingWindowLimiter(),
   };
   return buildServer(deps);
 }
@@ -125,5 +127,50 @@ describe('POST /v1/alerts', () => {
     });
     assert.ok(!res.body.includes('9.0125'));
     assert.ok(!res.body.includes('38.7636'));
+  });
+});
+
+describe('P1-15 — abuse ceiling on alert creation', () => {
+  test('a live emergency is never rate limited, however many retries', async () => {
+    const app = server();
+    // First creates; the rest fold into it. None of them consult the limiter,
+    // because she already has an alert running.
+    for (let i = 0; i < testConfig.alertCreateCap + 5; i++) {
+      const res = await app.inject({
+        method: 'POST', url: '/v1/alerts', headers: AUTH,
+        payload: { requestId: `retry-request-${i}` },
+      });
+      assert.ok(res.statusCode === 200 || res.statusCode === 201, `retry ${i} -> ${res.statusCode}`);
+    }
+  });
+
+  test('distinct alerts past the ceiling are refused', async () => {
+    const app = server();
+    const raise = async (i: number) => {
+      const res = await app.inject({
+        method: 'POST', url: '/v1/alerts', headers: AUTH, payload: { requestId: `sos-request-${i}` },
+      });
+      // Resolve it so the next one is a genuinely new alert rather than a fold.
+      await repo.updateStatus(OWNER, 'resolved', {});
+      return res;
+    };
+    for (let i = 0; i < testConfig.alertCreateCap; i++) {
+      assert.equal((await raise(i)).statusCode, 201, `alert ${i}`);
+    }
+    const refused = await raise(999);
+    assert.equal(refused.statusCode, 429);
+    assert.equal(refused.json().error.code, 'rate_limited');
+  });
+
+  test('the ceiling is per user', async () => {
+    const app = server();
+    for (let i = 0; i < testConfig.alertCreateCap; i++) {
+      await app.inject({ method: 'POST', url: '/v1/alerts', headers: AUTH, payload: { requestId: `alpha-request-${i}` } });
+      await repo.updateStatus(OWNER, 'resolved', {});
+    }
+    const other = await app.inject({
+      method: 'POST', url: '/v1/alerts', headers: authAs('someone_else'), payload: { requestId: 'beta-request-1' },
+    });
+    assert.equal(other.statusCode, 201);
   });
 });

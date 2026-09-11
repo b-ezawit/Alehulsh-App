@@ -8,6 +8,7 @@ import type {
   LocationRevealRepository, UserRepository,
 } from './repositories/types.js';
 import type { TaskQueue } from './queue/TaskQueue.js';
+import type { RateLimiter } from './rate/RateLimiter.js';
 import { registerAlertRoutes } from './routes/alerts.js';
 import { registerAcceptRoute } from './routes/accept.js';
 import { registerResolveRoute } from './routes/resolve.js';
@@ -30,6 +31,8 @@ export interface Deps {
   /** Append-only audit of every precise-location release. P2-08.3. */
   reveals: LocationRevealRepository;
   queue: TaskQueue;
+  /** Abuse ceilings only — never a safety-critical limit. */
+  limiter: RateLimiter;
 }
 
 export function buildServer(deps: Deps): FastifyInstance {

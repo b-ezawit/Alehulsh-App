@@ -46,6 +46,39 @@ export function registerAlertRoutes(app: FastifyInstance, deps: Deps): void {
         throw new AppError('invalid_request', 'latitude and longitude must both be present or both absent');
       }
 
+      // Rate limiting (P1-15) — and the two things it must never do.
+      //
+      // 1. It must never touch a live emergency. If she already has an active
+      //    or escalated alert this request folds into it rather than creating
+      //    anything, so the limiter is skipped entirely. A woman re-triggering
+      //    during an ongoing emergency is the one case where being wrong is
+      //    unforgivable, and the cheapest way to be right is not to ask.
+      // 2. It must not ration emergencies. The cap is an abuse ceiling for
+      //    scripts, set far above anything a person does: twenty distinct
+      //    alerts in an hour is not someone in trouble twenty times, it is
+      //    automation. Below it nothing is throttled, delayed or degraded.
+      //
+      // NOT IMPLEMENTED, deliberately: the per-device half of this task. It
+      // needs a persistent device identifier, which is a tracking vector this
+      // app should not create (CLAUDE.md §6) — and every alert already requires
+      // an authenticated account, so the per-user cap covers the same abuse
+      // without the new identifier. Revisit only if accounts become cheap
+      // enough to script.
+      const live = await deps.alerts.findActiveByOwner(uid);
+      if (!live) {
+        const { allowed, count } = await deps.limiter.hit(
+          `alert:create:${uid}`, deps.config.alertCreateCap, deps.config.alertCreateWindowMs,
+        );
+        if (!allowed) {
+          // error, not warn: if this fires for a real person we have refused
+          // someone an emergency alert and need to know immediately.
+          deps.logger.error('alert creation refused — abuse ceiling reached', {
+            subject: uid, count, cap: deps.config.alertCreateCap,
+          });
+          throw new AppError('rate_limited', `${count} alerts in window for ${uid}`);
+        }
+      }
+
       const { alert, created } = await deps.alerts.create({
         requestId: req.body.requestId,
         ownerId: uid,

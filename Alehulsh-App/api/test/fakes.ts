@@ -186,6 +186,8 @@ export const testConfig = {
   revealRadiusM: 50,
   revealAttemptCap: 10,
   revealAttemptWindowMs: 10 * 60 * 1000,
+  alertCreateCap: 20,
+  alertCreateWindowMs: 60 * 60 * 1000,
 };
 
 
