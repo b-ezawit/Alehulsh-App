@@ -4,7 +4,7 @@ import { buildServer } from '../src/server.js';
 import { InMemoryTaskQueue } from '../src/queue/TaskQueue.js';
 import { createLogger } from '../src/logger.js';
 import { taskKeys } from '../src/tasks.js';
-import { FakeAlertRepository, FakeUserRepository, FakeInboxRepository, FakeAcceptanceRepository, fakeVerifier, authAs, OWNER, testConfig } from './fakes.js';
+import { FakeAlertRepository, FakeUserRepository, FakeInboxRepository, FakeAcceptanceRepository, FakeLocationRevealRepository, fakeVerifier, authAs, OWNER, testConfig } from './fakes.js';
 
 let alerts: FakeAlertRepository;
 let queue: InMemoryTaskQueue;
@@ -17,6 +17,7 @@ beforeEach(() => {
     config: testConfig, logger: createLogger('error'), tokenVerifier: fakeVerifier,
     alerts, users: new FakeUserRepository(), queue,
     inbox: new FakeInboxRepository(), acceptances: new FakeAcceptanceRepository(),
+    reveals: new FakeLocationRevealRepository(),
   });
 });
 

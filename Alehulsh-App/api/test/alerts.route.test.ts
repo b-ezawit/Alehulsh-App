@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { buildServer, type Deps } from '../src/server.js';
 import { InMemoryTaskQueue } from '../src/queue/TaskQueue.js';
 import { createLogger } from '../src/logger.js';
-import { FakeAlertRepository, FakeUserRepository, FakeInboxRepository, FakeAcceptanceRepository, fakeVerifier, authAs, OWNER, ACTIVE_WINDOW, SAFETY_DELAY, testConfig } from './fakes.js';
+import { FakeAlertRepository, FakeUserRepository, FakeInboxRepository, FakeAcceptanceRepository, FakeLocationRevealRepository, fakeVerifier, authAs, OWNER, ACTIVE_WINDOW, SAFETY_DELAY, testConfig } from './fakes.js';
 
 let repo: FakeAlertRepository;
 let queue: InMemoryTaskQueue;
@@ -19,6 +19,7 @@ function server() {
     users: new FakeUserRepository(),
     inbox: new FakeInboxRepository(),
     acceptances: new FakeAcceptanceRepository(),
+    reveals: new FakeLocationRevealRepository(),
     queue,
   };
   return buildServer(deps);

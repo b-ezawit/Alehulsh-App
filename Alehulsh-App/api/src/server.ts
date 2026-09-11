@@ -4,12 +4,14 @@ import { toClientError } from './errors.js';
 import type { Logger } from './logger.js';
 import type { TokenVerifier } from './auth/TokenVerifier.js';
 import type {
-  AcceptanceRepository, AlertRepository, InboxRepository, UserRepository,
+  AcceptanceRepository, AlertRepository, InboxRepository,
+  LocationRevealRepository, UserRepository,
 } from './repositories/types.js';
 import type { TaskQueue } from './queue/TaskQueue.js';
 import { registerAlertRoutes } from './routes/alerts.js';
 import { registerAcceptRoute } from './routes/accept.js';
 import { registerResolveRoute } from './routes/resolve.js';
+import { registerRevealRoute } from './routes/reveal.js';
 import { registerTaskRoutes } from './routes/tasks.js';
 
 /**
@@ -25,6 +27,8 @@ export interface Deps {
   /** Read side of the fan-out. Also the authorization surface for accept. */
   inbox: InboxRepository;
   acceptances: AcceptanceRepository;
+  /** Append-only audit of every precise-location release. P2-08.3. */
+  reveals: LocationRevealRepository;
   queue: TaskQueue;
 }
 
@@ -76,6 +80,7 @@ export function buildServer(deps: Deps): FastifyInstance {
   registerResolveRoute(app, deps);
   registerTaskRoutes(app, deps);
   registerAcceptRoute(app, deps);
+  registerRevealRoute(app, deps);
 
   return app;
 }

@@ -8,6 +8,7 @@ import { AccountDeleter } from '../src/services/AccountDeleter.js';
 import type { AlertProjection } from '../src/repositories/types.js';
 import {
   FakeAlertRepository, FakeUserRepository, FakeInboxRepository, FakeAcceptanceRepository,
+  FakeLocationRevealRepository,
   fakeVerifier, authAs, OWNER, STRANGER, testConfig,
 } from './fakes.js';
 
@@ -46,6 +47,7 @@ beforeEach(() => {
   const deps: Deps = {
     config: testConfig, logger: createLogger('error'), tokenVerifier: fakeVerifier,
     alerts, users: new FakeUserRepository(), inbox, acceptances, queue,
+    reveals: new FakeLocationRevealRepository(),
   };
   app = buildServer(deps);
   alerts.seed({ id: ALERT, ownerId: OWNER, status: 'active' });

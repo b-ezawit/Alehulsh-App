@@ -31,6 +31,19 @@ export interface Config {
   taskRunnerSecret: string;
   /** How many active responders one person may vouch for. P4-07. */
   maxVouchesPerResponder: number;
+  /**
+   * How close a responder must be before exact coordinates are released.
+   * P1-01 §4 / responder-projection.md §4.
+   */
+  revealRadiusM: number;
+  /**
+   * Reveal attempts allowed per responder per alert per window. The reported
+   * position is unverified, so without a cap a responder could enumerate
+   * positions until one landed inside the radius. The cap does not make that
+   * impossible — it makes it slow, finite and visible in the audit log.
+   */
+  revealAttemptCap: number;
+  revealAttemptWindowMs: number;
 }
 
 function required(name: string): string {
@@ -72,6 +85,9 @@ export function loadConfig(): Config {
     keywordAttemptCooldownMs: positiveMs('KEYWORD_ATTEMPT_COOLDOWN_MS', 30 * 1000),
     taskRunnerSecret: required('TASK_RUNNER_SECRET'),
     maxVouchesPerResponder: positiveMs('MAX_VOUCHES_PER_RESPONDER', 5),
+    revealRadiusM: positiveMs('REVEAL_RADIUS_M', 50),
+    revealAttemptCap: positiveMs('REVEAL_ATTEMPT_CAP', 10),
+    revealAttemptWindowMs: positiveMs('REVEAL_ATTEMPT_WINDOW_MS', 10 * 60 * 1000),
     env,
   };
 }
