@@ -65,6 +65,7 @@ function server() {
     config: {
       port: 0, logLevel: 'error', firebaseProjectId: 'test',
       env: 'development', activeWindowMs: ACTIVE_WINDOW, safetyCheckDelayMs: SAFETY_DELAY,
+      keywordPepper: 'test-pepper',
     },
     logger: createLogger('error'),
     tokenVerifier: verifier,

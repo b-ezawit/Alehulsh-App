@@ -17,6 +17,12 @@ export interface Config {
   activeWindowMs: number;
   /** Delay before the safety check fires. SRD layer 2 says two minutes. */
   safetyCheckDelayMs: number;
+  /**
+   * Server-side secret mixed into keyword hashing, held outside the database
+   * so a dump alone cannot be brute-forced against a one-word secret.
+   * Rotating it invalidates every stored hash — treat it as permanent.
+   */
+  keywordPepper: string;
 }
 
 function required(name: string): string {
@@ -53,6 +59,7 @@ export function loadConfig(): Config {
     safetyCheckDelayMs: positiveMs('SAFETY_CHECK_DELAY_MS', 2 * 60 * 1000),
     logLevel: level as Config['logLevel'],
     firebaseProjectId: required('FIREBASE_PROJECT_ID'),
+    keywordPepper: required('KEYWORD_PEPPER'),
     env,
   };
 }
