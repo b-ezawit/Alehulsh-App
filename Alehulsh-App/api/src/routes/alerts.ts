@@ -3,6 +3,7 @@ import { requireSubject, subjectOf } from '../auth/middleware.js';
 import { AppError } from '../errors.js';
 import type { Deps } from '../server.js';
 import { taskKeys } from '../tasks.js';
+import { voidResetOnAlert } from './keywordReset.js';
 
 /**
  * POST /v1/alerts — raise an SOS.  (P1-08)
@@ -97,6 +98,11 @@ export function registerAlertRoutes(app: FastifyInstance, deps: Deps): void {
       });
 
       if (created) {
+        // A pending keyword reset dies here. Starting a reset, waiting out the
+        // window and then coercing her is the obvious attack on the recovery
+        // flow; if anything happens to her in between, the reset is void.
+        await voidResetOnAlert(deps, uid);
+
         // Scheduled, not polled, so it can be cancelled the moment she resolves.
         await deps.queue.schedule({
           key: taskKeys.safetyCheck(alert),

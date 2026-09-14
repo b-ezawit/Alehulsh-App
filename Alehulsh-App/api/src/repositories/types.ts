@@ -92,6 +92,32 @@ export interface UserRecord {
   mustSetKeyword: boolean;
 }
 
+/**
+ * A pending time-locked keyword reset.  (P1-11.1)
+ *
+ * See docs/keyword-recovery.md. The short version: the keyword works because
+ * it cannot be bypassed, so any recovery she can use under duress is one she
+ * can be forced to use. Time is the only lever that does not have that
+ * property — a coercer has an evening, not three days.
+ */
+export interface KeywordReset {
+  uid: string;
+  requestedAt: Date;
+  /** Not before this. The delay IS the defence. */
+  eligibleAt: Date;
+  /** 'pending' until confirmed, cancelled, or voided by an alert. */
+  status: 'pending' | 'confirmed' | 'cancelled' | 'voided_by_alert';
+  cancelledAt?: Date;
+  cancelledReason?: 'user' | 'alert_raised';
+}
+
+export interface KeywordResetRepository {
+  findPending(uid: string): Promise<KeywordReset | null>;
+  create(reset: KeywordReset): Promise<KeywordReset>;
+  update(uid: string, fields: Partial<KeywordReset>): Promise<void>;
+  deleteForUid(uid: string): Promise<number>;
+}
+
 export interface UserRepository {
   findByUid(uid: string): Promise<UserRecord | null>;
   /**

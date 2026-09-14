@@ -1,7 +1,8 @@
 import type {
   Alert, AlertProjection, AlertRepository, AlertStatus, ContactRepository,
   Acceptance, AcceptanceRepository, ClientPolicy, ClientPolicyRepository,
-  EvidenceRecord, EvidenceRepository, VersionTelemetryRepository,
+  EvidenceRecord, EvidenceRepository, KeywordReset, KeywordResetRepository,
+  VersionTelemetryRepository,
   LocationRevealAttempt, LocationRevealRepository,
   EmergencyContact, InboxRepository, ResponderLocationRepository,
   ResponderRecord, ResponderRepository, UserRecord, UserRepository,
@@ -384,10 +385,26 @@ export function makeDeps(overrides: Partial<Deps> = {}): Deps {
     evidence: new FakeEvidenceRepository(),
     evidenceStore: new FakeEvidenceStore(),
     contacts: new FakeContactRepository(),
+    keywordResets: new FakeKeywordResetRepository(),
     clientPolicy: new FakeClientPolicyRepository(),
     versionTelemetry: new FakeVersionTelemetryRepository(),
     queue: new InMemoryTaskQueue(),
     limiter: new InMemorySlidingWindowLimiter(),
     ...overrides,
   };
+}
+
+
+export class FakeKeywordResetRepository implements KeywordResetRepository {
+  readonly store = new Map<string, KeywordReset>();
+  async findPending(uid: string) {
+    const r = this.store.get(uid);
+    return r && r.status === 'pending' ? r : null;
+  }
+  async create(reset: KeywordReset) { this.store.set(reset.uid, reset); return reset; }
+  async update(uid: string, fields: Partial<KeywordReset>) {
+    const r = this.store.get(uid);
+    if (r) this.store.set(uid, { ...r, ...fields });
+  }
+  async deleteForUid(uid: string) { return this.store.delete(uid) ? 1 : 0; }
 }
