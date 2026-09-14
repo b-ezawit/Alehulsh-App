@@ -11,7 +11,17 @@
 export type AlertStatus = 'active' | 'resolved' | 'escalated' | 'expired';
 
 export interface Alert {
+  /** The document slot — the owner's uid. One live alert per user. */
   id: string;
+  /**
+   * This alert instance, unique forever.  (P2-22)
+   *
+   * `id` is the uid, so it is the same string for every alert she ever raises.
+   * Without a separate key, a recording from March and one from June are
+   * indistinguishable, and an archived alert has nothing to be addressed by.
+   * Everything that needs to point at *one* alert points at this.
+   */
+  key: string;
   ownerId: string;
   status: AlertStatus;
   createdAt: Date;
@@ -60,6 +70,13 @@ export interface AlertRepository {
   updateStatus(id: string, next: AlertStatus, fields: Partial<Alert>): Promise<Alert>;
   /** Records a failed keyword attempt. Never resets. */
   recordFailedAttempt(id: string, at: Date): Promise<Alert>;
+  /**
+   * Every alert she has raised, newest first, archive included.  (P2-22)
+   *
+   * A single incident proves little; a pattern over months is what a
+   * protection order rests on. The archive is why P2-21's export can show one.
+   */
+  listHistoryForOwner(ownerUid: string, limit?: number): Promise<Alert[]>;
   /** Every alert she has ever raised, terminal ones included. */
   deleteAllForOwner(ownerUid: string): Promise<number>;
 }
@@ -275,6 +292,8 @@ export interface VersionTelemetryRepository {
 export interface EvidenceRecord {
   id: string;
   alertId: string;
+  /** Which alert instance. alertId is the uid and cannot tell two apart. */
+  alertKey: string;
   ownerUid: string;
   storagePath: string;
   contentType: string;

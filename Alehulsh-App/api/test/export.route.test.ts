@@ -41,7 +41,7 @@ describe('P2-21 — she can obtain her own data', () => {
     assert.equal(body.uid, OWNER);
     assert.equal(body.emergencyContacts.length, 2);
     assert.equal(body.emergencyContacts[0].name, 'Sister');
-    assert.equal(body.currentAlert.status, 'resolved');
+    assert.equal(body.alerts[0].status, 'resolved');
   });
 
   test('it is served as a file she can hand to a lawyer', async () => {
@@ -52,12 +52,12 @@ describe('P2-21 — she can obtain her own data', () => {
   test('failed keyword attempts are included — a cluster of them is evidence', async () => {
     alerts.seed({ id: OWNER, ownerId: OWNER, status: 'escalated', attemptCount: 4 });
     const body = (await exportFor(OWNER)).json();
-    assert.equal(body.currentAlert.failedKeywordAttempts, 4);
+    assert.equal(body.alerts[0].failedKeywordAttempts, 4);
   });
 
   test('recordings come as expiring links, never as bytes or permanent URLs', async () => {
     await evidence.create({
-      id: 'e1', alertId: OWNER, ownerUid: OWNER,
+      id: 'e1', alertId: OWNER, alertKey: 'key-seed-' + OWNER, ownerUid: OWNER,
       storagePath: `evidence/${OWNER}/${OWNER}/e1`, contentType: 'audio/aac',
       sizeBytes: 2048, durationMs: 30_000, createdAt: new Date(), uploaded: true,
     });
@@ -92,7 +92,7 @@ describe('what the export must not contain', () => {
 
   test('never the internal storage path', async () => {
     await evidence.create({
-      id: 'e1', alertId: OWNER, ownerUid: OWNER,
+      id: 'e1', alertId: OWNER, alertKey: 'key-seed-' + OWNER, ownerUid: OWNER,
       storagePath: `evidence/${OWNER}/${OWNER}/e1`, contentType: 'audio/aac',
       sizeBytes: 1, durationMs: null, createdAt: new Date(), uploaded: true,
     });
@@ -106,7 +106,7 @@ describe('only ever her own data', () => {
     alerts.seed({ id: OWNER, ownerId: OWNER, status: 'active' });
     const body = (await exportFor(STRANGER)).json();
     assert.equal(body.uid, STRANGER);
-    assert.equal(body.currentAlert, null);
+    assert.deepEqual(body.alerts, []);
     assert.equal(body.emergencyContacts.length, 0);
   });
 
@@ -121,17 +121,20 @@ describe('only ever her own data', () => {
 });
 
 describe('the export states its own limits', () => {
-  test('it says alert history is not included', async () => {
-    // The alert document is keyed by uid, so each SOS overwrites the last. An
-    // export must never be mistaken for a complete record when the schema
-    // cannot produce one.
+  test('recordings that predate alert keys are named, not misattributed', async () => {
+    await evidence.create({
+      id: 'e-old', alertId: OWNER, alertKey: OWNER, ownerUid: OWNER,
+      storagePath: `evidence/${OWNER}/${OWNER}/e-old`, contentType: 'audio/aac',
+      sizeBytes: 1, durationMs: null, createdAt: new Date(), uploaded: true,
+    });
     const body = (await exportFor(OWNER)).json();
-    assert.ok(body.knownGaps.some((g: string) => /history is not included/i.test(g)));
+    // Attaching it to the wrong incident would be worse than saying so.
+    assert.ok(body.knownGaps.some((g: string) => /predate per-alert identifiers/i.test(g)));
   });
 
   test('it names recordings that never finished uploading', async () => {
     await evidence.create({
-      id: 'e2', alertId: OWNER, ownerUid: OWNER,
+      id: 'e2', alertId: OWNER, alertKey: 'key-seed-' + OWNER, ownerUid: OWNER,
       storagePath: `evidence/${OWNER}/${OWNER}/e2`, contentType: 'audio/aac',
       sizeBytes: null, durationMs: null, createdAt: new Date(), uploaded: false,
     });
@@ -140,5 +143,45 @@ describe('the export states its own limits', () => {
     // Named, not silently dropped — a recording that never landed is exactly
     // the thing she would otherwise assume she had.
     assert.ok(body.knownGaps.some((g: string) => /never finished uploading/i.test(g)));
+  });
+});
+
+describe('P2-22 — alert history survives the next SOS', () => {
+  test('every alert she raised is exported, newest first', async () => {
+    // Raise, resolve, raise again. The first alert used to be destroyed by the
+    // second; a survivor showing a pattern of conduct needs both.
+    const first = await alerts.create({ requestId: 'req-one-aaaa', ownerId: OWNER, latitude: null, longitude: null });
+    await alerts.updateStatus(OWNER, 'resolved', { resolvedAt: new Date() });
+    await new Promise((r) => setTimeout(r, 5));
+    const second = await alerts.create({ requestId: 'req-two-aaaa', ownerId: OWNER, latitude: null, longitude: null });
+
+    assert.notEqual(first.alert.key, second.alert.key);
+
+    const body = (await exportFor(OWNER)).json();
+    assert.equal(body.alerts.length, 2);
+    assert.equal(body.alerts[0].key, second.alert.key);
+    assert.equal(body.alerts[1].key, first.alert.key);
+  });
+
+  test('recordings are attributed to the alert they belong to', async () => {
+    const first = await alerts.create({ requestId: 'req-one-aaaa', ownerId: OWNER, latitude: null, longitude: null });
+    await evidence.create({
+      id: 'e-first', alertId: OWNER, alertKey: first.alert.key, ownerUid: OWNER,
+      storagePath: 'p1', contentType: 'audio/aac', sizeBytes: 1, durationMs: null,
+      createdAt: new Date(), uploaded: true,
+    });
+    await alerts.updateStatus(OWNER, 'resolved', { resolvedAt: new Date() });
+    const second = await alerts.create({ requestId: 'req-two-aaaa', ownerId: OWNER, latitude: null, longitude: null });
+    await evidence.create({
+      id: 'e-second', alertId: OWNER, alertKey: second.alert.key, ownerUid: OWNER,
+      storagePath: 'p2', contentType: 'audio/aac', sizeBytes: 1, durationMs: null,
+      createdAt: new Date(), uploaded: true,
+    });
+
+    const body = (await exportFor(OWNER)).json();
+    const byKey = Object.fromEntries(body.alerts.map((a: any) => [a.key, a.evidenceIds]));
+    // alertId is her uid for both, so only alertKey can tell them apart.
+    assert.deepEqual(byKey[first.alert.key], ['e-first']);
+    assert.deepEqual(byKey[second.alert.key], ['e-second']);
   });
 });
