@@ -57,7 +57,7 @@ describe('P2-21 — she can obtain her own data', () => {
 
   test('recordings come as expiring links, never as bytes or permanent URLs', async () => {
     await evidence.create({
-      id: 'e1', alertId: OWNER, alertKey: 'key-seed-' + OWNER, ownerUid: OWNER,
+      id: 'e1', alertId: OWNER, alertKey: 'key-seed-' + OWNER, kind: 'deliberate', ownerUid: OWNER,
       storagePath: `evidence/${OWNER}/${OWNER}/e1`, contentType: 'audio/aac',
       sizeBytes: 2048, durationMs: 30_000, createdAt: new Date(), uploaded: true,
     });
@@ -92,7 +92,7 @@ describe('what the export must not contain', () => {
 
   test('never the internal storage path', async () => {
     await evidence.create({
-      id: 'e1', alertId: OWNER, alertKey: 'key-seed-' + OWNER, ownerUid: OWNER,
+      id: 'e1', alertId: OWNER, alertKey: 'key-seed-' + OWNER, kind: 'deliberate', ownerUid: OWNER,
       storagePath: `evidence/${OWNER}/${OWNER}/e1`, contentType: 'audio/aac',
       sizeBytes: 1, durationMs: null, createdAt: new Date(), uploaded: true,
     });
@@ -123,7 +123,7 @@ describe('only ever her own data', () => {
 describe('the export states its own limits', () => {
   test('recordings that predate alert keys are named, not misattributed', async () => {
     await evidence.create({
-      id: 'e-old', alertId: OWNER, alertKey: OWNER, ownerUid: OWNER,
+      id: 'e-old', alertId: OWNER, alertKey: OWNER, kind: 'deliberate', ownerUid: OWNER,
       storagePath: `evidence/${OWNER}/${OWNER}/e-old`, contentType: 'audio/aac',
       sizeBytes: 1, durationMs: null, createdAt: new Date(), uploaded: true,
     });
@@ -134,7 +134,7 @@ describe('the export states its own limits', () => {
 
   test('it names recordings that never finished uploading', async () => {
     await evidence.create({
-      id: 'e2', alertId: OWNER, alertKey: 'key-seed-' + OWNER, ownerUid: OWNER,
+      id: 'e2', alertId: OWNER, alertKey: 'key-seed-' + OWNER, kind: 'deliberate', ownerUid: OWNER,
       storagePath: `evidence/${OWNER}/${OWNER}/e2`, contentType: 'audio/aac',
       sizeBytes: null, durationMs: null, createdAt: new Date(), uploaded: false,
     });
@@ -166,14 +166,14 @@ describe('P2-22 — alert history survives the next SOS', () => {
   test('recordings are attributed to the alert they belong to', async () => {
     const first = await alerts.create({ requestId: 'req-one-aaaa', ownerId: OWNER, latitude: null, longitude: null });
     await evidence.create({
-      id: 'e-first', alertId: OWNER, alertKey: first.alert.key, ownerUid: OWNER,
+      id: 'e-first', alertId: OWNER, alertKey: first.alert.key, kind: 'deliberate', ownerUid: OWNER,
       storagePath: 'p1', contentType: 'audio/aac', sizeBytes: 1, durationMs: null,
       createdAt: new Date(), uploaded: true,
     });
     await alerts.updateStatus(OWNER, 'resolved', { resolvedAt: new Date() });
     const second = await alerts.create({ requestId: 'req-two-aaaa', ownerId: OWNER, latitude: null, longitude: null });
     await evidence.create({
-      id: 'e-second', alertId: OWNER, alertKey: second.alert.key, ownerUid: OWNER,
+      id: 'e-second', alertId: OWNER, alertKey: second.alert.key, kind: 'deliberate', ownerUid: OWNER,
       storagePath: 'p2', contentType: 'audio/aac', sizeBytes: 1, durationMs: null,
       createdAt: new Date(), uploaded: true,
     });

@@ -315,11 +315,24 @@ export interface VersionTelemetryRepository {
  * 1MiB limit, after which the write failed and the recording was lost with no
  * error surfaced to her.
  */
+/**
+ * Why the recording exists — and therefore who may hear it.  (P2-10.4)
+ *
+ * 'deliberate' means she pressed record and chose to attach it. 'automatic'
+ * means the SOS trigger started capturing on its own. The difference is
+ * consent: an automatic recording can contain anything that happened to be
+ * audible — her address, other people's conversations, a child — and she made
+ * no decision to share any of it. A responder hears deliberate notes only.
+ */
+export type EvidenceKind = 'deliberate' | 'automatic';
+
 export interface EvidenceRecord {
   id: string;
   alertId: string;
   /** Which alert instance. alertId is the uid and cannot tell two apart. */
   alertKey: string;
+  /** Gates responder playback. Defaults to the safe value, never the open one. */
+  kind: EvidenceKind;
   ownerUid: string;
   storagePath: string;
   contentType: string;
