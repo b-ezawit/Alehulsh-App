@@ -17,6 +17,7 @@ import { registerResolveRoute } from './routes/resolve.js';
 import { registerAppPolicyRoutes } from './routes/appPolicy.js';
 import { registerEvidenceRoutes } from './routes/evidence.js';
 import { registerExportRoute } from './routes/export.js';
+import { registerKeywordRoute } from './routes/keyword.js';
 import { registerRevealRoute } from './routes/reveal.js';
 import { registerTaskRoutes } from './routes/tasks.js';
 
@@ -99,6 +100,7 @@ export function buildServer(deps: Deps): FastifyInstance {
   registerEvidenceRoutes(app, deps);
   registerAppPolicyRoutes(app, deps);
   registerExportRoute(app, deps);
+  registerKeywordRoute(app, deps);
 
   return app;
 }

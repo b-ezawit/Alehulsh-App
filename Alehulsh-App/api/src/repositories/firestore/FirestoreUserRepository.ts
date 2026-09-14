@@ -1,4 +1,5 @@
 import type { Firestore } from 'firebase-admin/firestore';
+import { FieldValue } from 'firebase-admin/firestore';
 import type { UserRecord, UserRepository } from '../types.js';
 
 /** Interim. Replaced by Postgres at C-04 (M-05). */
@@ -27,6 +28,17 @@ export class FirestoreUserRepository implements UserRepository {
       if (doc) return doc.id;
     }
     return null;
+  }
+
+  async setSafetyKeywordHash(uid: string, hash: string): Promise<void> {
+    // merge, so this cannot clobber a profile it never read. The legacy
+    // plaintext field is removed in the same write — P1-11 leaves no path
+    // that sets a hash and leaves the cleartext beside it.
+    await this.db.collection('users').doc(uid).set({
+      safetyKeywordHash: hash,
+      mustSetKeyword: false,
+      catName: FieldValue.delete(),
+    }, { merge: true });
   }
 
   async deleteByUid(uid: string): Promise<number> {

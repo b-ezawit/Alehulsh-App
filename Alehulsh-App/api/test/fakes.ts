@@ -102,6 +102,11 @@ export class FakeUserRepository implements UserRepository {
     this.store.set(uid, { uid, safetyKeywordHash: null, mustSetKeyword: false, ...rec });
   }
 
+  async setSafetyKeywordHash(uid: string, hash: string) {
+    const r = this.store.get(uid) ?? { uid, safetyKeywordHash: null, mustSetKeyword: false };
+    this.store.set(uid, { ...r, uid, safetyKeywordHash: hash, mustSetKeyword: false });
+  }
+
   async deleteByUid(uid: string) { return this.store.delete(uid) ? 1 : 0; }
 
   register(uid: string, ...hashes: string[]): void {
