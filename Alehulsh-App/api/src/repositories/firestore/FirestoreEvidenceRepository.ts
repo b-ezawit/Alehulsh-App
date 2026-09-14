@@ -1,6 +1,6 @@
 import type { Firestore } from 'firebase-admin/firestore';
 import { Timestamp } from 'firebase-admin/firestore';
-import type { EvidenceRecord, EvidenceRepository } from '../types.js';
+import type { EvidenceKind, EvidenceRecord, EvidenceRepository } from '../types.js';
 
 /** Interim. Replaced by Postgres at C-04 (M-05). */
 const COLLECTION = 'evidence';
@@ -8,6 +8,7 @@ const COLLECTION = 'evidence';
 interface EvidenceDoc {
   alertId: string;
   alertKey?: string;
+  kind?: EvidenceKind;
   ownerUid: string;
   storagePath: string;
   contentType: string;
@@ -21,6 +22,9 @@ const toRecord = (id: string, d: EvidenceDoc): EvidenceRecord => ({
   id,
   alertId: d.alertId,
   alertKey: d.alertKey ?? d.alertId,
+  // Unknown means we cannot prove she chose to share it, so it is automatic.
+  // Defaulting the other way would expose recordings nobody consented to.
+  kind: d.kind === 'deliberate' ? 'deliberate' : 'automatic',
   ownerUid: d.ownerUid,
   storagePath: d.storagePath,
   contentType: d.contentType,
@@ -37,6 +41,7 @@ export class FirestoreEvidenceRepository implements EvidenceRepository {
     const doc: EvidenceDoc = {
       alertId: r.alertId,
       alertKey: r.alertKey,
+      kind: r.kind,
       ownerUid: r.ownerUid,
       storagePath: r.storagePath,
       contentType: r.contentType,

@@ -16,7 +16,7 @@ import { registerAlertRoutes } from './routes/alerts.js';
 import { registerAcceptRoute } from './routes/accept.js';
 import { registerResolveRoute } from './routes/resolve.js';
 import { registerAppPolicyRoutes } from './routes/appPolicy.js';
-import { registerEvidenceRoutes } from './routes/evidence.js';
+import { registerEvidenceRoutes, registerResponderEvidenceRoute } from './routes/evidence.js';
 import { registerExportRoute } from './routes/export.js';
 import { registerKeywordRoute } from './routes/keyword.js';
 import { registerKeywordResetRoutes } from './routes/keywordReset.js';
@@ -102,6 +102,7 @@ export function buildServer(deps: Deps): FastifyInstance {
   registerAcceptRoute(app, deps);
   registerRevealRoute(app, deps);
   registerEvidenceRoutes(app, deps);
+  registerResponderEvidenceRoute(app, deps);
   registerAppPolicyRoutes(app, deps);
   registerExportRoute(app, deps);
   registerKeywordRoute(app, deps);

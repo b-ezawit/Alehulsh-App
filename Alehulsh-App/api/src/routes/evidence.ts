@@ -21,12 +21,11 @@ import type { Deps } from '../server.js';
  *   nothing is ever publicly readable — playback is a short-lived signed URL
  *     issued per request, to a caller we authorized for that specific object.
  *
- * DELIBERATELY NOT IMPLEMENTED: responder playback. The projection design
- * (docs/responder-projection.md §2) says a responder may hear the voice note
- * once she has accepted, and the plumbing for that is all present here. It is
- * left off because letting a stranger listen to a recording made during an
- * assault is a product and privacy decision, not an implementation detail, and
- * it needs an explicit yes. Until then: owner only.
+ * RESPONDER PLAYBACK is below, and it is limited to recordings she chose to
+ * make and send. docs/data-decisions.md §3: an automatic capture started by
+ * the SOS trigger can contain anything that happened to be audible — her
+ * address, other people's conversations, a child — and she made no decision to
+ * share any of it. Tapping "accept" does not earn that. Deliberate notes only.
  */
 const MAX_EVIDENCE_PER_ALERT = 20;
 const PLAYBACK_TTL_MS = 5 * 60 * 1000;
@@ -38,10 +37,17 @@ const createSchema = {
   properties: {
     contentType: { type: 'string', maxLength: 100 },
     durationMs: { type: ['number', 'null'], minimum: 0, maximum: 60 * 60 * 1000 },
+    // Omitted means automatic. A responder may hear only what she chose to
+    // send, so the default has to be the closed one.
+    kind: { type: 'string', enum: ['deliberate', 'automatic'] },
   },
 } as const;
 
-interface CreateBody { contentType: string; durationMs?: number | null }
+interface CreateBody {
+  contentType: string;
+  durationMs?: number | null;
+  kind?: 'deliberate' | 'automatic';
+}
 
 export function registerEvidenceRoutes(app: FastifyInstance, deps: Deps): void {
   /** Ask for somewhere to put a recording. Owner only. */
@@ -85,6 +91,7 @@ export function registerEvidenceRoutes(app: FastifyInstance, deps: Deps): void {
         // same for every alert she raises; without this a recording cannot be
         // attributed to one incident.
         alertKey: alert.key,
+        kind: req.body.kind === 'deliberate' ? 'deliberate' : 'automatic',
         ownerUid: uid,
         storagePath: ticket.storagePath,
         contentType: ticket.contentType,
@@ -166,12 +173,87 @@ export function registerEvidenceRoutes(app: FastifyInstance, deps: Deps): void {
           contentType: r.contentType,
           durationMs: r.durationMs,
           sizeBytes: r.sizeBytes,
+          kind: r.kind,
           createdAt: r.createdAt.toISOString(),
           // storagePath is deliberately not returned. It is an internal
           // address; the client needs the URL, never the location.
           ...(playback
             ? { url: playback.url, urlExpiresAt: playback.expiresAt.toISOString() }
             : {}),
+        };
+      }));
+
+      return reply.send({ evidence: items });
+    },
+  );
+}
+
+/**
+ * GET /v1/alerts/:id/evidence/responder — what a responder may hear.
+ *
+ * Four conditions, all required, none of them the client's word for it:
+ *
+ *   she was SELECTED for this alert (holds an inbox projection);
+ *   she has ACCEPTED it (P1-10) — tapping accept is the act that earns this;
+ *   the alert is STILL LIVE — access ends when the alert does, it does not
+ *     linger because a responder stayed interested;
+ *   the recording is DELIBERATE — see data-decisions.md §3.
+ *
+ * Every playback URL issued here is logged and attributable, on the same
+ * reasoning as a location reveal: the load-bearing protection is not that the
+ * link expires, it is that we can say afterwards exactly who was given access
+ * to what, and when.
+ */
+export function registerResponderEvidenceRoute(app: FastifyInstance, deps: Deps): void {
+  app.get<{ Params: { id: string } }>(
+    '/v1/alerts/:id/evidence/responder',
+    { onRequest: requireSubject(deps.tokenVerifier) },
+    async (req, reply) => {
+      const { uid } = subjectOf(req);
+      const alertId = req.params.id;
+
+      // Selection first, so an alert she was never sent is indistinguishable
+      // from one that does not exist.
+      const projection = await deps.inbox.get(uid, alertId);
+      if (!projection) {
+        throw new AppError('not_found', `alert ${alertId} was not sent to ${uid}`);
+      }
+
+      const alert = await deps.alerts.findById(alertId);
+      if (!alert) {
+        deps.logger.error('orphaned inbox projection', { alertId, subject: uid });
+        throw new AppError('not_found', `alert ${alertId} no longer exists`);
+      }
+      if (alert.status === 'resolved' || alert.status === 'expired') {
+        throw new AppError('alert_closed', `alert ${alertId} is ${alert.status}`);
+      }
+
+      const accepted = await deps.acceptances.findFor(alertId, uid);
+      if (!accepted) {
+        // Not an error state — she simply has not accepted yet. Returning an
+        // empty list rather than a 403 keeps the client simple and tells a
+        // prober nothing about whether recordings exist.
+        return reply.send({ evidence: [] });
+      }
+
+      const all = await deps.evidence.listForAlert(alertId);
+      const audible = all.filter(
+        (e) => e.uploaded && e.kind === 'deliberate' && e.alertKey === alert.key,
+      );
+
+      const items = await Promise.all(audible.map(async (e) => {
+        const playback = await deps.evidenceStore.createPlaybackUrl(e.storagePath, PLAYBACK_TTL_MS);
+        // Written per item, before the URL goes out.
+        deps.logger.info('responder granted voice note playback', {
+          alertId, subject: uid, evidenceId: e.id,
+        });
+        return {
+          id: e.id,
+          contentType: e.contentType,
+          durationMs: e.durationMs,
+          createdAt: e.createdAt.toISOString(),
+          url: playback.url,
+          urlExpiresAt: playback.expiresAt.toISOString(),
         };
       }));
 

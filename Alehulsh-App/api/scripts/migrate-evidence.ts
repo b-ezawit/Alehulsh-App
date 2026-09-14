@@ -115,6 +115,9 @@ export async function migrateEmbeddedAudio(deps: {
           // incident they came from at the time.
           alertKey: (data['alertKey'] as string | undefined) ?? docSnap.id,
           ownerUid,
+          // These were attached to the alert as voiceNotes, which in the old
+          // client only happened when she recorded and sent one.
+          kind: 'deliberate',
           storagePath: ticket.storagePath,
           contentType,
           sizeBytes: size,

@@ -14,13 +14,17 @@ const ALERT = OWNER;
 let alerts: FakeAlertRepository;
 let evidence: FakeEvidenceRepository;
 let evidenceStore: FakeEvidenceStore;
+let inbox: FakeInboxRepository;
+let acceptances: FakeAcceptanceRepository;
 let app: ReturnType<typeof buildServer>;
 
 beforeEach(() => {
   alerts = new FakeAlertRepository();
   evidence = new FakeEvidenceRepository();
   evidenceStore = new FakeEvidenceStore();
-  app = buildServer(makeDeps({ alerts, evidence, evidenceStore }));
+  inbox = new FakeInboxRepository();
+  acceptances = new FakeAcceptanceRepository();
+  app = buildServer(makeDeps({ alerts, evidence, evidenceStore, inbox, acceptances }));
   alerts.seed({ id: ALERT, ownerId: OWNER, status: 'active' });
 });
 
@@ -201,5 +205,99 @@ describe('deletion reaches both the rows and the objects — C-16', () => {
     assert.equal(receipt.purged.evidence_records, 1);
     assert.equal(evidenceStore.objects.size, 0);
     assert.equal(evidence.store.size, 0);
+  });
+});
+
+describe('responder playback — only what she chose to send (data-decisions.md §3)', () => {
+  const HELPER = 'helper_uid';
+  const projection = () => ({
+    alertId: ALERT, displayName: '', fuzzedLat: 9.01, fuzzedLng: 38.76,
+    fuzzedPrecision: '~150m', isUrgent: false, status: 'active' as const,
+    createdAt: new Date(), hasVoiceNote: true, reportedDelayMs: null,
+    audience: 'responder' as const,
+  });
+
+  const addEvidence = async (id: string, kind: 'deliberate' | 'automatic') => {
+    const path = `evidence/${OWNER}/${ALERT}/${id}`;
+    await evidence.create({
+      id, alertId: ALERT, alertKey: alerts.store.get(ALERT)!.key, kind,
+      ownerUid: OWNER, storagePath: path, contentType: 'audio/aac',
+      sizeBytes: 1024, durationMs: 5000, createdAt: new Date(), uploaded: true,
+    });
+    evidenceStore.land(path, 1024);
+  };
+
+  const asResponder = (uid: string) =>
+    app.inject({ method: 'GET', url: `/v1/alerts/${ALERT}/evidence/responder`, headers: authAs(uid) });
+
+  const accept = (uid: string) =>
+    app.inject({ method: 'POST', url: `/v1/alerts/${ALERT}/accept`, headers: authAs(uid), payload: {} });
+
+  test('an accepted responder hears a deliberate note', async () => {
+    await inbox.put(HELPER, projection());
+    await accept(HELPER);
+    await addEvidence('deliberate-1', 'deliberate');
+
+    const body = (await asResponder(HELPER)).json();
+    assert.equal(body.evidence.length, 1);
+    assert.ok(body.evidence[0].url);
+  });
+
+  test('an automatic capture is never offered, even after accepting', async () => {
+    // It can contain anything that happened to be audible. Tapping accept does
+    // not earn that, and she made no decision to share it.
+    await inbox.put(HELPER, projection());
+    await accept(HELPER);
+    await addEvidence('auto-1', 'automatic');
+
+    const body = (await asResponder(HELPER)).json();
+    assert.deepEqual(body.evidence, []);
+  });
+
+  test('accepting is what earns it — before that, nothing', async () => {
+    await inbox.put(HELPER, projection());
+    await addEvidence('deliberate-1', 'deliberate');
+    assert.deepEqual((await asResponder(HELPER)).json().evidence, []);
+  });
+
+  test('a responder who was never selected gets nothing at all', async () => {
+    await inbox.put(HELPER, projection());
+    await addEvidence('deliberate-1', 'deliberate');
+    assert.equal((await asResponder(STRANGER)).statusCode, 404);
+  });
+
+  test('access ends when the alert does', async () => {
+    await inbox.put(HELPER, projection());
+    await accept(HELPER);
+    await addEvidence('deliberate-1', 'deliberate');
+    alerts.seed({ id: ALERT, ownerId: OWNER, status: 'resolved' });
+
+    const res = await asResponder(HELPER);
+    assert.equal(res.statusCode, 409);
+    assert.equal(res.json().error.code, 'alert_closed');
+  });
+
+  test('the owner still sees both kinds in her own listing', async () => {
+    await addEvidence('deliberate-1', 'deliberate');
+    await addEvidence('auto-1', 'automatic');
+    const body = (await list(OWNER)).json();
+    // Everything is evidence for her and for a court; the restriction is only
+    // on what a stranger may hear.
+    assert.equal(body.evidence.length, 2);
+  });
+
+  test('an upload with no kind is treated as automatic', async () => {
+    // The default must be the closed one. Defaulting to deliberate would
+    // expose recordings nobody consented to share.
+    const { evidenceId } = (await ticket(OWNER)).json();
+    assert.equal((await evidence.findById(evidenceId))!.kind, 'automatic');
+  });
+
+  test('a client can mark one deliberate when she chose to send it', async () => {
+    const res = await app.inject({
+      method: 'POST', url: `/v1/alerts/${ALERT}/evidence`, headers: authAs(OWNER),
+      payload: { contentType: 'audio/aac', kind: 'deliberate' },
+    });
+    assert.equal((await evidence.findById(res.json().evidenceId))!.kind, 'deliberate');
   });
 });
