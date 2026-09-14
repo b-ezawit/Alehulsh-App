@@ -109,6 +109,11 @@ export async function migrateEmbeddedAudio(deps: {
         await deps.evidence.create({
           id: evidenceId,
           alertId: docSnap.id,
+          // The alert this belonged to predates alert keys, so its own key is
+          // the best identity available. Recordings migrated from the same
+          // document cannot be separated by incident — nothing recorded which
+          // incident they came from at the time.
+          alertKey: (data['alertKey'] as string | undefined) ?? docSnap.id,
           ownerUid,
           storagePath: ticket.storagePath,
           contentType,

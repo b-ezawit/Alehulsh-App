@@ -260,6 +260,19 @@ describe('inbox — per-recipient projections (P2-05, P1-10)', () => {
     await assertFails(getDoc(doc(alice, 'client_versions', ALICE)));
   });
 
+  test('alert history is server-only, and not deletable by a client', async () => {
+    // This is her evidence of a pattern of abuse. A client that could write it
+    // could fabricate incidents; one that could delete it could erase them —
+    // and the account most likely to be compromised is hers.
+    await env.withSecurityRulesDisabled((ctx) =>
+      setDoc(doc(ctx.firestore(), 'alert_history', 'key-1'), {
+        userId: ALICE, alertKey: 'key-1', status: 'resolved',
+      }));
+    await assertFails(getDoc(doc(alice, 'alert_history', 'key-1')));
+    await assertFails(setDoc(doc(alice, 'alert_history', 'key-2'), { userId: ALICE }));
+    await assertFails(deleteDoc(doc(alice, 'alert_history', 'key-1')));
+  });
+
   test('the reveal audit trail is server-only', async () => {
     // If a responder could read this, he could see who else is nearby and
     // whether anyone has already been given her exact position.

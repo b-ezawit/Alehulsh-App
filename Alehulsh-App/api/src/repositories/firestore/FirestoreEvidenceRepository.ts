@@ -7,6 +7,7 @@ const COLLECTION = 'evidence';
 
 interface EvidenceDoc {
   alertId: string;
+  alertKey?: string;
   ownerUid: string;
   storagePath: string;
   contentType: string;
@@ -19,6 +20,7 @@ interface EvidenceDoc {
 const toRecord = (id: string, d: EvidenceDoc): EvidenceRecord => ({
   id,
   alertId: d.alertId,
+  alertKey: d.alertKey ?? d.alertId,
   ownerUid: d.ownerUid,
   storagePath: d.storagePath,
   contentType: d.contentType,
@@ -34,6 +36,7 @@ export class FirestoreEvidenceRepository implements EvidenceRepository {
   async create(r: EvidenceRecord): Promise<EvidenceRecord> {
     const doc: EvidenceDoc = {
       alertId: r.alertId,
+      alertKey: r.alertKey,
       ownerUid: r.ownerUid,
       storagePath: r.storagePath,
       contentType: r.contentType,

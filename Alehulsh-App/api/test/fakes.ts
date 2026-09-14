@@ -22,7 +22,10 @@ export const PEPPER = 'pepper-for-tests-only';
 
 export class FakeAlertRepository implements AlertRepository {
   readonly store = new Map<string, Alert>();
+  /** Terminal alerts displaced by a later one, keyed by alert key. */
+  readonly history = new Map<string, Alert>();
   createCalls = 0;
+  private keySeq = 0;
 
   async findById(id: string) { return this.store.get(id) ?? null; }
 
@@ -37,9 +40,13 @@ export class FakeAlertRepository implements AlertRepository {
     if (existing && (existing.status === 'active' || existing.status === 'escalated')) {
       return { alert: existing, created: false };
     }
+    // Archive before overwriting, exactly as the Firestore repository does.
+    if (existing) this.history.set(existing.key, existing);
+
     const now = new Date();
     const alert: Alert = {
       id: input.ownerId,
+      key: `key-${++this.keySeq}`,
       ownerId: input.ownerId,
       status: 'active',
       createdAt: now,
@@ -69,6 +76,12 @@ export class FakeAlertRepository implements AlertRepository {
     return updated;
   }
 
+  async listHistoryForOwner(ownerUid: string, limit = 100) {
+    const out = [...this.store.values(), ...this.history.values()]
+      .filter((a) => a.ownerId === ownerUid);
+    return out.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime()).slice(0, limit);
+  }
+
   async deleteAllForOwner(ownerUid: string) {
     let n = 0;
     for (const [id, a] of [...this.store]) {
@@ -81,6 +94,7 @@ export class FakeAlertRepository implements AlertRepository {
   seed(alert: Partial<Alert> & { id: string; ownerId: string }): Alert {
     const now = new Date();
     const full: Alert = {
+      key: `key-seed-${alert.id}`,
       status: 'active', createdAt: now, expiresAt: new Date(now.getTime() + ACTIVE_WINDOW),
       latitude: null, longitude: null, geohash: null, attemptCount: 0, ...alert,
     };

@@ -14,13 +14,10 @@ import type { Logger } from '../logger.js';
  * TWO THINGS THE CALLER MUST UNDERSTAND, both stated in the payload itself
  * rather than only here:
  *
- * 1. There is no alert history to export. The alert document is keyed by the
- *    owner's uid, so each SOS overwrites the last one. For a woman in a
- *    repeated-abuse situation — the primary user of this app — that is exactly
- *    the pattern of evidence that matters most, and it is the pattern the
- *    schema destroys. It is recorded here as a known gap so an export can
- *    never be mistaken for a complete record. Fixed properly at M-05, where
- *    one row per alert is the natural shape.
+ * 1. Alert history IS included, newest first, and it is the part that does the
+ *    work. A single incident proves little; six over four months is a course
+ *    of conduct, which is what a protection order rests on. Each alert lists
+ *    the recordings belonging to it.
  *
  * 2. Recordings are referenced by expiring URL, not embedded. A permanent link
  *    inside an exported file would be a standing grant to the most sensitive
@@ -32,12 +29,21 @@ export interface DataExport {
   uid: string;
   profile: { safetyKeywordSet: boolean; mustSetKeyword: boolean };
   emergencyContacts: Array<{ name: string; isPrimary: boolean; reachable: boolean }>;
-  currentAlert: {
-    id: string; status: string; createdAt: string; expiresAt: string;
+  /**
+   * Every alert she has raised, newest first.  (P2-22)
+   *
+   * A single incident proves little. Six over four months is a course of
+   * conduct, and that is what a protection order rests on — so this is the
+   * part of the export that does the work.
+   */
+  alerts: Array<{
+    key: string; status: string; createdAt: string; expiresAt: string;
     hasLocation: boolean; latitude: number | null; longitude: number | null;
     resolvedAt: string | null; escalatedAt: string | null;
     escalationReason: string | null; failedKeywordAttempts: number;
-  } | null;
+    /** Recordings belonging to this alert, by alertKey. */
+    evidenceIds: string[];
+  }>;
   evidence: Array<{
     id: string; alertId: string; contentType: string;
     sizeBytes: number | null; durationMs: number | null;
@@ -61,9 +67,9 @@ export class DataExporter {
   ) {}
 
   async exportFor(uid: string): Promise<DataExport> {
-    const [user, alert, contacts, evidence] = await Promise.all([
+    const [user, history, contacts, evidence] = await Promise.all([
       this.users.findByUid(uid),
-      this.alerts.findById(uid),
+      this.alerts.listHistoryForOwner(uid),
       this.contacts.listByOwner(uid),
       this.evidence.listForOwner(uid),
     ]);
@@ -87,10 +93,17 @@ export class DataExporter {
       };
     }));
 
-    const knownGaps = [
-      'Alert history is not included. Only the most recent alert is stored: '
-      + 'each new SOS replaces the previous one. Earlier alerts cannot be recovered.',
-    ];
+    const knownGaps: string[] = [];
+    // Recordings made before alert keys existed carry the owner's uid as their
+    // key, so they cannot be tied to one incident. Said plainly rather than
+    // attached to the wrong alert.
+    const unattributed = evidence.filter((e) => e.alertKey === uid).length;
+    if (unattributed > 0) {
+      knownGaps.push(
+        `${unattributed} recording(s) predate per-alert identifiers and cannot be `
+        + 'attributed to a specific incident. They are listed under evidence.',
+      );
+    }
     const notUploaded = evidence.filter((e) => !e.uploaded).length;
     if (notUploaded > 0) {
       // Named rather than quietly dropped. A recording that never finished
@@ -107,7 +120,7 @@ export class DataExporter {
       subject: uid,
       contacts: contacts.length,
       evidenceItems: items.length,
-      hasCurrentAlert: alert !== null,
+      alerts: history.length,
     });
 
     return {
@@ -125,20 +138,21 @@ export class DataExporter {
         // Whether we could reach them, without re-exposing the hashes.
         reachable: Boolean(c.phoneHash ?? c.emailHash),
       })),
-      currentAlert: alert && alert.ownerId === uid ? {
-        id: alert.id,
-        status: alert.status,
-        createdAt: alert.createdAt.toISOString(),
-        expiresAt: alert.expiresAt.toISOString(),
-        hasLocation: alert.latitude !== null,
-        latitude: alert.latitude,
-        longitude: alert.longitude,
-        resolvedAt: alert.resolvedAt?.toISOString() ?? null,
-        escalatedAt: alert.escalatedAt?.toISOString() ?? null,
-        escalationReason: alert.escalationReason ?? null,
+      alerts: history.map((a) => ({
+        key: a.key,
+        status: a.status,
+        createdAt: a.createdAt.toISOString(),
+        expiresAt: a.expiresAt.toISOString(),
+        hasLocation: a.latitude !== null,
+        latitude: a.latitude,
+        longitude: a.longitude,
+        resolvedAt: a.resolvedAt?.toISOString() ?? null,
+        escalatedAt: a.escalatedAt?.toISOString() ?? null,
+        escalationReason: a.escalationReason ?? null,
         // A cluster of these is itself evidence of coercion.
-        failedKeywordAttempts: alert.attemptCount,
-      } : null,
+        failedKeywordAttempts: a.attemptCount,
+        evidenceIds: evidence.filter((e) => e.alertKey === a.key).map((e) => e.id),
+      })),
       evidence: items,
       knownGaps,
     };

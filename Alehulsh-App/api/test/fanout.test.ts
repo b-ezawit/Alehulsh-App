@@ -28,7 +28,7 @@ let users: FakeUserRepository;
 let fanout: AlertFanout;
 
 const alert = (over: Partial<Alert> = {}): Alert => ({
-  id: OWNER, ownerId: OWNER, status: 'active',
+  id: OWNER, key: 'key-fanout', ownerId: OWNER, status: 'active',
   createdAt: new Date(), expiresAt: new Date(Date.now() + 7.2e6),
   latitude: ADDIS.lat, longitude: ADDIS.lng,
   geohash: encodeGeohash(ADDIS.lat, ADDIS.lng, 9),

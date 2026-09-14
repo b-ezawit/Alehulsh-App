@@ -81,6 +81,10 @@ export function registerEvidenceRoutes(app: FastifyInstance, deps: Deps): void {
       await deps.evidence.create({
         id: evidenceId,
         alertId: alert.id,
+        // Which alert instance this belongs to. alert.id is her uid and is the
+        // same for every alert she raises; without this a recording cannot be
+        // attributed to one incident.
+        alertKey: alert.key,
         ownerUid: uid,
         storagePath: ticket.storagePath,
         contentType: ticket.contentType,
