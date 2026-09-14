@@ -5,7 +5,8 @@ import type { Logger } from './logger.js';
 import type { TokenVerifier } from './auth/TokenVerifier.js';
 import type {
   AcceptanceRepository, AlertRepository, InboxRepository,
-  ClientPolicyRepository, ContactRepository, EvidenceRepository, LocationRevealRepository,
+  ClientPolicyRepository, ContactRepository, EvidenceRepository,
+  KeywordResetRepository, LocationRevealRepository,
   UserRepository, VersionTelemetryRepository,
 } from './repositories/types.js';
 import type { TaskQueue } from './queue/TaskQueue.js';
@@ -18,6 +19,7 @@ import { registerAppPolicyRoutes } from './routes/appPolicy.js';
 import { registerEvidenceRoutes } from './routes/evidence.js';
 import { registerExportRoute } from './routes/export.js';
 import { registerKeywordRoute } from './routes/keyword.js';
+import { registerKeywordResetRoutes } from './routes/keywordReset.js';
 import { registerRevealRoute } from './routes/reveal.js';
 import { registerTaskRoutes } from './routes/tasks.js';
 
@@ -40,6 +42,8 @@ export interface Deps {
   evidence: EvidenceRepository;
   evidenceStore: EvidenceStore;
   contacts: ContactRepository;
+  /** Time-locked forgotten-keyword recovery. P1-11.1. */
+  keywordResets: KeywordResetRepository;
   /** Remotely raised upgrade floor, and who is on what. P1-26. */
   clientPolicy: ClientPolicyRepository;
   versionTelemetry: VersionTelemetryRepository;
@@ -101,6 +105,7 @@ export function buildServer(deps: Deps): FastifyInstance {
   registerAppPolicyRoutes(app, deps);
   registerExportRoute(app, deps);
   registerKeywordRoute(app, deps);
+  registerKeywordResetRoutes(app, deps);
 
   return app;
 }

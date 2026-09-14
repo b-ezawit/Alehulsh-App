@@ -273,6 +273,18 @@ describe('inbox — per-recipient projections (P2-05, P1-10)', () => {
     await assertFails(deleteDoc(doc(alice, 'alert_history', 'key-1')));
   });
 
+  test('keyword resets are server-only — the clock must not be client-settable', async () => {
+    // A client that could write this could set eligibleAt into the past and
+    // turn a 72-hour time lock into no lock at all, which is the entire
+    // defence in the recovery flow.
+    await env.withSecurityRulesDisabled((ctx) =>
+      setDoc(doc(ctx.firestore(), 'keyword_resets', ALICE), {
+        uid: ALICE, status: 'pending',
+      }));
+    await assertFails(getDoc(doc(alice, 'keyword_resets', ALICE)));
+    await assertFails(setDoc(doc(alice, 'keyword_resets', ALICE), { status: 'confirmed' }));
+  });
+
   test('the reveal audit trail is server-only', async () => {
     // If a responder could read this, he could see who else is nearby and
     // whether anyone has already been given her exact position.
