@@ -1,0 +1,90 @@
+rules_version = '2';
+
+// Alehulsh — TARGET ruleset for P1-27. NOT YET DEPLOYED.
+//
+// This is the ruleset that actually ends the exposure: clients lose write
+// access to active_alerts entirely, and every alert operation goes through the
+// API, which can enforce what rules cannot.
+//
+// It lives beside firestore.rules rather than replacing it because deploying
+// it today would break every installed build. See docs/closing-direct-writes.md
+// for the preconditions. When they are met, this file becomes firestore.rules
+// in a single commit and the tests come with it.
+//
+// WHAT CHANGES FROM firestore.rules
+//
+//   active_alerts  create/update/delete by a client: REMOVED.
+//                  Reads stay owner-only, so her own screen still works while
+//                  the client is being cut over.
+//   users          unchanged for now. Closing this needs profile-write
+//                  endpoints, which need P2-02 to say which fields survive.
+//                  Tracked separately; it is not part of this switch.
+//
+// WHY WRITES CAN GO AND READS CANNOT YET: every write path has a server
+// endpoint now — create (P1-08), resolve (P1-09), accept (P1-10), reveal
+// (P2-08), evidence (P2-10), keyword (P1-11). Reads still come straight from
+// Firestore in the client until P2-06.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isMe(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    // ---------------------------------------------------------------
+    // active_alerts — read-only to clients
+    // ---------------------------------------------------------------
+    // The three critical findings all lived here, and all three were write
+    // permissions: CRIT-04 let any account overwrite voiceNotes and responders
+    // on any alert, and the owner's own create/update/delete let the client
+    // decide its own alert state — which is how cancelling came to hard-delete
+    // the evidence (CRIT-05) and how a device clock came to set expiry.
+    //
+    // None of that can be fixed with a better rule. Firestore cannot check a
+    // keyword, cannot preserve evidence, cannot stamp its own clock. Removing
+    // client writes is the fix; the API does the rest.
+    match /active_alerts/{alertId} {
+      allow read: if isMe(alertId) || isMe(resource.data.userId);
+
+      // Deliberately absent: create, update, delete. Do not add them back.
+      // Every one of them now has an endpoint.
+    }
+
+    // ---------------------------------------------------------------
+    // users — unchanged, and knowingly so
+    // ---------------------------------------------------------------
+    // Still client-writable. Closing it requires endpoints for the profile
+    // fields the app legitimately edits, and P2-02 has not yet decided which
+    // of those fields survive at all. Writing them twice would be waste.
+    //
+    // The keyword is already out: P1-11 moved it behind PUT /v1/me/keyword and
+    // deletes the legacy cleartext field, so the most sensitive thing in this
+    // document is no longer set from a client.
+    match /users/{userId} {
+      allow read, write: if isMe(userId);
+    }
+
+    match /users/{userId}/contacts/{contactId} {
+      allow read, write: if isMe(userId);
+    }
+
+    // ---------------------------------------------------------------
+    // inbox — per-recipient projections, read-only
+    // ---------------------------------------------------------------
+    match /inbox/{recipientUid}/alerts/{alertId} {
+      allow read: if isMe(recipientUid);
+    }
+
+    // ---------------------------------------------------------------
+    // Everything else is denied.
+    // ---------------------------------------------------------------
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
