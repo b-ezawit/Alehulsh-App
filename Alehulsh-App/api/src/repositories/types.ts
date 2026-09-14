@@ -84,6 +84,11 @@ export interface UserRepository {
    * them, and is exactly what P3-01 §5 has to answer for.
    */
   findUidByIdentifierHash(hash: string): Promise<string | null>;
+  /**
+   * Stores a new keyword hash and clears mustSetKeyword. The plaintext never
+   * reaches this layer — hashing happens in the route, with the pepper.
+   */
+  setSafetyKeywordHash(uid: string, hash: string): Promise<void>;
   deleteByUid(uid: string): Promise<number>;
 }
 
