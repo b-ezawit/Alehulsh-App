@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/alert_model.dart';
 import '../models/user_profile_model.dart';
 import '../utils/geohash_util.dart';
+import 'keyword_verification.dart';
 
 class CancelSOSResult {
   final bool isSuccess;
@@ -16,6 +17,37 @@ class CancelSOSResult {
   });
 
   static const CancelSOSResult success = CancelSOSResult(isSuccess: true);
+}
+
+/// An active alert together with evidence of whether the server has it.
+///
+/// Firestore serves document snapshots from its local cache first, so simply
+/// receiving an alert proves nothing about delivery. [isPendingDelivery]
+/// separates "written on this phone" from "accepted by the server", which is the
+/// difference between an alarm that will reach someone and one that will not.
+class ActiveAlertSnapshot {
+  /// The user's active alert, or null when she has none.
+  final EmergencyAlert? alert;
+
+  /// True when a local write has not yet been acknowledged by the server.
+  ///
+  /// While true the alert exists ONLY on this device. The UI must not claim it
+  /// has been sent.
+  final bool isPendingDelivery;
+
+  /// True when this snapshot was served from the local cache.
+  final bool isFromCache;
+
+  const ActiveAlertSnapshot({
+    this.alert,
+    this.isPendingDelivery = false,
+    this.isFromCache = false,
+  });
+
+  /// The server holds this alert: it has reached the backend.
+  bool get isConfirmedDelivered => alert != null && !isPendingDelivery;
+
+  static const ActiveAlertSnapshot none = ActiveAlertSnapshot();
 }
 
 class AlertService {
@@ -93,20 +125,29 @@ class AlertService {
         .limit(30)
         .snapshots()
         .map((snapshot) {
-      final List<EmergencyAlert> nearby = [];
+      // Decorate with distance once per alert, then sort. The previous sort
+      // recomputed Haversine twice per comparison.
+      final List<({EmergencyAlert alert, double distKm})> nearby = [];
       for (var doc in snapshot.docs) {
         try {
           final alert = EmergencyAlert.fromMap(doc.data(), docId: doc.id);
-          if (alert.status == 'active' && !alert.isExpired) {
-            final distKm = alert.calculateDistanceKm(userLat, userLng);
-            if (distKm <= radiusInKm) {
-              nearby.add(alert);
-            }
-          }
+          if (alert.status != 'active' || alert.isExpired) continue;
+
+          // An alert we cannot locate is excluded from the proximity stream: we
+          // must not tell a responder someone is near her when we do not know
+          // where that person is. Such alerts still reach the victim's own
+          // emergency contacts, who are matched by explicit link rather than
+          // by distance. In practice these never arrive here anyway, since a
+          // missing location means an empty geohash that falls outside the
+          // query range above.
+          final distKm = alert.calculateDistanceKm(userLat, userLng);
+          if (distKm == null || distKm > radiusInKm) continue;
+
+          nearby.add((alert: alert, distKm: distKm));
         } catch (_) {}
       }
-      nearby.sort((a, b) => a.calculateDistanceKm(userLat, userLng).compareTo(b.calculateDistanceKm(userLat, userLng)));
-      return nearby;
+      nearby.sort((a, b) => a.distKm.compareTo(b.distKm));
+      return nearby.map((e) => e.alert).toList();
     }).handleError((error) {
       debugPrint("[AlertService] Geohash query error handled (fallback to global): $error");
       return <EmergencyAlert>[];
@@ -114,37 +155,55 @@ class AlertService {
   }
 
   /// Real-time stream of active alert for a specific user by UID (Guarantees persistence across pages)
-  Stream<EmergencyAlert?> getUserActiveAlertStream(String userId) {
+  Stream<ActiveAlertSnapshot> getUserActiveAlertStream(String userId) {
     if (userId.isEmpty) {
-      return Stream.value(null);
+      return Stream.value(ActiveAlertSnapshot.none);
     }
     return _firestore
         .collection('active_alerts')
         .doc(userId)
-        .snapshots()
+        // Metadata changes are included so the UI learns the moment a queued
+        // write is acknowledged by the server. Without this the transition from
+        // "queued on your phone" to "sent" would not be observed, and she would
+        // keep being told her alert had not been delivered after it had.
+        .snapshots(includeMetadataChanges: true)
         .map((doc) {
       try {
         if (doc.exists && doc.data() != null) {
           final alert = EmergencyAlert.fromMap(doc.data()!, docId: doc.id);
           if (alert.status == 'active' && !alert.isExpired) {
-            return alert;
+            return ActiveAlertSnapshot(
+              alert: alert,
+              isPendingDelivery: doc.metadata.hasPendingWrites,
+              isFromCache: doc.metadata.isFromCache,
+            );
           }
         }
       } catch (e) {
         debugPrint("[AlertService] Error reading active user alert: $e");
       }
-      return null;
+      return ActiveAlertSnapshot(isFromCache: doc.metadata.isFromCache);
     }).handleError((error) {
       debugPrint("[AlertService] getUserActiveAlertStream error handled: $error");
-      return null;
+      return ActiveAlertSnapshot.none;
     });
   }
 
   /// Create or Update the user's single SOS alert document in Firestore using doc(profile.uid)
+  /// Create or refresh this user's single active SOS alert.
+  ///
+  /// [latitude]/[longitude] are nullable: when the device cannot fix a position
+  /// the alert is still created, carrying no location at all. An alert without a
+  /// location still reaches her emergency contacts, who can call her. An alert
+  /// carrying a fabricated location sends help to the wrong place, so absence is
+  /// strictly better than a guess.
+  ///
+  /// Idempotent. The document id is the user's uid, so a retry overwrites rather
+  /// than creating a second alert.
   Future<String> createSOSAlert({
     required UserProfile profile,
-    required double latitude,
-    required double longitude,
+    required double? latitude,
+    required double? longitude,
     required String locationName,
     String message = '',
     bool isUrgent = false,
@@ -200,7 +259,9 @@ class AlertService {
         locationName: locationName,
         timestamp: now,
         expiresAt: now.add(const Duration(hours: 2)), // 2-Hour TTL Safety Net
-        geohash: GeohashUtil.encode(latitude, longitude),
+        geohash: (latitude != null && longitude != null)
+            ? GeohashUtil.encode(latitude, longitude)
+            : '',
         category: isUrgent ? 'Urgent Distress Alert' : 'Emergency SOS Alert',
         message: message,
         isUrgent: isUrgent,
@@ -288,20 +349,12 @@ class AlertService {
     required String userCatName,
     required String inputCatName,
   }) async {
-    final expected = userCatName.trim().toLowerCase();
-    final input = inputCatName.trim().toLowerCase();
-
-    // Security verification: compare normalized inputs.
-    // If expected is empty or not configured, allow 'milo' (default fallback) or non-empty match.
-    bool matched = false;
-    if (expected.isNotEmpty) {
-      matched = (expected == input);
-    } else {
-      matched = (input == 'milo' || input.isNotEmpty);
-    }
-
-    if (!matched) {
-      debugPrint("[AlertService] Cancellation rejected: Security cat name mismatch! Expected: '$expected', Entered: '$input'");
+    // No keyword configured, nothing entered, and a wrong answer all land here
+    // and all return the SAME result, so an onlooker cannot tell which case he
+    // is in. See keyword_verification.dart for why that matters.
+    if (!isKeywordMatch(configured: userCatName, input: inputCatName)) {
+      // Deliberately logs nothing. Neither keyword, nor their lengths, nor
+      // which case was hit - logcat is readable by anyone holding the device.
       return const CancelSOSResult(
         isSuccess: false,
         isSecurityMismatch: true,

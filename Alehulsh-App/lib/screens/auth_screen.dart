@@ -479,7 +479,7 @@ class _AuthScreenState extends State<AuthScreen> {
                                     TextField(
                                       controller: _catNameCtrl,
                                       decoration: InputDecoration(
-                                        hintText: _loc.isAmharic ? "የቤት እንስሳዎን ስም ያስገቡ (ለምሳሌ፡ ሚሎ)" : "Enter your pet's name (e.g. Milo)",
+                                        hintText: _loc.isAmharic ? "የቤት እንስሳዎን ስም ያስገቡ" : "Enter your pet's name",
                                         contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                                       ),
                                     ),

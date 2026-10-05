@@ -14,11 +14,17 @@ class UserDataService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
   /// Reactive notifier for the active profile state
-  final ValueNotifier<UserProfile> profileNotifier = ValueNotifier<UserProfile>(
-    FirebaseAuth.instance.currentUser != null
-        ? UserProfile.defaultProfile()
-        : UserProfile.guestProfile(),
-  );
+  /// Starts empty for signed-in and signed-out users alike.
+  ///
+  /// This previously seeded a signed-in user with UserProfile.defaultProfile(),
+  /// a mock record carrying the name 'Bezawit M.', an invented phone number and
+  /// three invented emergency contacts. Between app start and the Firestore
+  /// profile arriving, an SOS raised in that window went out with that mock
+  /// data: real alert, fictional victim, fictional contacts.
+  ///
+  /// An empty profile has an empty uid, which every SOS path already checks.
+  final ValueNotifier<UserProfile> profileNotifier =
+      ValueNotifier<UserProfile>(UserProfile.guestProfile());
   final ValueNotifier<bool> isFirestoreConnected = ValueNotifier<bool>(false);
   final ValueNotifier<bool> notificationsEnabledNotifier = ValueNotifier<bool>(true);
 

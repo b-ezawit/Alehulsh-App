@@ -45,8 +45,16 @@ class EmergencyAlert {
   final String userAvatar;
   final String alerterPhone;
   final String alerterEmail;
-  final double latitude;
-  final double longitude;
+  /// Where she is, or null when the device could not determine it.
+  ///
+  /// Nullable on purpose. A fabricated coordinate is worse than no coordinate:
+  /// it sends responders confidently to the wrong place. Absent location must
+  /// stay visibly absent all the way to the screen.
+  final double? latitude;
+  final double? longitude;
+
+  /// True when both coordinates are present and a pin may be drawn.
+  bool get hasLocation => latitude != null && longitude != null;
   final String locationName;
   final DateTime timestamp;
   final DateTime expiresAt; // 2-Hour TTL Safety Net
@@ -88,20 +96,38 @@ class EmergencyAlert {
     this.emergencyContactNames = const [],
     this.emergencyContactUids = const [],
   })  : expiresAt = expiresAt ?? timestamp.add(const Duration(hours: 2)),
-        geohash = geohash ?? GeohashUtil.encode(latitude, longitude);
+        // No coordinates means no geohash, so this alert is never matched by
+        // proximity. That is correct: we cannot claim she is near anyone. Her
+        // emergency contacts are notified by explicit link, not by distance,
+        // so they are still reached.
+        geohash = geohash ??
+            (latitude != null && longitude != null
+                ? GeohashUtil.encode(latitude, longitude)
+                : '');
 
   /// Check if the 2-hour TTL has expired
   bool get isExpired => DateTime.now().isAfter(expiresAt);
 
-  /// Mathematical Haversine Distance Formula between current user location and alert location in kilometers
-  double calculateDistanceKm(double userLat, double userLng) {
+  /// Haversine distance in km, or null when this alert has no location.
+  ///
+  /// Returns null rather than a sentinel such as 0 or 999: a caller that
+  /// forgets to check would otherwise sort an unlocatable alert to the top of
+  /// a nearby list, or to the bottom and out of sight.
+  double? calculateDistanceKm(double? userLat, double? userLng) {
+    final alertLat = latitude;
+    final alertLng = longitude;
+    // Either side missing means there is no distance to report: we need to know
+    // where BOTH the alert and the viewer are.
+    if (alertLat == null || alertLng == null) return null;
+    if (userLat == null || userLng == null) return null;
+
     const double earthRadiusKm = 6371.0;
 
-    double dLat = _degreesToRadians(latitude - userLat);
-    double dLon = _degreesToRadians(longitude - userLng);
+    double dLat = _degreesToRadians(alertLat - userLat);
+    double dLon = _degreesToRadians(alertLng - userLng);
 
     double lat1Rad = _degreesToRadians(userLat);
-    double lat2Rad = _degreesToRadians(latitude);
+    double lat2Rad = _degreesToRadians(alertLat);
 
     double a = sin(dLat / 2) * sin(dLat / 2) +
         sin(dLon / 2) * sin(dLon / 2) * cos(lat1Rad) * cos(lat2Rad);
@@ -110,9 +136,12 @@ class EmergencyAlert {
     return earthRadiusKm * c;
   }
 
-  /// Formatted distance string (e.g. "180 m away" or "0.3 km away")
-  String distanceLabel(double userLat, double userLng) {
-    double distKm = calculateDistanceKm(userLat, userLng);
+  /// Formatted distance, or an explicit unknown when either location is absent.
+  String distanceLabel(double? userLat, double? userLng) {
+    final distKm = calculateDistanceKm(userLat, userLng);
+    // Covers both "the alert has no location" and "we do not know where the
+    // viewer is". Saying so is correct; inventing a distance is not.
+    if (distKm == null) return "Distance unknown";
     if (distKm < 0.3) {
       int meters = (distKm * 1000).round();
       return "$meters m away";
@@ -142,10 +171,14 @@ class EmergencyAlert {
       'expiresAtTimestamp': Timestamp.fromDate(validExpiresAt), // For Firestore native TTL / indexing
       'ttlHours': 2,
       'geohash': geohash,
-      'geo': {
-        'geohash': geohash,
-        'geopoint': GeoPoint(latitude, longitude),
-      },
+      // Omit 'geo' entirely without coordinates. Writing a placeholder GeoPoint
+      // would make an unlocatable alert queryable by proximity at the wrong
+      // place, which is the exact failure this nullability exists to prevent.
+      if (latitude != null && longitude != null)
+        'geo': {
+          'geohash': geohash,
+          'geopoint': GeoPoint(latitude!, longitude!),
+        },
       'category': category,
       'message': message,
       'isUrgent': isUrgent,
@@ -202,11 +235,14 @@ class EmergencyAlert {
       return [];
     }
 
-    final lat = (map['latitude'] as num?)?.toDouble() ?? 9.0125;
-    final lng = (map['longitude'] as num?)?.toDouble() ?? 38.7636;
+    // Previously defaulted to Addis Ababa city centre (9.0125, 38.7636), so an
+    // alert with no location rendered as a confident pin in Bole. Absence now
+    // survives the round trip.
+    final lat = (map['latitude'] as num?)?.toDouble();
+    final lng = (map['longitude'] as num?)?.toDouble();
     final extractedGeohash = map['geohash']?.toString() ??
         (map['geo'] is Map ? (map['geo']['geohash']?.toString()) : null) ??
-        GeohashUtil.encode(lat, lng);
+        (lat != null && lng != null ? GeohashUtil.encode(lat, lng) : '');
 
     return EmergencyAlert(
       id: docId ?? map['id']?.toString() ?? '',

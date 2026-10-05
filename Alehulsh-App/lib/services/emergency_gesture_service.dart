@@ -7,7 +7,6 @@ import 'user_data_service.dart';
 import 'emergency_ping_service.dart';
 import 'alert_service.dart';
 import 'location_service.dart';
-import '../models/user_profile_model.dart';
 
 /// Emergency Hardware SOS Service
 /// Listens to: 5x Physical Power Button Press only
@@ -18,6 +17,53 @@ class EmergencyGestureService {
 
   static const MethodChannel _platformChannel =
       MethodChannel('com.example.alehulsh_app/hardware_sos');
+
+  /// How long to wait for the server to acknowledge the alert before telling
+  /// her it is only queued.
+  ///
+  /// A compromise, not a measured value. Too short and a slow-but-working
+  /// Ethiopian mobile connection gets reported as undelivered; too long and she
+  /// stands there with no feedback. NEEDS MEASUREMENT on a real network.
+  static const Duration _serverAckTimeout = Duration(seconds: 10);
+
+  /// Tell her what actually happened, whatever happened.
+  ///
+  /// The screen may be off and the phone in her pocket, so the notification is
+  /// the only channel she has. Every path through the trigger posts exactly one
+  /// of these, including the failure paths, which previously posted nothing.
+  ///
+  /// Reuses notification id 71002 so an outcome replaces an earlier one rather
+  /// than stacking contradictory messages.
+  Future<void> _notifyTriggerOutcome({
+    required String title,
+    required String body,
+  }) async {
+    const androidDetails = AndroidNotificationDetails(
+      'emergency_ping_channel',
+      'Emergency Proximity Pings',
+      channelDescription: 'Emergency trigger confirmation',
+      importance: Importance.max,
+      priority: Priority.high,
+      enableVibration: true,
+      playSound: true,
+      color: Color(0xFFE91E63),
+      fullScreenIntent: true,
+      // Not VISIBILITY_PUBLIC. On a locked phone this text is readable by
+      // whoever is holding it, including the person she is escaping.
+      visibility: NotificationVisibility.private,
+    );
+    try {
+      await _notificationsPlugin.show(
+        71002,
+        title,
+        body,
+        const NotificationDetails(android: androidDetails),
+      );
+    } catch (e) {
+      // Never let a notification failure swallow the SOS outcome.
+      debugPrint("[EmergencyGestureService] Could not post outcome notification: $e");
+    }
+  }
 
   final UserDataService _userDataService = UserDataService();
   final AlertService _alertService = AlertService();
@@ -83,59 +129,92 @@ class EmergencyGestureService {
     var profile = _userDataService.currentProfile;
     if (profile.uid.isEmpty) {
       final authUid = FirebaseAuth.instance.currentUser?.uid ?? '';
-      if (authUid.isNotEmpty) {
-        profile = profile.copyWith(
-          uid: authUid,
-          fullName: profile.fullName.isNotEmpty
-              ? profile.fullName
-              : (FirebaseAuth.instance.currentUser?.displayName ?? 'Alehulsh User'),
+      if (authUid.isEmpty) {
+        // Previously fell back to UserProfile.defaultProfile(), a mock record:
+        // uid 'demo_user_001', the name 'Bezawit M.' and three invented
+        // emergency contact phone numbers. A hardware SOS therefore raised an
+        // alert attributed to nobody, listing contacts who do not exist, while
+        // the woman who triggered it was not identified at all. Security rules
+        // also reject a write for a uid that is not the signed-in user, so the
+        // alert silently failed.
+        //
+        // Refuse instead, and say so, so she can fall back to a phone call.
+        debugPrint("[EmergencyGestureService] No signed-in user; refusing to raise an unattributable SOS.");
+        await _notifyTriggerOutcome(
+          title: "SOS not sent",
+          body: "Sign in to Alehulsh to send an alert. Call for help directly if you are in danger.",
         );
-      } else {
-        profile = UserProfile.defaultProfile();
+        return;
       }
+      profile = profile.copyWith(
+        uid: authUid,
+        fullName: profile.fullName.isNotEmpty
+            ? profile.fullName
+            : (FirebaseAuth.instance.currentUser?.displayName ?? 'Alehulsh User'),
+      );
     }
 
+    // Mark intent before attempting the write, so a crash between the button
+    // press and the server acknowledgement is recoverable on next launch.
+    await _userDataService.setSOSActiveLocally(true, profile.uid);
+
     try {
-      // Get live location
+      // No fallback coordinate. This previously defaulted to (9.0125, 38.7636),
+      // Addis Ababa city centre, so an SOS raised without GPS asserted she was
+      // downtown. Responders would be dispatched to the wrong place while the
+      // alert looked complete. Absent location is sent as absent.
       final pos = await _locationService.getCurrentLocation();
-      final lat = pos?.latitude ?? _locationService.currentPosition?.latitude ?? 9.0125;
-      final lng = pos?.longitude ?? _locationService.currentPosition?.longitude ?? 38.7636;
+      final lat = pos?.latitude ?? _locationService.currentPosition?.latitude;
+      final lng = pos?.longitude ?? _locationService.currentPosition?.longitude;
 
-      // Write SOS alert to Firestore — the EmergencyScreen Firestore stream will pick this up
-      final alertId = await _alertService.createSOSAlert(
-        profile: profile,
-        latitude: lat,
-        longitude: lng,
-        locationName: "Live GPS",
-        message: "🚨 EMERGENCY DISTRESS TRIGGERED! Please send help immediately!",
-        isUrgent: true,
-      );
+      // Firestore resolves set() on SERVER acknowledgement, so offline this
+      // never completes and never throws. Without a timeout the trigger would
+      // hang here silently and she would get no feedback whatsoever.
+      final alertId = await _alertService
+          .createSOSAlert(
+            profile: profile,
+            latitude: lat,
+            longitude: lng,
+            locationName: (lat != null && lng != null) ? "Live GPS" : "Location unavailable",
+            message: "EMERGENCY DISTRESS TRIGGERED",
+            isUrgent: true,
+          )
+          .timeout(_serverAckTimeout);
 
-      // Persist locally so the app restores state after reopen
+      // Confirmed accepted by the server.
       await _userDataService.setSOSActiveLocally(true, alertId);
       _userDataService.recordSOSTriggered();
 
-      // Show high-priority confirmation notification
-      const androidDetails = AndroidNotificationDetails(
-        'emergency_ping_channel',
-        'Emergency Proximity Pings',
-        channelDescription: 'Emergency trigger confirmation',
-        importance: Importance.max,
-        priority: Priority.high,
-        enableVibration: true,
-        playSound: true,
-        color: Color(0xFFE91E63),
-        fullScreenIntent: true,
+      await _notifyTriggerOutcome(
+        title: "Alert sent",
+        body: lat != null
+            ? "Your emergency alert was sent with your location."
+            : "Your emergency alert was sent, but your location could not be determined.",
       );
-      await _notificationsPlugin.show(
-        71002,
-        "🚨 Your Alert has been sent.",
-        "Emergency SOS broadcast sent via $triggerSource! Help is on the way.",
-        const NotificationDetails(android: androidDetails),
-      );
+      debugPrint("[EmergencyGestureService] SOS acknowledged by server via $triggerSource: $alertId");
+    } on TimeoutException {
+      // The write is still queued in Firestore's local cache and will be sent
+      // when connectivity returns. It has NOT reached anyone yet, and we must
+      // not imply that it has.
+      await _userDataService.setSOSActiveLocally(true, profile.uid);
+      _userDataService.recordSOSTriggered();
 
-      debugPrint("[EmergencyGestureService] ✅ SOS fully triggered via $triggerSource! Alert: $alertId");
+      await _notifyTriggerOutcome(
+        title: "Alert NOT yet delivered",
+        body: "Saved on your phone and will send when you have signal. Call for help directly if you can.",
+      );
+      debugPrint("[EmergencyGestureService] SOS queued locally, no server ack within $_serverAckTimeout.");
     } catch (e) {
+      // Terminal failure: withdraw the intent so the next launch does not
+      // restore an alert that was never accepted.
+      await _userDataService.setSOSActiveLocally(false);
+
+      // A failed SOS must be loud. Silence here is indistinguishable from
+      // success to someone who cannot look at the screen.
+      await _notifyTriggerOutcome(
+        title: "SOS FAILED to send",
+        body: "Your alert could not be sent. Open Alehulsh and try again, or call for help directly.",
+      );
       debugPrint("[EmergencyGestureService] Error triggering SOS: $e");
     }
 

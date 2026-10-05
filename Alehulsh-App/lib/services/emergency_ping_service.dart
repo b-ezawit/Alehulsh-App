@@ -178,15 +178,20 @@ class EmergencyPingService {
           isEmergencyContact = true;
         }
 
-        double distanceMeters = 0.0;
+        // Null until proven: a distance is only real when we know BOTH where
+        // the responder is and where the alert is. Previously defaulted to 0.0,
+        // which surfaced as "0 meters away" on an alert with no location.
+        double? distanceMeters;
         bool isWithin500m = false;
 
-        if (myLat != null && myLng != null) {
+        final alertLat = alert.latitude;
+        final alertLng = alert.longitude;
+        if (myLat != null && myLng != null && alertLat != null && alertLng != null) {
           distanceMeters = Geolocator.distanceBetween(
             myLat,
             myLng,
-            alert.latitude,
-            alert.longitude,
+            alertLat,
+            alertLng,
           );
           isWithin500m = distanceMeters <= 500.0;
         }
@@ -194,10 +199,21 @@ class EmergencyPingService {
         // Rule: Dispatch Ping if within 500m radius OR if user is a designated Emergency Contact!
         if (isEmergencyContact || isWithin500m) {
           _notifiedAlertIds.add(pingKey);
-          int metersRounded = distanceMeters.round();
-          String distStr = isEmergencyContact
-              ? (myLat != null ? "Emergency Contact • ${metersRounded}m away" : "Emergency Contact Alert")
-              : "$metersRounded meters away";
+          // Say nothing about distance unless we have one. An emergency contact
+          // is still pinged for an alert we cannot locate - she is the person
+          // best placed to call and ask where her friend is - but she is told
+          // the location is unknown rather than shown a fabricated distance.
+          final String distStr;
+          if (distanceMeters == null) {
+            distStr = isEmergencyContact
+                ? "Emergency Contact Alert"
+                : "Distance unknown";
+          } else {
+            final metersRounded = distanceMeters.round();
+            distStr = isEmergencyContact
+                ? "Emergency Contact • ${metersRounded}m away"
+                : "$metersRounded meters away";
+          }
 
           await sendProximityPingNotification(
             alertId: alert.id.isNotEmpty ? alert.id : alert.userId,

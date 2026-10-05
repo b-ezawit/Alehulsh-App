@@ -1,10 +1,10 @@
 import 'dart:async';
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
 import '../theme/app_theme.dart';
 import '../models/alert_model.dart';
+import '../models/sos_submission_state.dart';
 import '../models/user_profile_model.dart';
 import '../services/user_data_service.dart';
 import '../services/alert_service.dart';
@@ -29,8 +29,15 @@ class _EmergencyScreenState extends State<EmergencyScreen> with SingleTickerProv
   final LocationService _locationService = LocationService();
   final LocalizationService _loc = LocalizationService();
 
-  // Active SOS alert tracking state
-  bool _isSOSSent = false;
+  // Active SOS alert tracking state.
+  //
+  // _sosState is the source of truth. _isSOSSent is derived and means "an alert
+  // exists", which is what the active-SOS controls key off. It deliberately does
+  // NOT mean "delivered" - use _sosState.isDelivered for that. Conflating the
+  // two is the bug this replaced.
+  SosSubmissionState _sosState = SosSubmissionState.idle;
+  bool get _isSOSSent => _sosState.hasAlert;
+  String? _sosFailureDetail;
   String? _activeAlertId;
   bool _isUrgent = false;
   final TextEditingController _messageCtrl = TextEditingController();
@@ -50,7 +57,7 @@ class _EmergencyScreenState extends State<EmergencyScreen> with SingleTickerProv
   late Animation<double> _pulseAnimation;
 
   // Stream subscription for active user alert persistence across navigation
-  StreamSubscription<EmergencyAlert?>? _userAlertSubscription;
+  StreamSubscription<ActiveAlertSnapshot>? _userAlertSubscription;
 
   @override
   void initState() {
@@ -77,8 +84,12 @@ class _EmergencyScreenState extends State<EmergencyScreen> with SingleTickerProv
     final wasSOSActive = await _userDataService.isSOSActiveLocally();
     final cachedAlertId = await _userDataService.getActiveSOSAlertIdLocally();
     if (wasSOSActive && mounted) {
+      // We know an alert was raised on this device, but not whether the server
+      // ever received it. Restore as queued, not sent. The Firestore stream
+      // below promotes it to sent once the server confirms the document exists,
+      // which is the reconciliation path after a crash or restart.
       setState(() {
-        _isSOSSent = true;
+        _sosState = SosSubmissionState.queued;
         _activeAlertId = cachedAlertId ?? _userDataService.currentProfile.uid;
       });
     }
@@ -106,30 +117,51 @@ class _EmergencyScreenState extends State<EmergencyScreen> with SingleTickerProv
         : (cachedAlertId ?? FirebaseAuth.instance.currentUser?.uid ?? '');
     if (userId.isEmpty) return;
 
-    _userAlertSubscription = _alertService.getUserActiveAlertStream(userId).listen((activeAlert) async {
-      if (mounted) {
-        if (activeAlert != null) {
-          setState(() {
-            _isSOSSent = true;
-            _activeAlertId = activeAlert.id;
-            _isUrgent = activeAlert.isUrgent;
-            if (activeAlert.message.trim().isNotEmpty) {
-              _messageCtrl.text = activeAlert.message.trim();
-              _isMessageSent = true;
+    _userAlertSubscription = _alertService.getUserActiveAlertStream(userId).listen((snapshot) async {
+      if (!mounted) return;
+
+      final activeAlert = snapshot.alert;
+      if (activeAlert != null) {
+        setState(() {
+          // The ONLY place the app concludes the alert was delivered, and only
+          // on the server's word. A snapshot with pending writes came from this
+          // phone's cache and proves nothing about delivery.
+          //
+          // While a send is still in flight we do not downgrade to `queued`:
+          // the local cache write fires this listener within milliseconds, and
+          // flashing "NOT SENT" during a normal send would frighten her for no
+          // reason. _triggerSOS owns the outcome until it resolves, and it
+          // settles on queued itself if the server does not acknowledge in
+          // time. Promotion to `sent` is always allowed.
+          if (snapshot.isPendingDelivery) {
+            if (_sosState != SosSubmissionState.sending) {
+              _sosState = SosSubmissionState.queued;
             }
-          });
-          await _userDataService.setSOSActiveLocally(true, activeAlert.id);
-        } else {
-          final isLocallyActive = await _userDataService.isSOSActiveLocally();
-          if (!isLocallyActive) {
-            setState(() {
-              _isSOSSent = false;
-              _activeAlertId = null;
-              _isUrgent = false;
-              _isMessageSent = false;
-              _messageCtrl.clear();
-            });
+          } else {
+            _sosState = SosSubmissionState.sent;
           }
+          if (snapshot.isConfirmedDelivered) _sosFailureDetail = null;
+          _activeAlertId = activeAlert.id;
+          _isUrgent = activeAlert.isUrgent;
+          if (activeAlert.message.trim().isNotEmpty) {
+            _messageCtrl.text = activeAlert.message.trim();
+            _isMessageSent = true;
+          }
+        });
+        await _userDataService.setSOSActiveLocally(true, activeAlert.id);
+      } else {
+        // No alert on the server. Only clear if this device does not believe one
+        // is outstanding, so an offline queued alert is not silently forgotten.
+        final isLocallyActive = await _userDataService.isSOSActiveLocally();
+        if (!isLocallyActive && mounted) {
+          setState(() {
+            _sosState = SosSubmissionState.idle;
+            _sosFailureDetail = null;
+            _activeAlertId = null;
+            _isUrgent = false;
+            _isMessageSent = false;
+            _messageCtrl.clear();
+          });
         }
       }
     });
@@ -183,6 +215,14 @@ class _EmergencyScreenState extends State<EmergencyScreen> with SingleTickerProv
     );
   }
 
+  /// How long to wait for the server to acknowledge the alert before reporting
+  /// it as queued rather than sent.
+  ///
+  /// A compromise, not a measured value: long enough for a slow Ethiopian mobile
+  /// connection, short enough that she is not left without feedback.
+  /// NEEDS MEASUREMENT on a real network.
+  static const Duration _serverAckTimeout = Duration(seconds: 10);
+
   // Trigger SOS Alert (Instant Tap Response + Haptics)
   Future<void> _triggerSOS() async {
     if (!_userDataService.isLoggedIn) {
@@ -192,114 +232,276 @@ class _EmergencyScreenState extends State<EmergencyScreen> with SingleTickerProv
       return;
     }
 
-    if (_isSOSSent) return;
+    // Already sending, or an alert already exists. Retrying a FAILED send is
+    // allowed and lands here from the retry button.
+    if (_sosState.isBusy || _sosState.hasAlert) return;
 
     // Immediate tactile feedback
     HapticFeedback.heavyImpact();
 
     final profile = _userDataService.currentProfile;
 
-    // Use live GPS coordinates or fast cache
-    double lat = _livePosition?.latitude ?? _locationService.currentPosition?.latitude ?? 9.0125;
-    double lng = _livePosition?.longitude ?? _locationService.currentPosition?.longitude ?? 38.7636;
+    // No fabricated fallback. This previously defaulted to (9.0125, 38.7636),
+    // Addis Ababa city centre, so an SOS sent without a GPS fix asserted she was
+    // downtown and would send responders to the wrong place.
+    final double? lat = _livePosition?.latitude ?? _locationService.currentPosition?.latitude;
+    final double? lng = _livePosition?.longitude ?? _locationService.currentPosition?.longitude;
+    final bool hasLocation = lat != null && lng != null;
 
-    // Instant local state update for zero lag
+    // "sending", NOT "sent". Nothing has been confirmed at this point.
     setState(() {
-      _isSOSSent = true;
+      _sosState = SosSubmissionState.sending;
+      _sosFailureDetail = null;
       _activeAlertId = profile.uid;
     });
 
+    // Record the INTENT before attempting the write: mark intent -> send ->
+    // mark completion. If the app is killed between the tap and the server
+    // acknowledgement, this flag is what tells the next launch that an alert is
+    // outstanding, so it restores as `queued` and the Firestore stream
+    // reconciles it. Without it a crash mid-send would leave her believing
+    // nothing had been raised while a queued write was still pending.
+    //
+    // The alert id is known in advance because the document id is the user's
+    // uid, which is also what makes a retry idempotent.
+    await _userDataService.setSOSActiveLocally(true, profile.uid);
+
     try {
-      // Check network connectivity for offline queueing status
-      bool isOnline = true;
-      try {
-        final res = await InternetAddress.lookup('example.com').timeout(const Duration(milliseconds: 1500));
-        isOnline = res.isNotEmpty && res[0].rawAddress.isNotEmpty;
-      } catch (_) {
-        isOnline = false;
-      }
+      // Firestore resolves set() on SERVER acknowledgement. Offline it never
+      // completes and never throws, so without this timeout the method would
+      // hang here forever while the screen showed an active broadcast.
+      final String alertId = await _alertService
+          .createSOSAlert(
+            profile: profile,
+            latitude: lat,
+            longitude: lng,
+            locationName: hasLocation ? "Live GPS" : "Location unavailable",
+            message: _messageCtrl.text,
+            isUrgent: _isUrgent,
+          )
+          .timeout(_serverAckTimeout);
 
-      // Create or reuse single active SOS Alert in Firestore (automatically queued if offline)
-      String alertId = await _alertService.createSOSAlert(
-        profile: profile,
-        latitude: lat,
-        longitude: lng,
-        locationName: "Live GPS",
-        message: _messageCtrl.text,
-        isUrgent: _isUrgent,
-      );
-
-      // Lock SOS active locally so app reopen maintains emergency state
+      // The server has it. This is the only path that may claim delivery.
       await _userDataService.setSOSActiveLocally(true, alertId);
-
-      if (mounted) {
-        setState(() {
-          _activeAlertId = alertId;
-        });
-      }
-
       _userDataService.recordSOSTriggered();
 
-      // Fire system-level "Your Alert has been sent" notification for persistent confirmation
-      const AndroidNotificationDetails senderAndroidDetails = AndroidNotificationDetails(
-        'emergency_ping_channel',
-        'Emergency Proximity Pings',
-        channelDescription: 'Emergency trigger confirmation',
-        importance: Importance.max,
-        priority: Priority.high,
-        enableVibration: true,
-        playSound: true,
-        color: Color(0xFFE91E63),
-        fullScreenIntent: true,
-        category: AndroidNotificationCategory.alarm,
-        visibility: NotificationVisibility.public,
-      );
-      final FlutterLocalNotificationsPlugin notifPlugin = FlutterLocalNotificationsPlugin();
-      await notifPlugin.show(
-        71002,
-        _loc.isAmharic ? "🚨 ጥሪዎ ተልኳል!" : "🚨 Your Alert has been sent.",
-        _loc.isAmharic
-            ? "የአደጋ ጊዜ ጥሪ ለአቅራቢያዎ ያሉ ሰዎች እና እውቂያዎች ተልኳል!"
-            : "Emergency SOS broadcast sent to nearby network and contacts!",
-        const NotificationDetails(android: senderAndroidDetails),
+      if (!mounted) return;
+      setState(() {
+        _sosState = SosSubmissionState.sent;
+        _activeAlertId = alertId;
+      });
+
+      await _notifySosOutcome(
+        title: _loc.isAmharic ? "ጥሪዎ ተልኳል" : "Alert sent",
+        body: hasLocation
+            ? (_loc.isAmharic
+                ? "የአደጋ ጥሪዎ ከቦታዎ ጋር ተልኳል።"
+                : "Your emergency alert was sent with your location.")
+            : (_loc.isAmharic
+                ? "ጥሪዎ ተልኳል፤ ነገር ግን ቦታዎ አልታወቀም።"
+                : "Your emergency alert was sent, but your location could not be determined."),
       );
 
       if (mounted) {
-        if (!isOnline) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Row(
-                children: [
-                  const Icon(Icons.wifi_off_rounded, color: Colors.white),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      _loc.isAmharic
-                          ? "⚠️ በአሁኑ ወቅት ኢንተርኔት የለም። የአደጋ ጥሪዎ በስልክዎ ተመዝግቧል፤ ኢንተርኔት እንደተገናኘ ወዲያውኑ ይሰራጫል!"
-                          : "⚠️ You are currently offline. SOS alert is queued locally and will broadcast to nearby network the millisecond connection is restored!",
-                      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
-                    ),
-                  ),
-                ],
-              ),
-              backgroundColor: Colors.orange.shade800,
-              duration: const Duration(seconds: 6),
-            ),
-          );
-        } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(_loc.isAmharic
-                  ? "🚨 ጥሪዎ ተልኳል! የአደጋ ጊዜ ጥሪ ለአቅራቢያዎ ያሉ ሰዎች ተልኳል!"
-                  : "🚨 Your Alert has been sent! SOS broadcast dispatched to nearby network!"),
-              backgroundColor: Colors.green,
-              duration: const Duration(seconds: 4),
-            ),
-          );
-        }
+        _showSosSnack(
+          hasLocation
+              ? (_loc.isAmharic
+                  ? "ጥሪዎ ተልኳል።"
+                  : "Your alert was sent.")
+              : (_loc.isAmharic
+                  ? "ጥሪዎ ተልኳል፤ ቦታዎ ግን አልታወቀም።"
+                  : "Alert sent, but your location is unknown."),
+          Colors.green.shade700,
+        );
+      }
+    } on TimeoutException {
+      // The write stays queued in Firestore's cache and will be sent when
+      // connectivity returns. It has NOT reached anyone. Say exactly that: the
+      // old copy claimed the alert "will broadcast the millisecond connection is
+      // restored", which overstates what we can promise.
+      await _userDataService.setSOSActiveLocally(true, profile.uid);
+      _userDataService.recordSOSTriggered();
+
+      if (!mounted) return;
+      setState(() => _sosState = SosSubmissionState.queued);
+
+      await _notifySosOutcome(
+        title: _loc.isAmharic ? "ጥሪዎ አልተላከም" : "Alert NOT yet delivered",
+        body: _loc.isAmharic
+            ? "በስልክዎ ተቀምጧል። አውታረ መረብ ሲኖር ይላካል። ከተቻለ በቀጥታ ይደውሉ።"
+            : "Saved on your phone and will send when you have signal. Call for help directly if you can.",
+      );
+
+      if (mounted) {
+        _showSosSnack(
+          _loc.isAmharic
+              ? "ጥሪዎ እስካሁን አልተላከም። በስልክዎ ተቀምጧል። ከተቻለ በቀጥታ ይደውሉ።"
+              : "Not delivered yet - saved on your phone. Call for help directly if you can.",
+          Colors.orange.shade800,
+          seconds: 8,
+        );
       }
     } catch (e) {
-      debugPrint("[EmergencyScreen] Error in _triggerSOS: $e");
+      // A failed SOS must be impossible to mistake for a successful one. The old
+      // implementation only wrote to debugPrint here and left the screen showing
+      // an active broadcast.
+      debugPrint("[EmergencyScreen] SOS send failed: $e");
+
+      // Terminal failure, so the intent must be withdrawn. Firestore queues
+      // transient/offline writes itself and those surface as a timeout, not
+      // here; what reaches this branch (permission denied, invalid document)
+      // will never succeed on its own. Leaving the flag set would make the next
+      // launch restore a `queued` alert that does not exist and never will.
+      await _userDataService.setSOSActiveLocally(false);
+
+      if (!mounted) return;
+      setState(() {
+        _sosState = SosSubmissionState.failed;
+        _sosFailureDetail = e.toString();
+        _activeAlertId = null;
+      });
+
+      await _notifySosOutcome(
+        title: _loc.isAmharic ? "ጥሪዎ አልተላከም!" : "SOS FAILED to send",
+        body: _loc.isAmharic
+            ? "ጥሪዎ መላክ አልተቻለም። እባክዎ እንደገና ይሞክሩ ወይም በቀጥታ ይደውሉ።"
+            : "Your alert could not be sent. Try again, or call for help directly.",
+      );
+
+      if (mounted) {
+        _showSosSnack(
+          _loc.isAmharic
+              ? "ጥሪዎ አልተላከም። እንደገና ይሞክሩ ወይም በቀጥታ ይደውሉ።"
+              : "SOS failed to send. Try again, or call for help directly.",
+          AppTheme.emergencyRed,
+          seconds: 10,
+        );
+      }
+    }
+  }
+
+  // ---- State presentation -------------------------------------------------
+  // Green is reserved for SosSubmissionState.sent. Every other state must look
+  // visibly different, because the whole point is that she can tell at a glance
+  // whether her alert actually reached anyone.
+
+  Color get _sosStatusColor {
+    switch (_sosState) {
+      case SosSubmissionState.sent:
+        return Colors.green;
+      case SosSubmissionState.queued:
+        return Colors.orange.shade800;
+      case SosSubmissionState.failed:
+        return AppTheme.emergencyRed;
+      case SosSubmissionState.sending:
+        return Colors.blue.shade700;
+      case SosSubmissionState.idle:
+        return AppTheme.emergencyRed;
+    }
+  }
+
+  IconData get _sosStatusIcon {
+    switch (_sosState) {
+      case SosSubmissionState.sent:
+        return Icons.check_circle_rounded;
+      case SosSubmissionState.queued:
+        return Icons.cloud_off_rounded;
+      case SosSubmissionState.failed:
+        return Icons.error_rounded;
+      case SosSubmissionState.sending:
+        return Icons.sync_rounded;
+      case SosSubmissionState.idle:
+        return Icons.cell_tower_rounded;
+    }
+  }
+
+  String get _sosStatusTitle {
+    final amharic = _loc.isAmharic;
+    switch (_sosState) {
+      case SosSubmissionState.sent:
+        return _loc.tr('sos_broadcast_active');
+      case SosSubmissionState.queued:
+        return amharic ? "አልተላከም - በስልክዎ ተቀምጧል" : "NOT SENT - saved on your phone";
+      case SosSubmissionState.failed:
+        return amharic ? "ጥሪዎ አልተላከም" : "SOS FAILED TO SEND";
+      case SosSubmissionState.sending:
+        return amharic ? "በመላክ ላይ..." : "Sending...";
+      case SosSubmissionState.idle:
+        return _loc.tr('sos_shield_standby');
+    }
+  }
+
+  /// Second line of the banner: what she should do, not what we hope happened.
+  String get _sosStatusDetail {
+    final amharic = _loc.isAmharic;
+    switch (_sosState) {
+      case SosSubmissionState.queued:
+        return amharic
+            ? "አውታረ መረብ ሲኖር ይላካል። ከተቻለ በቀጥታ ይደውሉ።"
+            : "Will send when you have signal. Call for help directly if you can.";
+      case SosSubmissionState.failed:
+        // The main SOS button is the retry: `failed` is neither busy nor
+        // has-alert, so _triggerSOS runs again. Re-sending is safe because the
+        // document id is the user's uid, so a retry overwrites rather than
+        // raising a second alert.
+        return amharic
+            ? "SOS ን እንደገና ይጫኑ ወይም በቀጥታ ይደውሉ።"
+            : "Press SOS again, or call for help directly.";
+      case SosSubmissionState.sending:
+        return amharic ? "እስካሁን አልተረጋገጠም..." : "Not confirmed yet...";
+      case SosSubmissionState.sent:
+      case SosSubmissionState.idle:
+        // Only here is it safe to show the GPS readout as reassurance.
+        if (_livePosition != null) {
+          return "GPS Live: ${_livePosition!.latitude.toStringAsFixed(4)}, ${_livePosition!.longitude.toStringAsFixed(4)}";
+        }
+        return _isFetchingLocation
+            ? (amharic ? "ቦታ በመፈለግ ላይ..." : "Fetching GPS location...")
+            : (amharic ? "ቦታዎ አልታወቀም" : "Location unknown");
+    }
+  }
+
+  void _showSosSnack(String text, Color background, {int seconds = 5}) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(text, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+        backgroundColor: background,
+        duration: Duration(seconds: seconds),
+      ),
+    );
+  }
+
+  /// Post the outcome of a send attempt, whatever it was.
+  ///
+  /// The screen may already be off or in her pocket, so this is the channel she
+  /// actually has. Every path through _triggerSOS posts exactly one, including
+  /// the failures, which previously posted nothing at all.
+  Future<void> _notifySosOutcome({required String title, required String body}) async {
+    const AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
+      'emergency_ping_channel',
+      'Emergency Proximity Pings',
+      channelDescription: 'Emergency trigger confirmation',
+      importance: Importance.max,
+      priority: Priority.high,
+      enableVibration: true,
+      playSound: true,
+      color: Color(0xFFE91E63),
+      fullScreenIntent: true,
+      category: AndroidNotificationCategory.alarm,
+      // Was VISIBILITY_PUBLIC, which printed the full text on the lock screen of
+      // a phone that may be in the hands of the person she is escaping.
+      visibility: NotificationVisibility.private,
+    );
+    try {
+      await FlutterLocalNotificationsPlugin().show(
+        71002,
+        title,
+        body,
+        const NotificationDetails(android: androidDetails),
+      );
+    } catch (e) {
+      debugPrint("[EmergencyScreen] Could not post SOS outcome notification: $e");
     }
   }
 
@@ -448,7 +650,6 @@ class _EmergencyScreenState extends State<EmergencyScreen> with SingleTickerProv
                 controller: catNameInputCtrl,
                 decoration: InputDecoration(
                   labelText: _loc.isAmharic ? "የደህንነት መልስ ያስገቡ" : "Enter security answer",
-                  hintText: "e.g. Milo",
                 ),
               ),
               if (errorTxt.isNotEmpty) ...[
@@ -476,7 +677,8 @@ class _EmergencyScreenState extends State<EmergencyScreen> with SingleTickerProv
                     await EmergencyGestureService().recordCancellation();
                     Navigator.pop(ctx);
                     setState(() {
-                      _isSOSSent = false;
+                      _sosState = SosSubmissionState.idle;
+                      _sosFailureDetail = null;
                       _activeAlertId = null;
                       _isUrgent = false;
                       _isMessageSent = false;
@@ -591,15 +793,15 @@ class _EmergencyScreenState extends State<EmergencyScreen> with SingleTickerProv
                     Container(
                       padding: const EdgeInsets.all(16),
                       decoration: BoxDecoration(
-                        color: _isSOSSent ? Colors.green.withValues(alpha: 0.15) : AppTheme.emergencyRed.withValues(alpha: 0.15),
+                        color: _sosStatusColor.withValues(alpha: 0.15),
                         borderRadius: BorderRadius.circular(16),
-                        border: Border.all(color: _isSOSSent ? Colors.green : AppTheme.emergencyRed),
+                        border: Border.all(color: _sosStatusColor),
                       ),
                       child: Row(
                         children: [
                           Icon(
-                            _isSOSSent ? Icons.check_circle_rounded : Icons.cell_tower_rounded,
-                            color: _isSOSSent ? Colors.green : AppTheme.emergencyRed,
+                            _sosStatusIcon,
+                            color: _sosStatusColor,
                             size: 28,
                           ),
                           const SizedBox(width: 12),
@@ -608,20 +810,32 @@ class _EmergencyScreenState extends State<EmergencyScreen> with SingleTickerProv
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
-                                  _isSOSSent ? _loc.tr('sos_broadcast_active') : _loc.tr('sos_shield_standby'),
+                                  _sosStatusTitle,
                                   style: TextStyle(
                                     fontSize: 14,
                                     fontWeight: FontWeight.bold,
-                                    color: _isSOSSent ? Colors.green : AppTheme.emergencyRed,
+                                    color: _sosStatusColor,
                                   ),
                                 ),
                                 const SizedBox(height: 2),
                                 Text(
-                                  _livePosition != null
-                                      ? "GPS Live: ${_livePosition!.latitude.toStringAsFixed(4)}, ${_livePosition!.longitude.toStringAsFixed(4)}"
-                                      : (_isFetchingLocation ? "Fetching GPS location..." : _loc.tr('sos_ready_desc')),
+                                  _sosStatusDetail,
                                   style: TextStyle(fontSize: 11, color: isDarkMode ? Colors.white70 : Colors.black87),
                                 ),
+                                if (_sosState == SosSubmissionState.failed && _sosFailureDetail != null) ...[
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    // Shown so a tester can report WHY it failed.
+                                    // Technical, deliberately not reassuring.
+                                    _sosFailureDetail!,
+                                    maxLines: 3,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      fontSize: 9,
+                                      color: isDarkMode ? Colors.white54 : Colors.black54,
+                                    ),
+                                  ),
+                                ],
                               ],
                             ),
                           ),
@@ -635,7 +849,38 @@ class _EmergencyScreenState extends State<EmergencyScreen> with SingleTickerProv
                     Center(
                       child: Column(
                         children: [
-                          if (!_isSOSSent)
+                          if (_sosState.isBusy)
+                            // Sending: not armed, and explicitly NOT confirmed.
+                            Container(
+                              width: 200,
+                              height: 200,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: Colors.blue.shade700,
+                              ),
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  const SizedBox(
+                                    width: 46,
+                                    height: 46,
+                                    child: CircularProgressIndicator(color: Colors.white, strokeWidth: 4),
+                                  ),
+                                  const SizedBox(height: 14),
+                                  Text(
+                                    _loc.isAmharic ? "በመላክ ላይ..." : "SENDING...",
+                                    textAlign: TextAlign.center,
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.bold,
+                                      letterSpacing: 1,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            )
+                          else if (!_isSOSSent)
                             ScaleTransition(
                               scale: _pulseAnimation,
                               child: GestureDetector(
@@ -676,16 +921,18 @@ class _EmergencyScreenState extends State<EmergencyScreen> with SingleTickerProv
                               ),
                             )
                           else
-                            // GREEN DISABLED "SOS HAS BEEN SENT" BUTTON
+                            // An alert exists. Green and a tick are reserved for
+                            // a server-acknowledged alert; a queued one is amber
+                            // and says so, because nobody has been notified yet.
                             Container(
                               width: 200,
                               height: 200,
                               decoration: BoxDecoration(
                                 shape: BoxShape.circle,
-                                color: Colors.green,
+                                color: _sosStatusColor,
                                 boxShadow: [
                                   BoxShadow(
-                                    color: Colors.green.withValues(alpha: 0.4),
+                                    color: _sosStatusColor.withValues(alpha: 0.4),
                                     blurRadius: 25,
                                     spreadRadius: 4,
                                   ),
@@ -694,16 +941,21 @@ class _EmergencyScreenState extends State<EmergencyScreen> with SingleTickerProv
                               child: Column(
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
-                                  const Icon(Icons.check_circle_rounded, size: 56, color: Colors.white),
+                                  Icon(_sosStatusIcon, size: 56, color: Colors.white),
                                   const SizedBox(height: 8),
-                                  Text(
-                                    _loc.tr('sos_sent_btn'),
-                                    textAlign: TextAlign.center,
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.bold,
-                                      letterSpacing: 1,
+                                  Padding(
+                                    padding: const EdgeInsets.symmetric(horizontal: 14),
+                                    child: Text(
+                                      _sosState.isDelivered
+                                          ? _loc.tr('sos_sent_btn')
+                                          : (_loc.isAmharic ? "አልተላከም" : "NOT DELIVERED"),
+                                      textAlign: TextAlign.center,
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.bold,
+                                        letterSpacing: 1,
+                                      ),
                                     ),
                                   ),
                                 ],

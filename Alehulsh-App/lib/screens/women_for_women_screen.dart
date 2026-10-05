@@ -138,9 +138,12 @@ class _WomenForWomenScreenState extends State<WomenForWomenScreen> {
         .where((id) => id.isNotEmpty)
         .toSet();
 
-    double userLat = _currentDevicePosition?.latitude ?? _locationService.currentPosition?.latitude ?? 9.0125;
-    double userLng = _currentDevicePosition?.longitude ?? _locationService.currentPosition?.longitude ?? 38.7636;
-    bool hasAccurateGps = _currentDevicePosition != null || _locationService.currentPosition != null;
+    // Null when the device has no fix. This previously fell back to Addis Ababa
+    // city centre, so a viewer without GPS was shown confident distances
+    // ("1.2 km away") measured from a place she was not standing in.
+    final double? userLat = _currentDevicePosition?.latitude ?? _locationService.currentPosition?.latitude;
+    final double? userLng = _currentDevicePosition?.longitude ?? _locationService.currentPosition?.longitude;
+    final bool hasAccurateGps = userLat != null && userLng != null;
 
     return ValueListenableBuilder<String>(
       valueListenable: _loc.currentLocale,
@@ -252,14 +255,27 @@ class _WomenForWomenScreenState extends State<WomenForWomenScreen> {
                         isContactAlert = true;
                       }
 
-                      // Geodesic 500m distance calculation (Vincenty / WGS84 formula matching Google Maps)
-                      double distanceMeters = Geolocator.distanceBetween(
-                        userLat,
-                        userLng,
-                        alert.latitude,
-                        alert.longitude,
-                      );
-                      bool isWithin500m = hasAccurateGps ? (distanceMeters <= 500.0) : true;
+                      // Proximity is only claimed when it can actually be
+                      // computed: accurate GPS for the viewer AND a location on
+                      // the alert. Anything else is not "nearby", it is unknown.
+                      //
+                      // This previously fell back to `true` without accurate
+                      // GPS, which showed every community alert in the country
+                      // to anyone whose GPS was poor or switched off. Her own
+                      // alert and alerts naming her as an emergency contact are
+                      // unaffected - those match by identity, not distance.
+                      final alertLat = alert.latitude;
+                      final alertLng = alert.longitude;
+                      bool isWithin500m = false;
+                      if (hasAccurateGps && alertLat != null && alertLng != null) {
+                        final distanceMeters = Geolocator.distanceBetween(
+                          userLat,
+                          userLng,
+                          alertLat,
+                          alertLng,
+                        );
+                        isWithin500m = distanceMeters <= 500.0;
+                      }
 
                       if (_selectedCategory == 'All') {
                         // User sees their own alert, emergency contact alerts, OR community alerts in 500m radius
@@ -390,8 +406,8 @@ class _WomenForWomenScreenState extends State<WomenForWomenScreen> {
     BuildContext context,
     EmergencyAlert alert,
     String currentUserId,
-    double userLat,
-    double userLng,
+    double? userLat,
+    double? userLng,
     bool isDarkMode,
   ) {
     bool isMyAlert = (alert.userId == currentUserId);
@@ -643,11 +659,20 @@ class _WomenForWomenScreenState extends State<WomenForWomenScreen> {
                           : "You must log in to view live GPS alert location!");
                       return;
                     }
-                    _locationService.openGoogleMaps(alert.latitude, alert.longitude);
+                    final lat = alert.latitude;
+                    final lng = alert.longitude;
+                    if (lat == null || lng == null) return;
+                    _locationService.openGoogleMaps(lat, lng);
                   },
-                  icon: const Icon(Icons.map_rounded, size: 16, color: AppTheme.primaryPink),
+                  icon: Icon(
+                    alert.hasLocation ? Icons.map_rounded : Icons.location_off_rounded,
+                    size: 16,
+                    color: AppTheme.primaryPink,
+                  ),
                   label: Text(
-                    _loc.tr('w4w_view_location'),
+                    alert.hasLocation
+                        ? _loc.tr('w4w_view_location')
+                        : (_loc.isAmharic ? "ቦታው አይታወቅም" : "Location unknown"),
                     style: const TextStyle(fontSize: 11, color: AppTheme.primaryPink, fontWeight: FontWeight.bold),
                   ),
                   style: OutlinedButton.styleFrom(

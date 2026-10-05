@@ -106,7 +106,12 @@ class UserProfile {
   final String bloodType;
   final String medicalNotes;
   final String homeAddress;
-  final String catName; // Security verification answer for SOS cancellation
+  /// Safety keyword verifying a genuine SOS cancellation.
+  ///
+  /// Empty means the user has not chosen one. It must NOT default to a
+  /// value: a shared default is a keyword every attacker already knows.
+  /// AlertService treats empty as 'cannot cancel', which escalates instead.
+  final String catName;
   final List<EmergencyContact> emergencyContacts;
   final int safetyScore; // 0 to 100
   final int alertsTriggeredCount;
@@ -127,8 +132,8 @@ class UserProfile {
     this.avatarUrl = '',
     this.bloodType = 'O+',
     this.medicalNotes = 'None',
-    this.homeAddress = 'Bole Sub-city, Addis Ababa',
-    this.catName = 'Milo',
+    this.homeAddress = '',
+    this.catName = '',
     required this.emergencyContacts,
     this.safetyScore = 92,
     this.alertsTriggeredCount = 0,
@@ -223,7 +228,7 @@ class UserProfile {
       bloodType: map['bloodType'] ?? 'O+',
       medicalNotes: map['medicalNotes'] ?? 'None',
       homeAddress: map['homeAddress'] ?? '',
-      catName: map['catName'] ?? 'Milo',
+      catName: map['catName'] ?? '',
       emergencyContacts: map['emergencyContacts'] != null
           ? List<EmergencyContact>.from((map['emergencyContacts'] as List).map((x) => EmergencyContact.fromMap(x)))
           : [],
@@ -270,33 +275,4 @@ class UserProfile {
     );
   }
 
-  static UserProfile defaultProfile() {
-    return UserProfile(
-      uid: "demo_user_001",
-      fullName: "Bezawit M.",
-      email: "bezawit@example.com",
-      phoneNumber: "+251 91 123 4567",
-      avatarUrl: "",
-      bloodType: "O+",
-      medicalNotes: "Asthma. Uses inhaler.",
-      homeAddress: "Bole Atlas, Addis Ababa",
-      catName: "Milo",
-      emergencyContacts: [
-        EmergencyContact(
-          id: "c1",
-          name: "Saba M.",
-          email: "saba@example.com",
-          phone: "+251 91 888 7766",
-          relationship: "Sister",
-          isPrimary: true,
-        ),
-      ],
-      safetyScore: 95,
-      alertsTriggeredCount: 0,
-      alertsRespondedCount: 0,
-      activities: [],
-      createdAt: DateTime.now(),
-      lastActiveAt: DateTime.now(),
-    );
-  }
 }

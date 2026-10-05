@@ -15,9 +15,26 @@
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT"/>
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"/>
 
+    <!--
+      allowBackup=false is deliberate and is a safety requirement, not a default.
+
+      SharedPreferences holds 'cached_user_profile', which contains the
+      plaintext safety keyword, home address, phone number and every emergency
+      contact. With backup enabled that file is copied to Google Drive, where it
+      leaves the country and can be restored onto a new device by anyone holding
+      the user's Google account - including an abuser who controls it.
+
+      Nothing is lost by disabling it: the cache only exists to avoid a blank
+      screen at startup. Firestore is the source of truth and the profile is
+      re-fetched on login, so a new device repopulates it anyway.
+
+      This also disables Android 12+ device-to-device transfer, which is
+      intended for the same reason.
+    -->
     <application
         android:label="Alehulsh"
         android:name="${applicationName}"
+        android:allowBackup="false"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round">
         <activity

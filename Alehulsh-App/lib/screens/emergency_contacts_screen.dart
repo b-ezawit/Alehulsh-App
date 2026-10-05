@@ -223,9 +223,24 @@ class EmergencyContactsScreen extends StatelessWidget {
                             SizedBox(
                               width: double.infinity,
                               child: ElevatedButton.icon(
-                                onPressed: () => locationService.openGoogleMaps(alert.latitude, alert.longitude),
-                                icon: const Icon(Icons.navigation_rounded, color: Colors.white, size: 18),
-                                label: const Text("View Location on Google Maps", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                                // Disabled when the alert carries no location.
+                                // Opening a map at a placeholder coordinate
+                                // would send her to the wrong address while
+                                // looking authoritative.
+                                onPressed: alert.hasLocation
+                                    ? () => locationService.openGoogleMaps(alert.latitude!, alert.longitude!)
+                                    : null,
+                                icon: Icon(
+                                  alert.hasLocation ? Icons.navigation_rounded : Icons.location_off_rounded,
+                                  color: Colors.white,
+                                  size: 18,
+                                ),
+                                label: Text(
+                                  alert.hasLocation
+                                      ? "View Location on Google Maps"
+                                      : "Location unavailable - call her",
+                                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                                ),
                                 style: ElevatedButton.styleFrom(
                                   backgroundColor: AppTheme.emergencyRed,
                                   padding: const EdgeInsets.symmetric(vertical: 10),
