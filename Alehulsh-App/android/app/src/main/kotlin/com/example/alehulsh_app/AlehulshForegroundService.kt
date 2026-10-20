@@ -228,6 +228,27 @@ class AlehulshForegroundService : Service() {
     }
 
     private fun startAlertPingListener() {
+        // An emulator build must not reach the live project. This listener runs
+        // in native Kotlin, outside FlutterFire, so useFirestoreEmulator() on
+        // the Dart side never applied to it: it was querying PRODUCTION
+        // active_alerts during local testing.
+        //
+        // Starting it is also what broke every Dart Firestore call in emulator
+        // mode. FirebaseFirestore.getInstance() here STARTS the native
+        // singleton, and FlutterFire can only apply its emulator settings to an
+        // instance that has not started yet - after which
+        // getFirestoreFromPigeon throws before it reaches its caching line, so
+        // every later query from Dart fails too.
+        //
+        // Not routed to the emulator, simply not started: the native path has
+        // nothing to contribute to a local test, and refusing is the outcome
+        // that cannot leak. Production is unaffected - the flag is false in any
+        // build that did not explicitly ask for emulators.
+        if (BuildConfig.USE_FIREBASE_EMULATORS) {
+            Log.w("AlehulshForegroundService", "Emulator build: native alert listener NOT started (no live-project access).")
+            return
+        }
+
         try {
             alertsReg = FirebaseFirestore.getInstance()
                 .collection("active_alerts")

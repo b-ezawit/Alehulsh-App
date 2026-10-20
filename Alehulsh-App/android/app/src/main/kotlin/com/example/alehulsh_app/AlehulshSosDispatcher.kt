@@ -7,6 +7,7 @@ import android.content.Intent
 import android.location.Location
 import android.location.LocationManager
 import android.os.Build
+import android.os.SystemClock
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.google.firebase.auth.FirebaseAuth
@@ -28,6 +29,7 @@ object AlehulshSosDispatcher {
     private const val TAG = "AlehulshSosDispatcher"
     private const val PREFS = "alehulsh_sos"
     private const val DEBOUNCE_MS = 20000L
+
 
     @Volatile
     var methodChannel: MethodChannel? = null
@@ -118,15 +120,67 @@ object AlehulshSosDispatcher {
 
     @Suppress("MissingPermission")
     private fun writeFirestoreAlert(context: Context, source: String) {
+        // A WRITE to the live project from a test build would be worse than a
+        // read: it would put a fabricated alert in front of real responders.
+        // This path does not go through FlutterFire, so the Dart emulator
+        // switch does not cover it.
+        if (BuildConfig.USE_FIREBASE_EMULATORS) {
+            Log.w(TAG, "Emulator build: native SOS write suppressed (no live-project access).")
+            return
+        }
+
         try {
             val user = FirebaseAuth.getInstance().currentUser
             val uid = user?.uid ?: getCachedOrDeviceId(context)
             setLocalSosActive(context, uid)
 
             val db = FirebaseFirestore.getInstance()
+
+            // No fallback coordinate. This used to default to
+            // (9.0125, 38.7636) - Addis Ababa city centre - so an SOS raised
+            // with no GPS asserted she was downtown, and responders would be
+            // sent to the wrong place while the alert looked complete.
+            //
+            // Null here is a real, supported state: latitude/longitude are
+            // nullable in the Dart model, AlertService writes them as null,
+            // and AlehulshForegroundService already reads them null-safely
+            // (`?: return false`), so an unlocatable alert is simply never
+            // proximity-matched. The alert itself is still raised - her
+            // emergency contacts are matched by explicit link, not by
+            // distance, so losing GPS must not cost her the alert.
             val loc = lastKnownLocation(context)
-            val lat = loc?.latitude ?: 9.0125
-            val lng = loc?.longitude ?: 38.7636
+
+            // Age from the MONOTONIC clock, not wall time. Location.time is
+            // wall-clock and moves when the device clock does - NTP sync, a
+            // manual change, a timezone-confused ROM - which previously could
+            // make a stale fix look current, or a current one look negative.
+            // elapsedRealtimeNanos counts from boot and cannot be rewritten.
+            //
+            // Some providers leave it unset (0); that is reported as unknown
+            // age rather than as an enormous one.
+            val fixAgeMs: Long? = loc?.let {
+                val stamped = it.elapsedRealtimeNanos
+                if (stamped <= 0L) {
+                    null
+                } else {
+                    (SystemClock.elapsedRealtimeNanos() - stamped) / 1_000_000L
+                }
+            }
+
+            // Accuracy is passed as EVIDENCE the provider measured something,
+            // not as a quality bar - no fix is discarded for being imprecise.
+            // hasAccuracy() distinguishes "no accuracy reported" from 0.0.
+            val accuracyMeters: Double? =
+                loc?.takeIf { it.hasAccuracy() }?.accuracy?.toDouble()
+
+            val fix = SosLocationDecision.decide(
+                latitude = loc?.latitude,
+                longitude = loc?.longitude,
+                ageMs = fixAgeMs,
+                accuracyMeters = accuracyMeters,
+            )
+            val lat: Double? = fix.latitude
+            val lng: Double? = fix.longitude
             val iso = utcIsoNow()
 
             // 1. Check if user already has an active alert (do NOT overwrite voice note or user note)
@@ -151,9 +205,18 @@ object AlehulshSosDispatcher {
                             cal.add(java.util.Calendar.HOUR, 2)
                             val expiresAtDate = cal.time
                             val expiresAtIso = utcIsoFromDate(expiresAtDate)
-                            val hashVal = GeoHash.encode(lat, lng, 9)
+                            // Both decided in SosLocationDecision, which is
+                            // unit tested. Empty geohash and the label are part
+                            // of the same decision as the coordinates, so they
+                            // cannot drift apart.
+                            val hashVal = fix.geohash
+                            val locationLabel = fix.label
 
-                            val alert = hashMapOf<String, Any>(
+                            // Any? so latitude/longitude can be written as real
+                            // nulls. Firestore stores a null field, and the Dart
+                            // reader treats absent and null identically
+                            // ((map['latitude'] as num?)?.toDouble()).
+                            val alert = hashMapOf<String, Any?>(
                                 "id" to uid,
                                 "userId" to uid,
                                 "userName" to fullName,
@@ -162,7 +225,7 @@ object AlehulshSosDispatcher {
                                 "alerterEmail" to email,
                                 "latitude" to lat,
                                 "longitude" to lng,
-                                "locationName" to "Live GPS",
+                                "locationName" to locationLabel,
                                 "timestamp" to iso,
                                 "expiresAt" to expiresAtIso,
                                 "expiresAtTimestamp" to com.google.firebase.Timestamp(expiresAtDate),
@@ -178,13 +241,25 @@ object AlehulshSosDispatcher {
                                 "emergencyContactPhones" to contacts.phones,
                                 "emergencyContactNames" to contacts.names,
                                 "emergencyContactUids" to contacts.ids,
-                                "geo" to hashMapOf(
-                                    "geohash" to hashVal,
-                                    "geopoint" to GeoPoint(lat, lng)
-                                ),
                                 "hardwareSource" to source,
                                 "osCancelIndependent" to true,
                             )
+
+                            // Added only when there is a genuine fix. Writing a
+                            // placeholder GeoPoint would make an unlocatable
+                            // alert queryable by proximity at a place she is
+                            // not - the exact failure the nulls above prevent.
+                            // EmergencyAlert.toMap omits the key the same way.
+                            // Local vals so Kotlin can smart-cast; hasLocation
+                            // is a getter and does not narrow the type.
+                            val geoLat = fix.latitude
+                            val geoLng = fix.longitude
+                            if (geoLat != null && geoLng != null) {
+                                alert["geo"] = hashMapOf(
+                                    "geohash" to hashVal,
+                                    "geopoint" to GeoPoint(geoLat, geoLng)
+                                )
+                            }
 
                             db.collection("active_alerts").document(uid)
                                 .set(alert, SetOptions.merge())

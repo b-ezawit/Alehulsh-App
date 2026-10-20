@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  DEBUG BUILDS ONLY. This file lives in src/debug, so it is not part of a
+  release build and release traffic stays HTTPS-only.
+
+  The Firebase Auth emulator serves plain HTTP, and Android blocks cleartext by
+  default, so sign-in against it fails with
+    "Cleartext HTTP traffic to 10.0.2.2 not permitted".
+  Firestore is unaffected because it uses gRPC with TLS disabled rather than
+  HTTP.
+
+  Scoped to 10.0.2.2 alone - the Android emulator's alias for the host
+  machine's loopback. It resolves to nothing on a physical device, so this
+  cannot widen exposure in the field.
+-->
+<network-security-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">10.0.2.2</domain>
+    </domain-config>
+</network-security-config>
