@@ -9,17 +9,27 @@
   },
   "scripts": {
     "build": "tsc",
-    "start": "node dist/index.js",
+    "start": "node dist/src/index.js",
     "dev": "tsc --watch",
     "test": "tsc && node --test \"dist/test/*.test.js\"",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "db:up": "bash db/run.sh up",
+    "db:migrate": "bash db/run.sh migrate",
+    "db:reset": "bash db/run.sh reset",
+    "db:test": "bash db/run.sh test",
+    "db:down": "bash db/run.sh down",
+    "test:db": "bash -c 'eval \"$(bash db/run.sh env)\"; tsc && node --test \"dist/test/*.integration.test.js\"'",
+    "db:env": "bash db/run.sh env",
+    "worker": "node dist/src/worker.js"
   },
   "dependencies": {
     "fastify": "^5.2.0",
-    "firebase-admin": "^13.0.2"
+    "firebase-admin": "^13.0.2",
+    "pg": "^8.23.1"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
+    "@types/pg": "^8.23.1",
     "typescript": "^5.7.2"
   }
 }
