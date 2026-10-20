@@ -12,6 +12,16 @@ export interface Config {
   logLevel: 'debug' | 'info' | 'warn' | 'error';
   /** Interim, Firebase-era. Removed at C-04. */
   firebaseProjectId: string;
+  /**
+   * Object-storage bucket holding evidence recordings.
+   *
+   * Required, and validated here rather than left to the Admin SDK. Without it
+   * getStorage().bucket() threw "Bucket name not specified or invalid" during
+   * composition, so the process could not start in ANY environment - including
+   * production - and the failure named neither the variable nor the cause.
+   * Interim, Firebase-era: becomes the S3-compatible bucket at C-04.
+   */
+  storageBucket: string;
   env: 'development' | 'production';
   /** How long an alert stays live before the expiry backstop. alert-lifecycle.md §3. */
   activeWindowMs: number;
@@ -86,6 +96,7 @@ export function loadConfig(): Config {
     safetyCheckDelayMs: positiveMs('SAFETY_CHECK_DELAY_MS', 2 * 60 * 1000),
     logLevel: level as Config['logLevel'],
     firebaseProjectId: required('FIREBASE_PROJECT_ID'),
+    storageBucket: required('STORAGE_BUCKET'),
     keywordPepper: required('KEYWORD_PEPPER'),
     keywordAttemptCap: positiveMs('KEYWORD_ATTEMPT_CAP', 3),
     keywordAttemptCooldownMs: positiveMs('KEYWORD_ATTEMPT_COOLDOWN_MS', 30 * 1000),
