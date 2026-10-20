@@ -27,3 +27,19 @@ dist/
 .venv/
 node_modules/
 .DS_Store
+
+# Working documents kept LOCAL, not version-controlled (your call, B).
+# These hold analysis, decisions and plans rather than product documentation;
+# the repository deliberately gains no new markdown from them. Nothing in
+# src/, db/ or test/ references them, so the tree stands on its own.
+# They exist only on this machine — there is no git history to recover them
+# from, so they belong in a backup, not here.
+Alehulsh-App/docs/abandoned-task-monitoring.md
+Alehulsh-App/docs/alert-transition-guard.md
+Alehulsh-App/docs/api-only-migration-plan.md
+Alehulsh-App/docs/audit-trail-retention-memo.md
+Alehulsh-App/docs/fresh-fix-threshold.md
+Alehulsh-App/docs/hosting-compatibility-checklist.md
+Alehulsh-App/docs/identity-architecture-decision.md
+Alehulsh-App/docs/overdue-pending-tasks.md
+Alehulsh-App/docs/task-queue.md
