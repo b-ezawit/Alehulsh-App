@@ -9,6 +9,8 @@
  * else — driver errors, stack traces, provider responses — stays server-side.
  */
 
+import { IdentityNotMappedError } from './repositories/types.js';
+
 export type ErrorCode =
   | 'unauthenticated'
   | 'forbidden'
@@ -103,6 +105,19 @@ export function toClientError(err: unknown): {
       // Ajv's message names the offending field and sometimes its value, so it
       // goes to the log and never to the caller.
       internal: { code: 'invalid_request', detail: validation.message, where: validation.validationContext },
+    };
+  }
+
+  // An authenticated caller with no account on this backend. 'forbidden' and
+  // 'not_found' share one vague public message, so this tells a prober nothing
+  // about which subjects exist - and it is NOT a 500, which would both imply
+  // our fault and page someone for a correctly-refused request.
+  if (err instanceof IdentityNotMappedError) {
+    return {
+      status: STATUS.forbidden,
+      body: { error: { code: 'forbidden', message: PUBLIC_MESSAGE.forbidden } },
+      // No subject: the error does not carry one, and this line is logged.
+      internal: { code: 'forbidden', detail: 'identity not mapped' },
     };
   }
 

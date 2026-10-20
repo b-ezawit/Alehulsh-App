@@ -8,7 +8,30 @@
  * Shapes follow docs/alert-lifecycle.md.
  */
 
-export type AlertStatus = 'active' | 'resolved' | 'escalated' | 'expired';
+/**
+ * Terminal states are distinct and must stay that way:
+ *   resolved  - she confirmed she is safe
+ *   cancelled - she withdrew an alert raised in error
+ *   expired   - the window elapsed with no answer; a failure signal
+ * Collapsing cancelled into resolved would tell contacts the wrong thing.
+ */
+import type { LocationQuality } from '../domain/location.js';
+
+export type { LocationQuality };
+
+export type AlertStatus = 'active' | 'resolved' | 'cancelled' | 'escalated' | 'expired';
+
+/**
+ * Whether an alert has ended, for any reason.
+ *
+ * Call sites used to spell out `=== 'resolved' || === 'expired'`, which
+ * silently excluded 'cancelled' the moment it was added: a withdrawn alert
+ * would still have accepted responders, evidence uploads and reveals. One
+ * definition means the next terminal state cannot be missed the same way.
+ */
+export function isTerminalStatus(status: AlertStatus): boolean {
+  return status === 'resolved' || status === 'cancelled' || status === 'expired';
+}
 
 export interface Alert {
   /** The document slot — the owner's uid. One live alert per user. */
@@ -30,6 +53,30 @@ export interface Alert {
   latitude: number | null;
   longitude: number | null;
   geohash: string | null;
+  /**
+   * What the position may be said to be - derived by the SERVER from the
+   * evidence, never taken from the client.  (sprint 3)
+   *
+   * Required, not optional, because "we forgot to set it" and "we do not know
+   * how fresh this is" must not look the same to a recipient. 'unavailable'
+   * is the only value permitted when latitude/longitude are null, and no
+   * other value is permitted when they are not.
+   *
+   * See src/domain/location.ts for the rules and why the client's own claim
+   * is ignored.
+   */
+  locationQuality: LocationQuality;
+  /**
+   * How old the fix was when it was taken, per the device. Null when unknown,
+   * nonsensical, or when there is no position to describe.
+   */
+  locationAgeMs?: number | null;
+  /**
+   * Horizontal accuracy in metres, as the provider reported it. Evidence that
+   * a fix is real - never a quality bar, so nothing is discarded for being
+   * imprecise. Null when the provider offered none.
+   */
+  accuracyMeters?: number | null;
   resolvedAt?: Date;
   resolvedBy?: 'owner' | 'owner_late';
   escalatedAt?: Date;
@@ -51,6 +98,50 @@ export interface Alert {
   lastAttemptAt?: Date;
 }
 
+/**
+ * The verified subject has no account on this backend.
+ *
+ * Lives here rather than in the PostgreSQL module because it is a condition of
+ * the repository CONTRACT, not of one implementation: any backend that keeps
+ * its own account identifiers can be handed a subject it does not know.
+ * Putting it here also lets the HTTP layer map it without importing a specific
+ * backend.
+ *
+ * Deliberately NOT a reason to create an account. An unknown subject is an
+ * unknown person, and minting one would attach someone's emergency to a record
+ * nobody owns - and would let anyone fill the user table by presenting fresh
+ * tokens.
+ *
+ * Carries no subject value: it reaches logs, and a subject identifies a person.
+ */
+export class IdentityNotMappedError extends Error {
+  constructor() {
+    super('identity not mapped');
+    this.name = 'IdentityNotMappedError';
+  }
+}
+
+/**
+ * What a caller may assert when raising an alert.
+ *
+ * Note what is absent: locationQuality. The client sends evidence and the
+ * server decides what that evidence supports - see src/domain/location.ts.
+ * Adding a quality field here would hand a hostile client the ability to
+ * label a two-hour-old position "live".
+ */
+export interface AlertCreateInput {
+  requestId: string;
+  ownerId: string;
+  latitude: number | null;
+  longitude: number | null;
+  /** Device-reported trigger time. Stored, never trusted. */
+  occurredAt?: Date | null;
+  /** How old the fix was, per the device. Evidence, not a decision. */
+  locationAgeMs?: number | null;
+  /** Horizontal accuracy in metres, as reported. Evidence of measurement. */
+  accuracyMeters?: number | null;
+}
+
 export interface AlertRepository {
   findById(id: string): Promise<Alert | null>;
   findActiveByOwner(ownerId: string): Promise<Alert | null>;
@@ -59,14 +150,19 @@ export interface AlertRepository {
    * already live, so the caller knows not to reschedule the safety check.
    * Re-triggering must not let someone postpone escalation indefinitely.
    */
-  create(input: {
-    requestId: string;
-    ownerId: string;
-    latitude: number | null;
-    longitude: number | null;
-    /** Device-reported trigger time. Stored, never trusted. */
-    occurredAt?: Date | null;
-  }): Promise<{ alert: Alert; created: boolean }>;
+  create(input: AlertCreateInput): Promise<{ alert: Alert; created: boolean }>;
+  /**
+   * Attempt a transition, and return the alert AS IT STANDS.
+   *
+   * The returned status may NOT be `next`: terminal states are final, so a
+   * transition against an alert that has already ended does nothing and is
+   * not an error - that is what makes a cancel racing a resolve safe.
+   *
+   * **A caller that is about to do something irreversible must check the
+   * returned status**, not assume the transition happened. Notifying contacts
+   * after an escalation that silently did not occur tells them about an
+   * emergency that is over.
+   */
   updateStatus(id: string, next: AlertStatus, fields: Partial<Alert>): Promise<Alert>;
   /** Records a failed keyword attempt. Never resets. */
   recordFailedAttempt(id: string, at: Date): Promise<Alert>;

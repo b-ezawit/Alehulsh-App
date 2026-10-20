@@ -32,6 +32,7 @@ const alert = (over: Partial<Alert> = {}): Alert => ({
   createdAt: new Date(), expiresAt: new Date(Date.now() + 7.2e6),
   latitude: ADDIS.lat, longitude: ADDIS.lng,
   geohash: encodeGeohash(ADDIS.lat, ADDIS.lng, 9),
+  locationQuality: 'live', locationAgeMs: 30_000,
   attemptCount: 0, ...over,
 });
 

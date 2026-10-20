@@ -1,3 +1,4 @@
+import { isTerminalStatus } from '../repositories/types.js';
 import type { FastifyInstance } from 'fastify';
 import { requireTaskRunner } from '../auth/taskAuth.js';
 import type { Deps } from '../server.js';
@@ -49,10 +50,29 @@ export function registerTaskRoutes(app: FastifyInstance, deps: Deps): void {
       }
 
       const now = new Date();
-      await deps.alerts.updateStatus(alert.id, 'escalated', {
+      // The transition is CONDITIONAL, and it can legitimately do nothing: she
+      // may have resolved between the read above and this write.
+      // `transition_alert` only moves an alert out of active/escalated, so in
+      // that case nothing changes - and `updateStatus` returns the alert AS IT
+      // STANDS, not as it was asked to be. Measured: resolve, then
+      // updateStatus(escalated) returns status 'resolved' and does not throw.
+      //
+      // So the result is checked before anything irreversible follows.
+      // Scheduling contact notification for an alert she has already resolved
+      // would tell her contacts about an emergency that is over - the exact
+      // outcome docs/coercion-and-escalation.md and the cancel-on-resolve path
+      // exist to prevent.
+      const updated = await deps.alerts.updateStatus(alert.id, 'escalated', {
         escalatedAt: now,
         escalationReason: 'no_answer',
       });
+
+      if (updated.status !== 'escalated') {
+        deps.logger.info('safety check lost the race; alert already ended', {
+          alertId: alert.id, status: updated.status,
+        });
+        return reply.send({ handled: false });
+      }
 
       // Keyed on the alert, not the moment, so a redelivered task collapses
       // onto the same notification instead of telling her contacts twice.
@@ -81,7 +101,7 @@ export function registerTaskRoutes(app: FastifyInstance, deps: Deps): void {
     async (req, reply) => {
       const alert = await deps.alerts.findById(req.body.alertId);
 
-      if (!alert || alert.status === 'resolved' || alert.status === 'expired') {
+      if (!alert || isTerminalStatus(alert.status)) {
         return reply.send({ handled: false });
       }
 

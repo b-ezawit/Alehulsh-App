@@ -1,3 +1,4 @@
+import { isTerminalStatus } from '../repositories/types.js';
 import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { requireSubject, subjectOf } from '../auth/middleware.js';
@@ -62,7 +63,7 @@ export function registerEvidenceRoutes(app: FastifyInstance, deps: Deps): void {
       if (!alert || alert.ownerId !== uid) {
         throw new AppError('not_found', `alert ${req.params.id} not visible to ${uid}`);
       }
-      if (alert.status === 'resolved' || alert.status === 'expired') {
+      if (isTerminalStatus(alert.status)) {
         throw new AppError('alert_closed', `alert ${alert.id} is ${alert.status}`);
       }
       if (!isAllowedContentType(req.body.contentType)) {
@@ -224,7 +225,7 @@ export function registerResponderEvidenceRoute(app: FastifyInstance, deps: Deps)
         deps.logger.error('orphaned inbox projection', { alertId, subject: uid });
         throw new AppError('not_found', `alert ${alertId} no longer exists`);
       }
-      if (alert.status === 'resolved' || alert.status === 'expired') {
+      if (isTerminalStatus(alert.status)) {
         throw new AppError('alert_closed', `alert ${alertId} is ${alert.status}`);
       }
 

@@ -4,6 +4,7 @@ import { AppError } from '../errors.js';
 import { distanceMetres } from '../geo.js';
 import type { Deps } from '../server.js';
 import type { LocationRevealAttempt } from '../repositories/types.js';
+import { isTerminalStatus } from '../repositories/types.js';
 
 /**
  * POST /v1/alerts/:id/reveal — staged location reveal.  (P2-08)
@@ -96,7 +97,7 @@ export function registerRevealRoute(app: FastifyInstance, deps: Deps): void {
       // Access dies with the alert — responder-projection.md §4. Not a denial:
       // the responder needs to stop, and alert_closed says so without saying
       // which terminal state it was.
-      if (alert.status === 'resolved' || alert.status === 'expired') {
+      if (isTerminalStatus(alert.status)) {
         throw new AppError('alert_closed', `alert ${alertId} is ${alert.status}`);
       }
 

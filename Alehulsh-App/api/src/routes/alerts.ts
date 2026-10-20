@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { requireSubject, subjectOf } from '../auth/middleware.js';
 import { AppError } from '../errors.js';
+import { readDeviceTime } from '../domain/deviceTime.js';
 import type { Deps } from '../server.js';
 import { taskKeys } from '../tasks.js';
 import { voidResetOnAlert } from './keywordReset.js';
@@ -25,7 +26,22 @@ const bodySchema = {
     longitude: { type: ['number', 'null'], minimum: -180, maximum: 180 },
     // Device clock, for staleness labelling only (P3-13). Never trusted for
     // expiry, escalation timing, or any authorization decision.
-    occurredAt: { type: ['string', 'null'], format: 'date-time' },
+    //
+    // `format: 'date-time'` was REMOVED here (sprint 3, P4). Fastify enforces
+    // format before the handler runs, so a malformed timestamp - including
+    // the offset-less string Dart emits for a local DateTime - returned 400
+    // and lost the entire SOS over an informational field. The value is now
+    // validated in the handler by readDeviceTime, which normalises anything
+    // unusable to "unknown" instead of refusing the request. maxLength stays,
+    // because an unbounded string is a different problem.
+    occurredAt: { type: ['string', 'null'], maxLength: 64 },
+    /**
+     * Location EVIDENCE (sprint 3, P2). The client reports what its provider
+     * told it; the server decides what that supports. There is deliberately
+     * no `locationQuality` field - see src/domain/location.ts.
+     */
+    accuracyMeters: { type: ['number', 'null'], exclusiveMinimum: 0 },
+    locationAgeMs: { type: ['number', 'null'], minimum: 0 },
   },
 } as const;
 
@@ -34,6 +50,8 @@ interface Body {
   latitude?: number | null;
   longitude?: number | null;
   occurredAt?: string | null;
+  accuracyMeters?: number | null;
+  locationAgeMs?: number | null;
 }
 
 export function registerAlertRoutes(app: FastifyInstance, deps: Deps): void {
@@ -84,17 +102,27 @@ export function registerAlertRoutes(app: FastifyInstance, deps: Deps): void {
         }
       }
 
-      // An unparseable date becomes "we do not know", never an error and
-      // never a guess. The alert matters more than the metadata on it.
-      const reported = req.body.occurredAt ? new Date(req.body.occurredAt) : null;
-      const occurredAt = reported && !Number.isNaN(reported.getTime()) ? reported : null;
+      // An unusable date becomes "we do not know", never an error and never a
+      // guess. The alert matters more than the metadata on it, and an
+      // offset-less timestamp is ambiguous rather than wrong - interpreting it
+      // in the server's timezone would silently misreport how old her position
+      // is. See src/domain/deviceTime.ts.
+      const deviceTime = readDeviceTime(req.body.occurredAt);
+      if (deviceTime.rejection === 'no_offset' || deviceTime.rejection === 'unparseable') {
+        // warn, not error: the alert is proceeding normally. This exists to
+        // surface a client build sending unusable timestamps. The reason is
+        // logged; the value never is.
+        deps.logger.warn('occurredAt ignored', { reason: deviceTime.rejection });
+      }
 
       const { alert, created } = await deps.alerts.create({
         requestId: req.body.requestId,
         ownerId: uid,
         latitude: lat,
         longitude: lon,
-        occurredAt,
+        occurredAt: deviceTime.at,
+        accuracyMeters: req.body.accuracyMeters ?? null,
+        locationAgeMs: req.body.locationAgeMs ?? null,
       });
 
       if (created) {
@@ -134,6 +162,16 @@ export function registerAlertRoutes(app: FastifyInstance, deps: Deps): void {
           createdAt: alert.createdAt.toISOString(),
           expiresAt: alert.expiresAt.toISOString(),
           hasLocation: alert.latitude !== null,
+          /**
+           * What the SERVER concluded the position is, so the client can show
+           * "last known location, 20 min old" instead of implying a live fix.
+           * The client's own view is a claim; this is the decision.
+           *
+           * The coordinates themselves are deliberately NOT echoed: she sent
+           * them, so returning them tells her nothing and widens where her
+           * position appears for no benefit.
+           */
+          locationQuality: alert.locationQuality,
           // Echoed back so the client can say "this was queued for two hours"
           // rather than implying it just went out.
           reportedDelayMs: alert.reportedDelayMs ?? null,

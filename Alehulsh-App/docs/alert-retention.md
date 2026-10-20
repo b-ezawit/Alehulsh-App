@@ -61,11 +61,19 @@ cancel. It should be removed with P1-08.5.
 
 ## 5. Still open
 
-**How long does an alert live?** This decides that it is not two hours, and
-not by deletion. It does not decide the real retention period — that is P2-12,
-which is gated on Meron, and it has to answer a question no schedule can:
-a survivor may need this evidence years later, and holding it is itself a risk
-if the account is ever compromised.
+**How long does an alert live?** This document decides that it is not two
+hours, and not by deletion. It did not decide the real retention period.
 
-Until P2-12 lands, alerts persist. Bounded by user count, so the cost of
-waiting for a considered answer is close to nothing.
+**P2-12 has since been answered** — `data-decisions.md` §2, decided by Meron on
+2026-09-14: alerts and recordings are kept **30 days**, then deleted, with a
+day-23 warning so the choice to download is hers. Thirty days is a configured
+value, not a law.
+
+Two things that follow, neither implemented:
+
+- The 30-day policy has **no implementation on PostgreSQL** — no scheduled
+  job, no retention column, no purge path. `evidence.purge_after` and the
+  `purge_pending` state exist for recordings; nothing drives them.
+- What happens to the **audit trail** (`alert_history`, `reveal_log`, neither of
+  which has a foreign key, so nothing cascades to them) is **still open** — it
+  is a founder decision, and no engineering default should be assumed for it.

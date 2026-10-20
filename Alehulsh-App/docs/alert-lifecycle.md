@@ -125,6 +125,40 @@ evidence that nobody confirmed safety, which is `escalated` or `expired`, never
 
 ---
 
+## 4a. Where the transition rules are enforced
+
+**Decided and implemented.** Three rules, identical in every implementation:
+
+1. The only targets are `escalated`, `resolved`, `cancelled`, `expired`.
+   `active` is not a target — an alert is born active and never returns.
+   Attempting it is a programming error and **raises**.
+2. **Terminal states are final.** A transition against a `resolved`,
+   `cancelled` or `expired` alert does nothing. This is *not* an error: a
+   cancel racing a resolve, or a queued safety check arriving after she
+   resolved, are both normal. The caller is told what the alert actually is.
+3. `escalated` → `escalated` is refused, so a redelivered safety check cannot
+   overwrite the original `escalatedAt` and reason with a later one.
+
+Enforced in three places, which a parity suite proves agree
+(`test/alertTransitionParity.integration.test.ts`):
+
+| Where | How |
+|---|---|
+| PostgreSQL | `transition_alert` (0004) — a conditional `UPDATE`; the loser affects zero rows |
+| Firestore | `FirestoreAlertRepository.updateStatus` — checked inside `runTransaction`, so the status cannot go terminal between the check and the write |
+| The test fake | `FakeAlertRepository.updateStatus` — included because handler tests run on it |
+
+**`updateStatus` returns the alert AS IT STANDS**, which may not be the status
+requested. A caller about to do something irreversible must check it: rule 2
+means a transition can legitimately do nothing, and notifying contacts after an
+escalation that did not happen tells them about an emergency that is over. Both
+escalation handlers check.
+
+Firestore carried no guard at all until this was fixed, so a resolved alert
+could be moved back to `escalated` with `escalatedAt` written — verified
+against the emulator before and after. Both repositories and the test fake now
+enforce the same rules, proven by one transition table run against all three.
+
 ## 5. What each transition must do
 
 Beyond writing the status. These are the side effects P1-08, P1-09 and P3-06

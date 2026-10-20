@@ -210,10 +210,45 @@ describe('P3-13 — expiry is the server clock, staleness is labelled', () => {
     assert.equal(res.json().alert.reportedDelayMs, null);
   });
 
-  test('a malformed occurredAt is rejected rather than guessed at', async () => {
+  /**
+   * UPDATED in sprint 3 (P4), and deliberately not weakened.
+   *
+   * The original intent - "rejected rather than guessed at" - is preserved and
+   * is now asserted directly: the VALUE is discarded and no device time is
+   * recorded. What changed is that the REQUEST no longer dies with it. The old
+   * assertion was `statusCode === 400`, which meant a malformed informational
+   * timestamp cost her the entire SOS.
+   */
+  test('a malformed occurredAt is discarded rather than guessed at — and the alert survives', async () => {
     const app = server();
     const res = await raise(app, { requestId: 'bad-time-request-1', occurredAt: 'yesterday-ish' });
-    assert.equal(res.statusCode, 400);
+
+    assert.equal(res.statusCode, 201, 'the alert matters more than the metadata on it');
+    assert.equal(res.json().alert.reportedDelayMs, null, 'and the value is not guessed at');
+    assert.equal(repo.store.get(OWNER)!.deviceReportedAt, undefined,
+      'nothing was recorded for a time we could not establish');
+  });
+
+  test("Dart's timezone-less timestamp is discarded, not read in the server's timezone", async () => {
+    const app = server();
+    // Exactly what DateTime.now().toIso8601String() emits for a local
+    // DateTime. Reading it as server-local would misreport how old her
+    // position is by the offset between here and Addis.
+    const res = await raise(app, {
+      requestId: 'dart-local-req-1', occurredAt: '2026-10-17T15:56:00.000',
+    });
+    assert.equal(res.statusCode, 201);
+    assert.equal(res.json().alert.reportedDelayMs, null);
+  });
+
+  test('an explicit offset IS honoured, so a correct client loses nothing', async () => {
+    const app = server();
+    const threeHoursAgo = new Date(Date.now() - 3 * 60 * 60 * 1000);
+    // Same instant, expressed with a +03:00 offset instead of Z.
+    const addis = threeHoursAgo.toISOString().replace('Z', '+00:00');
+    const res = await raise(app, { requestId: 'offset-req-0001', occurredAt: addis });
+    assert.equal(res.statusCode, 201);
+    assert.ok((res.json().alert.reportedDelayMs as number) >= 3 * 60 * 60 * 1000 - 5000);
   });
 
   test('the device clock never shortens the window', async () => {

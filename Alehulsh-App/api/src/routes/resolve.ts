@@ -1,3 +1,4 @@
+import { isTerminalStatus } from '../repositories/types.js';
 import { randomBytes } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { requireSubject, subjectOf } from '../auth/middleware.js';
@@ -61,7 +62,7 @@ export function registerResolveRoute(app: FastifyInstance, deps: Deps): void {
 
       // Already terminal. Idempotent, and indistinguishable from a fresh
       // attempt — replaying a resolve must not confirm that it worked.
-      if (alert.status === 'resolved' || alert.status === 'expired') {
+      if (isTerminalStatus(alert.status)) {
         return reply.send(ACKNOWLEDGED);
       }
 

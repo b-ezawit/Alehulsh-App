@@ -6,8 +6,12 @@ import type {
   LocationRevealAttempt, LocationRevealRepository,
   EmergencyContact, InboxRepository, ResponderLocationRepository,
   ResponderRecord, ResponderRepository, UserRecord, UserRepository,
+  AlertCreateInput,
 } from '../src/repositories/types.js';
+import { isTerminalStatus } from '../src/repositories/types.js';
+import { AppError } from '../src/errors.js';
 import type { TokenVerifier } from '../src/auth/TokenVerifier.js';
+import { normalizeLocation } from '../src/domain/location.js';
 import { reportedDelayMs } from '../src/staleness.js';
 
 import type { Deps } from '../src/server.js';
@@ -20,6 +24,10 @@ export const STRANGER = 'bob_uid';
 export const ACTIVE_WINDOW = 2 * 60 * 60 * 1000;
 export const SAFETY_DELAY = 2 * 60 * 1000;
 export const PEPPER = 'pepper-for-tests-only';
+
+/** The only states an alert may be moved TO. 'active' is absent on purpose. */
+const FAKE_TRANSITION_TARGETS: ReadonlySet<AlertStatus> =
+  new Set<AlertStatus>(['escalated', 'resolved', 'cancelled', 'expired']);
 
 export class FakeAlertRepository implements AlertRepository {
   readonly store = new Map<string, Alert>();
@@ -35,7 +43,7 @@ export class FakeAlertRepository implements AlertRepository {
     return a && (a.status === 'active' || a.status === 'escalated') ? a : null;
   }
 
-  async create(input: { requestId: string; ownerId: string; latitude: number | null; longitude: number | null; occurredAt?: Date | null }) {
+  async create(input: AlertCreateInput) {
     this.createCalls++;
     const existing = this.store.get(input.ownerId);
     if (existing && (existing.status === 'active' || existing.status === 'escalated')) {
@@ -45,6 +53,10 @@ export class FakeAlertRepository implements AlertRepository {
     if (existing) this.history.set(existing.key, existing);
 
     const now = new Date();
+    // The same normalisation both real repositories apply, from the same
+    // module. A fake that accepted a coordinate the real backends reject
+    // would let a test pass on behaviour that cannot happen in production.
+    const fix = normalizeLocation(input);
     const alert: Alert = {
       id: input.ownerId,
       key: `key-${++this.keySeq}`,
@@ -52,9 +64,12 @@ export class FakeAlertRepository implements AlertRepository {
       status: 'active',
       createdAt: now,
       expiresAt: new Date(now.getTime() + ACTIVE_WINDOW),
-      latitude: input.latitude,
-      longitude: input.longitude,
-      geohash: input.latitude !== null ? 'sc04zjw4b' : null,
+      latitude: fix.latitude,
+      longitude: fix.longitude,
+      geohash: fix.latitude !== null ? 'sc04zjw4b' : null,
+      locationQuality: fix.quality,
+      locationAgeMs: fix.ageMs,
+      accuracyMeters: fix.accuracyMeters,
       attemptCount: 0,
       ...(input.occurredAt ? { deviceReportedAt: input.occurredAt } : {}),
       reportedDelayMs: reportedDelayMs(now, input.occurredAt ?? null),
@@ -63,15 +78,42 @@ export class FakeAlertRepository implements AlertRepository {
     return { alert, created: true };
   }
 
+  /**
+   * Mirrors transition_alert (0004) and the Firestore guard, rule for rule.
+   *
+   * This fake used to write unconditionally, so it diverged from BOTH real
+   * backends on exactly the case that matters: a transition against an alert
+   * that has already ended. Handler tests run on this fake, so a handler whose
+   * safety depends on the returned status could pass here while being wrong in
+   * production.
+   *
+   * Returns the alert AS IT STANDS, as the interface documents.
+   */
   async updateStatus(id: string, next: AlertStatus, fields: Partial<Alert>) {
-    const a = this.store.get(id)!;
+    if (!FAKE_TRANSITION_TARGETS.has(next)) {
+      throw new AppError('invalid_request', `unsupported transition target ${next}`);
+    }
+    const a = this.store.get(id);
+    // A clean not-found, matching both real backends. This used to be
+    // `store.get(id)!` and then a property read, so an unknown id threw a raw
+    // TypeError - a crash where PostgreSQL raises AlertNotFoundError and
+    // Firestore AppError('not_found'). Handler tests run on this fake, so the
+    // divergence was in exactly the place it would mislead.
+    if (!a) throw new AppError('not_found', 'alert not found');
+    // Terminal states are final; not an error, just nothing left to do.
+    if (isTerminalStatus(a.status)) return a;
+    // No double escalation: a redelivered safety check must not overwrite the
+    // original escalatedAt and reason with a later one.
+    if (next === 'escalated' && a.status === 'escalated') return a;
+
     const updated: Alert = { ...a, ...fields, status: next };
     this.store.set(id, updated);
     return updated;
   }
 
   async recordFailedAttempt(id: string, at: Date) {
-    const a = this.store.get(id)!;
+    const a = this.store.get(id);
+    if (!a) throw new AppError('not_found', 'alert not found');
     const updated: Alert = { ...a, attemptCount: a.attemptCount + 1, lastAttemptAt: at };
     this.store.set(id, updated);
     return updated;
@@ -97,7 +139,8 @@ export class FakeAlertRepository implements AlertRepository {
     const full: Alert = {
       key: `key-seed-${alert.id}`,
       status: 'active', createdAt: now, expiresAt: new Date(now.getTime() + ACTIVE_WINDOW),
-      latitude: null, longitude: null, geohash: null, attemptCount: 0, ...alert,
+      latitude: null, longitude: null, geohash: null,
+      locationQuality: 'unavailable', attemptCount: 0, ...alert,
     };
     this.store.set(full.id, full);
     return full;
@@ -205,6 +248,7 @@ export const testConfig = {
   port: 0,
   logLevel: 'error' as const,
   firebaseProjectId: 'test',
+  storageBucket: 'test-bucket.appspot.com',
   env: 'development' as const,
   activeWindowMs: ACTIVE_WINDOW,
   safetyCheckDelayMs: SAFETY_DELAY,

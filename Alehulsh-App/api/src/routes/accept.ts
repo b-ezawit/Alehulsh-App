@@ -3,6 +3,7 @@ import { requireSubject, subjectOf } from '../auth/middleware.js';
 import { AppError } from '../errors.js';
 import type { Deps } from '../server.js';
 import type { Acceptance, AlertProjection } from '../repositories/types.js';
+import { isTerminalStatus } from '../repositories/types.js';
 
 /**
  * POST /v1/alerts/:id/accept — a responder answers.  (P1-10)
@@ -64,7 +65,7 @@ export function registerAcceptRoute(app: FastifyInstance, deps: Deps): void {
       // Closed. One code for every terminal state on purpose: the responder
       // needs to know to stand down, and does not need to know whether she
       // resolved, was escalated, or the alert expired unanswered.
-      if (alert.status === 'resolved' || alert.status === 'expired') {
+      if (isTerminalStatus(alert.status)) {
         throw new AppError('alert_closed', `alert ${alertId} is ${alert.status}`);
       }
 
