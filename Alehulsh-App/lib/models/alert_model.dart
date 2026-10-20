@@ -154,6 +154,19 @@ class EmergencyAlert {
     return degrees * pi / 180.0;
   }
 
+  /// Trust a stored location label only when there is one.
+  ///
+  /// Null, absent, or whitespace-only all mean "nobody recorded where she
+  /// was", which is [locationUnavailable] - the same string both writers use
+  /// (AlertService and the native SosLocationDecision), so the three agree.
+  static String _readLocationName(dynamic raw) {
+    final text = raw?.toString().trim() ?? '';
+    return text.isEmpty ? locationUnavailable : text;
+  }
+
+  /// Mirrors SosLocationDecision.LABEL_UNAVAILABLE on the native side.
+  static const String locationUnavailable = 'Location unavailable';
+
   Map<String, dynamic> toMap() {
     final validExpiresAt = expiresAt;
     return {
@@ -253,7 +266,14 @@ class EmergencyAlert {
       alerterEmail: map['alerterEmail']?.toString() ?? '',
       latitude: lat,
       longitude: lng,
-      locationName: map['locationName']?.toString() ?? 'Live GPS',
+      // A missing or blank label must not claim a live fix. Legacy documents
+      // and anything written by an older client land here, and defaulting to
+      // 'Live GPS' asserted a currency nothing had established - the reader's
+      // half of the fabrication just removed from the writers.
+      //
+      // Explicitly stored labels are preserved as written, including
+      // 'Live GPS' where a writer justified it.
+      locationName: _readLocationName(map['locationName']),
       timestamp: parsedTimestamp,
       expiresAt: parsedExpiresAt,
       geohash: extractedGeohash,

@@ -550,7 +550,13 @@ class _WomenForWomenScreenState extends State<WomenForWomenScreen> {
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      "${(alert.locationName.toLowerCase().contains('gps') || alert.locationName.toLowerCase().contains('live')) ? 'Live GPS' : alert.locationName} • $distanceStr",
+                      // Shows the stored label as written. This used to rewrite
+                      // any label containing "gps" or "live" into the literal
+                      // "Live GPS", which is a promotion mechanism: a label such
+                      // as "Last known GPS fix" would have been displayed to a
+                      // responder as a current position. The writers already
+                      // decide what is live; the reader must not re-decide.
+                      "${alert.locationName} • $distanceStr",
                       style: const TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.w600,

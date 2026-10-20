@@ -12,6 +12,29 @@ import 'location_service.dart';
 /// Emergency Ping Notification Service
 /// Utilizes Flutter Local Notifications + Real-Time Firestore Proximity Geofencing (500m Radius)
 /// To dispatch instant high-priority Heads-Up Notification Pings to nearby users.
+/// Build the proximity-ping notification body.
+///
+/// Top-level and pure so it can be unit tested without the notifications
+/// plugin; see test/location_label_test.dart.
+///
+/// "near X" is dropped when there is no trustworthy place to name. The old
+/// template interpolated unconditionally and produced
+/// "... near Location unavailable", which both reads badly and implies a
+/// proximity we cannot assert.
+String composePingBody({
+  required String userName,
+  required String distanceText,
+  required String locationName,
+}) {
+  final place = locationName.trim();
+  final hasPlace = place.isNotEmpty && place != EmergencyAlert.locationUnavailable;
+
+  if (hasPlace) {
+    return "$userName is in danger ($distanceText) near $place. Tap to help!";
+  }
+  return "$userName is in danger ($distanceText). Her location is unavailable. Tap to help!";
+}
+
 class EmergencyPingService {
   static final EmergencyPingService _instance = EmergencyPingService._internal();
   factory EmergencyPingService() => _instance;
@@ -75,7 +98,12 @@ class EmergencyPingService {
         debugPrint("[EmergencyPingService] FCM Emergency broadcast received: ${message.data}");
         final alertId = message.data['alertId']?.toString() ?? '';
         final userName = message.data['userName']?.toString() ?? 'Nearby Protector';
-        final locationName = message.data['locationName']?.toString() ?? 'Emergency Location';
+        // A push that carries no label means nobody recorded where she was.
+        // 'Emergency Location' implied there was one; this is the same string
+        // every other reader and writer uses for "unknown".
+        final locationName = message.data['locationName']?.toString().trim().isNotEmpty == true
+            ? message.data['locationName'].toString().trim()
+            : EmergencyAlert.locationUnavailable;
         final distStr = message.data['distStr']?.toString() ?? '500m SOS Radar Alert';
 
         if (alertId.isNotEmpty) {
@@ -265,7 +293,11 @@ class EmergencyPingService {
 
     // Requirement: Show exactly "[Name] is requesting for help!!" for receivers
     String title = "🚨 $userName is requesting for help!!";
-    String body = "$userName is in danger ($distanceText) near $locationName. Tap to help!";
+    String body = composePingBody(
+      userName: userName,
+      distanceText: distanceText,
+      locationName: locationName,
+    );
 
     await _notificationsPlugin.show(
       notificationId,

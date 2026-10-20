@@ -125,7 +125,16 @@ class _AuthScreenState extends State<AuthScreen> {
           password: _passwordCtrl.text,
           fullName: _fullNameCtrl.text,
           phoneNumber: _phoneCtrl.text,
-          homeAddress: "Live GPS Tracked",
+          // Empty, not a placeholder. homeAddress is the address SHE gives us;
+          // "Live GPS Tracked" was GPS status wearing an address field's name,
+          // and it shipped as every new user's home address.
+          //
+          // There is no home-address input at signup, so unset is the honest
+          // value. It is never filled from a current fix, a location label or
+          // map coordinates - where she is now is not where she lives, and
+          // inferring one from the other would put her home on record from a
+          // single walk past it.
+          homeAddress: '',
           catName: _catNameCtrl.text,
           emergencyContacts: contacts,
         );

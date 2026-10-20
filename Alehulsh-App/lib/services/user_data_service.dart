@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/user_profile_model.dart';
+import 'profile_initialization.dart';
 
 /// Central state manager for User Data Tracking & Firebase Synchronization.
 class UserDataService {
@@ -349,24 +350,55 @@ class UserDataService {
     }
   }
 
-  /// Fetch user profile document from Firebase Firestore
+  /// Fetch, or initialise, the signed-in user's profile document.
+  ///
+  /// The missing-document branch used to call syncToFirestore(), which writes
+  /// whatever is in memory - at first launch that is the GUEST profile, whose
+  /// uid is empty. The document then disagreed with its own id, isLoggedIn
+  /// stayed false, and the SOS button refused a genuinely signed-in woman with
+  /// "Login Required". resolveProfileOnAuth decides instead, from the
+  /// authenticated uid alone.
   Future<void> loadProfileFromFirestore(String uid) async {
     try {
       final doc = await _firestore.collection('users').doc(uid).get();
-      if (doc.exists && doc.data() != null) {
-        profileNotifier.value = UserProfile.fromMap(doc.data()!);
-        isFirestoreConnected.value = true;
-        // Cache to local SharedPreferences
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setString('cached_user_profile', profileNotifier.value.toJson());
-        await prefs.setString('active_user_uid', uid);
-        debugPrint("[UserDataService] Loaded profile from Firestore for UID: $uid");
-      } else {
-        // Document doesn't exist yet, save current profile as initial document
-        await syncToFirestore();
+
+      final resolution = resolveProfileOnAuth(
+        // The token's uid, never a name, contact id or cached value.
+        authUid: _auth.currentUser?.uid ?? uid,
+        existingDoc: doc.exists ? doc.data() : null,
+        currentProfile: currentProfile,
+        authEmail: _auth.currentUser?.email,
+        authDisplayName: _auth.currentUser?.displayName,
+      );
+
+      // Persist BEFORE publishing the profile. If this throws we fall into the
+      // catch below having changed nothing, so a failed initialisation can
+      // never present itself as a ready account.
+      //
+      // merge: true keeps the write idempotent - repeated auth events and
+      // concurrent initialisations converge on the same document instead of
+      // erasing fields.
+      if (resolution.needsWrite) {
+        await _firestore.collection('users').doc(resolution.profile.uid).set(
+              resolution.profile.toMap(),
+              SetOptions(merge: true),
+            );
       }
+
+      profileNotifier.value = resolution.profile;
+      isFirestoreConnected.value = true;
+
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('cached_user_profile', resolution.profile.toJson());
+      await prefs.setString('active_user_uid', resolution.profile.uid);
+
+      debugPrint("[UserDataService] Profile ready for UID: ${resolution.profile.uid} (${resolution.reason})");
     } catch (e) {
-      debugPrint("[UserDataService] Error loading from Firestore: $e");
+      // Explicitly NOT downgrading to a guest profile. She is authenticated;
+      // losing her profile document must not silently revoke that, and
+      // overwriting the in-memory profile here is what would strand her.
+      isFirestoreConnected.value = false;
+      debugPrint("[UserDataService] Profile load/init FAILED for UID $uid - not marking ready: $e");
     }
   }
 }

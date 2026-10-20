@@ -102,4 +102,61 @@ void main() {
       expect(alertAt(lat: 9.0, lng: 38.7).distanceLabel(9.0, 38.7), contains('m away'));
     });
   });
+
+  // -------------------------------------------------------------------------
+  // The no-location document contract.
+  //
+  // Two independent writers produce alert documents: AlertService on the Dart
+  // side and AlehulshSosDispatcher.writeFirestoreAlert in native Kotlin. The
+  // native path previously fabricated (9.0125, 38.7636) when GPS was
+  // unavailable; it now writes the shape asserted here.
+  //
+  // These tests pin the shape so neither writer can drift back to inventing a
+  // position. They exercise the Dart side; the Kotlin writer is held to the
+  // same contract by review, not by this suite - see the reported gap.
+  // -------------------------------------------------------------------------
+  group('no-location alert document contract (Dart and native must agree)', () {
+    test('absent coordinates are written as null, not as a stand-in', () {
+      final m = alertAt().toMap();
+      expect(m['latitude'], isNull);
+      expect(m['longitude'], isNull);
+      // 0.0 is a real place in the Gulf of Guinea, not "unknown".
+      expect(m['latitude'], isNot(0.0));
+      expect(m['longitude'], isNot(0.0));
+    });
+
+    test('geohash is the empty string, which no range query matches', () {
+      expect(alertAt().toMap()['geohash'], '');
+    });
+
+    test('the geo field is omitted entirely, never a placeholder GeoPoint', () {
+      // A placeholder would make an unlocatable alert proximity-queryable at
+      // a place she is not.
+      expect(alertAt().toMap().containsKey('geo'), isFalse);
+    });
+
+    test('a located alert still carries all four location fields', () {
+      final m = alertAt(lat: 8.9956, lng: 38.7897).toMap();
+      expect(m['latitude'], 8.9956);
+      expect(m['longitude'], 38.7897);
+      expect(m['geohash'], isNotEmpty);
+      expect(m.containsKey('geo'), isTrue);
+    });
+
+    test('a round trip through Firestore preserves "unknown"', () {
+      // The reader must not resurrect a coordinate the writer refused to
+      // invent - fromMap once defaulted to Addis Ababa here.
+      final restored = EmergencyAlert.fromMap(alertAt().toMap(), docId: 'a1');
+      expect(restored.hasLocation, isFalse);
+      expect(restored.latitude, isNull);
+      expect(restored.longitude, isNull);
+      expect(restored.geohash, '');
+    });
+
+    test('an unlocatable alert is never matched by proximity', () {
+      final restored = EmergencyAlert.fromMap(alertAt().toMap(), docId: 'a1');
+      expect(restored.calculateDistanceKm(8.9956, 38.7897), isNull);
+      expect(restored.distanceLabel(8.9956, 38.7897), 'Distance unknown');
+    });
+  });
 }
