@@ -1,25 +1,56 @@
+import type { Pool } from 'pg';
+import { PostgresTaskQueue } from './PostgresTaskQueue.js';
 import { InMemoryTaskQueue, type TaskQueue } from './TaskQueue.js';
 
 /**
- * The one dependency with no production implementation yet.
+ * Chooses the queue implementation.  (M-07)
  *
  * InMemoryTaskQueue is a Map. It has no timer and no runner: scheduling a task
  * on it stores the task and nothing ever fires. In this system that is not a
- * degraded queue, it is a silent safety failure — the two-minute safety check
+ * degraded queue, it is a silent safety failure - the two-minute safety check
  * would never run, a coerced user's alert would never escalate, and her
  * contacts would never be told. Nobody would see an error, because from the
  * request's point of view the schedule succeeded.
  *
- * So it is allowed in development and refused in production. M-07 replaces it
- * with a durable queue; until then, deploying is meant to be impossible.
+ * So production REQUIRES the durable implementation and refuses to start
+ * without it. The refusal moved rather than disappeared: it used to mean "M-07
+ * is unimplemented", and now means "M-07 is implemented but not configured".
+ * The one thing that must never happen - production silently holding tasks in
+ * a Map - is still impossible.
  */
-export function buildTaskQueue(env: 'development' | 'production'): TaskQueue {
+export function buildTaskQueue(
+  env: 'development' | 'production',
+  options: { pool?: Pool | undefined } = {},
+): TaskQueue {
+  const { pool } = options;
+
   if (env === 'production') {
-    throw new Error(
-      'No durable TaskQueue is implemented. InMemoryTaskQueue never fires scheduled ' +
-      'tasks, so safety checks and escalation would silently never run. ' +
-      'Implement the durable queue (M-07) before deploying to production.',
-    );
+    if (!pool) {
+      // Fail closed, and say what to do about it.
+      throw new Error(
+        'No durable TaskQueue: production requires a PostgreSQL connection. ' +
+        'Set PGHOST, PGPORT, PGDATABASE, PGUSER and PGPASSWORD (see src/db/pool.ts). ' +
+        'Refusing to start rather than fall back to the in-memory queue, which ' +
+        'never fires scheduled tasks — safety checks and escalation would ' +
+        'silently never run.',
+      );
+    }
+    return new PostgresTaskQueue(pool);
   }
-  return new InMemoryTaskQueue();
+
+  // Development may use the durable queue too, and should when a database is
+  // available: testing against a Map proves nothing about the queue that will
+  // actually run.
+  return pool ? new PostgresTaskQueue(pool) : new InMemoryTaskQueue();
+}
+
+/**
+ * Whether this queue can actually fire anything.
+ *
+ * Exists so a caller can warn accurately instead of assuming. The old code
+ * warned whenever `env !== 'production'`, which would now be wrong: a
+ * development run with a database gets the real queue.
+ */
+export function isDurable(queue: TaskQueue): boolean {
+  return queue instanceof PostgresTaskQueue;
 }

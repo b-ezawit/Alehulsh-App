@@ -43,7 +43,7 @@ implementations and change nothing else.
 |---|---|---|
 | `TokenVerifier` | Firebase Auth admin SDK | Self-hosted IdP (M-04) |
 | `AlertRepository` / `UserRepository` | Firestore admin SDK | PostgreSQL + PostGIS (M-05) |
-| `TaskQueue` | Cloud Tasks | Postgres-backed queue (M-07) |
+| `TaskQueue` | Cloud Tasks | Postgres-backed queue — **implemented** (M-07) |
 
 Everything else — routing, validation, the alert state machine (P1-02), keyword
 verification and escalation (P1-03), rate limiting, audit logging — is plain
