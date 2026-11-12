@@ -1,8 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="hardware_sos_accessibility_description">Alehulsh uses this service only to detect 5 rapid power-button presses and the Android Emergency SOS screen so your in-app SOS can start immediately. Cancelling the phone\'s 911 dialog will never cancel Alehulsh SOS.</string>
+    <string name="hardware_sos_accessibility_description">Optional debug validation of five physical power-key events. Key delivery must be verified on the device. This service does not inspect screen contents. Use the on-screen SOS when hardware detection is unavailable.</string>
     <string name="radar_channel_name">Alehulsh Safety Radar</string>
-    <string name="radar_channel_desc">Keeps emergency gesture detection and alert pings active.</string>
-    <string name="radar_notification_title">Alehulsh protection is on</string>
-    <string name="radar_notification_text">5× power SOS and nearby alert pings are active.</string>
+    <string name="radar_channel_desc">Background status for Alehulsh.</string>
+    <string name="radar_notification_title">Alehulsh</string>
+    <string name="radar_notification_text">Open the app to check status. Use the on-screen SOS to request help.</string>
+
+    <!-- Shown on a SECURE lock screen in place of the real notification.
+         A coercer holding the phone must not learn from the lock screen that
+         she called for help, nor read another woman's name off a ping. -->
+    <string name="lockscreen_redacted_title">Alehulsh</string>
+    <string name="lockscreen_redacted_text">Unlock to view</string>
+    <string name="lockscreen_ping_title">Someone nearby needs help</string>
+    <string name="lockscreen_ping_text">Unlock to respond</string>
 </resources>

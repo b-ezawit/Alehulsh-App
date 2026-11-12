@@ -45,7 +45,7 @@ object SosLocationDecision {
     const val FRESH_FIX_MS: Long = 2 * 60 * 1000L
 
     const val LABEL_UNAVAILABLE = "Location unavailable"
-    const val LABEL_LIVE = "Live GPS"
+    const val LABEL_LIVE = "Recent GPS fix at submission"
     /** Used when a position exists but its age cannot be trusted. */
     const val LABEL_AGE_UNKNOWN = "Last known location (age unknown)"
 
@@ -90,7 +90,7 @@ object SosLocationDecision {
         val label = if (ageMs <= FRESH_FIX_MS) {
             LABEL_LIVE
         } else {
-            "Last known location (${ageMs / 60_000L} min old)"
+            "Last known location (${ageMs / 60_000L} min old at submission)"
         }
         return SosLocation(lat, lng, geohash, label, ageMs)
     }

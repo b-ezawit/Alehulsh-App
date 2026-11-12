@@ -9,6 +9,10 @@ import 'screens/main_navigation_screen.dart';
 import 'services/user_data_service.dart';
 import 'services/emergency_ping_service.dart';
 import 'services/emergency_gesture_service.dart';
+import 'api/api_runtime.dart';
+import 'services/pending_evidence_service.dart';
+import 'services/private_push_background.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -69,14 +73,28 @@ void main() async {
       );
     }
 
+    await ApiRuntime.initialize();
+    if(ApiRuntime.enabled)FirebaseMessaging.onBackgroundMessage(privatePushBackground);
+    if(ApiRuntime.enabled)await PendingEvidenceService.instance.initialize();
     UserDataService().initializeSync();
     await UserDataService().initNotificationSetting();
     await EmergencyPingService().initialize();
     EmergencyGestureService().startListening();
-  } catch (e) {
-    debugPrint("[Firebase] Initialization error: $e");
+  } catch (_) {
+    debugPrint('[Startup] Secure initialization could not be completed');
+    runApp(const SecureInitializationFailure());
+    return;
   }
   runApp(const AlehulshApp());
+}
+
+class SecureInitializationFailure extends StatelessWidget {
+  const SecureInitializationFailure({super.key});
+  @override Widget build(BuildContext context)=>const MaterialApp(home:Scaffold(
+    body:SafeArea(child:Center(child:Padding(padding:EdgeInsets.all(24),child:Text(
+      'Secure emergency services could not be initialized. No alert was sent. '
+      'Use your phone to call for help directly. Reopen Alehulsh after configuration is restored.',
+      textAlign:TextAlign.center))))));
 }
 
 final ValueNotifier<ThemeMode> themeModeNotifier = ValueNotifier<ThemeMode>(ThemeMode.dark);

@@ -1,4 +1,6 @@
 import java.util.Base64
+import java.util.Properties
+import java.net.URI
 
 plugins {
     id("com.android.application")
@@ -18,6 +20,13 @@ plugins {
  * Returns false when the property is absent, which is the case for every build
  * that does not explicitly ask for it - including all release builds.
  */
+fun dartDefineValue(key: String): String? {
+    val raw = project.findProperty("dart-defines")?.toString() ?: return null
+    return raw.split(",").mapNotNull { encoded ->
+        runCatching { String(Base64.getDecoder().decode(encoded.trim())) }.getOrNull()
+    }.lastOrNull { it.startsWith("$key=") }?.substringAfter("=")
+}
+
 fun dartDefineEnabled(key: String): Boolean {
     val raw = project.findProperty("dart-defines")?.toString() ?: return false
     return raw.split(",").any { encoded ->
@@ -25,6 +34,36 @@ fun dartDefineEnabled(key: String): Boolean {
             .getOrDefault("") == "$key=true"
     }
 }
+
+// ---------------------------------------------------------------------------
+// Release signing credentials, from a file that is NOT in version control.
+//
+// `key.properties` is already gitignored, along with *.keystore and *.jks. No
+// credential value appears in this repository and none is invented here: if
+// the file is absent, a release build FAILS rather than producing an artifact
+// signed with something else.
+//
+// Required keys: storeFile, storePassword, keyAlias, keyPassword.
+// storeFile is resolved relative to the `android/` directory.
+// ---------------------------------------------------------------------------
+fun publicOriginDefine(prefix:String):String {
+    val env=dartDefineValue("FIREBASE_ENV")?.uppercase() ?: return "\"\""
+    if(env !in setOf("DEV","PROD"))return "\"\""
+    val raw=dartDefineValue("${prefix}_$env")?:return "\"\""
+    val uri=runCatching { URI(raw) }.getOrNull()?:return "\"\""
+    if(uri.scheme!="https"||uri.host==null||uri.rawUserInfo!=null||uri.rawQuery!=null||uri.rawFragment!=null||uri.rawPath !in listOf("","/"))return "\"\""
+    val canonical=URI(uri.scheme.lowercase(),null,uri.host.lowercase(),if(uri.port==443)-1 else uri.port,null,null,null).toString()
+    return "\""+canonical.replace("\\","\\\\").replace("\"","\\\"")+"\""
+}
+val keystorePropertiesFile = rootProject.file("key.properties")
+val keystoreProperties = Properties().apply {
+    if (keystorePropertiesFile.exists()) {
+        keystorePropertiesFile.inputStream().use { load(it) }
+    }
+}
+val releaseSigningKeys = listOf("storeFile", "storePassword", "keyAlias", "keyPassword")
+val releaseSigningAvailable = keystorePropertiesFile.exists() &&
+    releaseSigningKeys.all { !keystoreProperties.getProperty(it).isNullOrBlank() }
 
 android {
     namespace = "com.example.alehulsh_app"
@@ -49,20 +88,23 @@ android {
     // project. That is the enforcement mechanism - production must be asked
     // for by name too.
     //
-    // EXPECTED_FIREBASE_PROJECT records the project this binary is BUILT for.
+    // EXPECTED_FIREBASE_PROJECT records the project this binary is BUILT for,
+    // and IS enforced at runtime: FirebaseProjectGuard compares it against
+    // FirebaseApp.getInstance().options.projectId and refuses the operation
+    // when they disagree. Both native Firebase entry points are gated - the
+    // SOS write in AlehulshSosDispatcher and the alert listener in
+    // AlehulshForegroundService. A missing value on either side is a refusal
+    // too, so the gate fails closed rather than open.
     //
-    // NOT ENFORCED AT RUNTIME. Nothing reads this field. The intended check -
-    // compare it against the project Firebase actually resolved and refuse to
-    // write when they disagree - is NOT implemented, so a stale or mismatched
-    // google-services.json is not caught at the point of writing.
+    // The decision is in FirebaseProjectDecision, unit-tested on the JVM.
+    // Those tests prove the DECISION; they prove nothing about device
+    // behaviour - that the right google-services.json is packaged, or that a
+    // real device refuses a real write - which needs an instrumented run on
+    // hardware and has not been done.
     //
-    // What exists instead is narrower, and must not be mistaken for it: `dev`
-    // carries its own applicationId, so a dev google-services.json without a
-    // matching Android app entry fails the build. That catches a misconfigured
-    // DEV build early. It does NOT isolate SOS writes - a prod-flavour binary
-    // built against the wrong project would still write wherever Firebase
-    // resolved - and it constrains nothing about which Firestore the native
-    // services reach once the app is running.
+    // Separately, `dev` carries its own applicationId, so a dev
+    // google-services.json without a matching Android app entry fails the
+    // build. That is a build-time check and is not what isolates SOS writes.
     // ---------------------------------------------------------------------
     flavorDimensions += "env"
 
@@ -90,6 +132,12 @@ android {
     }
 
     defaultConfig {
+        buildConfigField("String","TRUSTED_API_ORIGIN",publicOriginDefine("ALEHULSH_API_ORIGIN"))
+        buildConfigField("String","TRUSTED_AUTH_ORIGIN",publicOriginDefine("ALEHULSH_SUPABASE_URL"))
+        // Physical key delivery is OEM-dependent and has not passed device gates.
+        // Even an opt-in define cannot enable this path in a release build.
+        buildConfigField("boolean", "TRUSTED_API_REQUIRED", ((dartDefineValue("ALEHULSH_DATA_ACCESS") ?: "firestore") != "firestore").toString())
+        buildConfigField("boolean", "HARDWARE_SOS_EXPERIMENTAL", dartDefineEnabled("HARDWARE_SOS_EXPERIMENTAL").toString())
         // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
         applicationId = "com.example.alehulsh_app"
 
@@ -121,13 +169,67 @@ android {
         multiDexEnabled = true
     }
 
-    buildTypes {
-        release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+    signingConfigs {
+        if (releaseSigningAvailable) {
+            create("release") {
+                storeFile = rootProject.file(keystoreProperties.getProperty("storeFile"))
+                storePassword = keystoreProperties.getProperty("storePassword")
+                keyAlias = keystoreProperties.getProperty("keyAlias")
+                keyPassword = keystoreProperties.getProperty("keyPassword")
+            }
         }
     }
+
+    buildTypes {
+        release {
+            buildConfigField("boolean", "TRUSTED_API_REQUIRED", "true")
+            // Previously `signingConfigs.getByName("debug")`, so EVERY release
+            // build was signed with the debug key - a key whose private half
+            // ships with the Android SDK on every developer machine on earth.
+            // Anyone could have produced an update that Android would accept
+            // as this app, for a safety application handling emergency
+            // alerts, location and recordings.
+            //
+            // Now: the real config when credentials exist, and otherwise NO
+            // config, with the build failed outright below. Debug builds are
+            // untouched and still use the debug key, which is what it is for.
+            signingConfig = if (releaseSigningAvailable) {
+                signingConfigs.getByName("release")
+            } else {
+                null
+            }
+        }
+    }
+}
+
+// Fail a release build that has no signing credentials, rather than letting it
+// emit an unsigned artifact that looks like a release.
+//
+// Checked on the task graph rather than at configuration time, so `flutter
+// run`, debug builds and the unit-test tasks are unaffected by the absence of
+// a keystore - only a request to package a release is refused.
+gradle.taskGraph.whenReady {
+    if (releaseSigningAvailable) return@whenReady
+    val offending = allTasks.map { it.name }.firstOrNull { name ->
+        name.contains("Release") &&
+            (name.startsWith("package") || name.startsWith("assemble") || name.startsWith("bundle"))
+    } ?: return@whenReady
+
+    val missing = if (!keystorePropertiesFile.exists()) {
+        "android/key.properties does not exist"
+    } else {
+        "android/key.properties is missing or blank for: " +
+            releaseSigningKeys.filter { keystoreProperties.getProperty(it).isNullOrBlank() }
+    }
+    throw GradleException(
+        "Refusing to build a release artifact without release signing credentials " +
+            "(task '$offending'). $missing\n" +
+            "Create android/key.properties — it is gitignored — with storeFile, " +
+            "storePassword, keyAlias and keyPassword. storeFile is relative to android/.\n" +
+            "This build will NOT fall back to the debug signing key: the debug private " +
+            "key is shipped with the Android SDK, so anyone could sign an update that " +
+            "Android accepts as this app.",
+    )
 }
 
 dependencies {

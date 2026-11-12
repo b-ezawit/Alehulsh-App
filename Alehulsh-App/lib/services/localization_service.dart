@@ -37,7 +37,7 @@ class LocalizationService {
       
       // Home Screen
       'home_welcome': 'Welcome to Alehulsh',
-      'home_standby': 'Your 24/7 Guardian & Women Safety Shield',
+      'home_standby': 'Safety tools and emergency contacts',
       'home_quick_sos': 'Quick Emergency Dispatch',
       'home_quick_sos_sub': 'Tap below or hold to broadcast emergency radar',
       'home_emergency_btn': 'Emergency Alert',
@@ -48,7 +48,7 @@ class LocalizationService {
       'sos_title': 'Emergency SOS Dispatch',
       'sos_shield_standby': 'EMERGENCY SHIELD STANDBY',
       'sos_broadcast_active': 'SOS BROADCAST ACTIVE',
-      'sos_ready_desc': 'Live GPS ready for emergency broadcast.',
+      'sos_ready_desc': 'A recorded GPS position is available; it may be cached.',
       'sos_tap_btn': 'TAP SOS',
       'sos_sent_btn': 'SOS HAS BEEN\nSENT',
       'sos_cancel_btn': 'Cancel SOS',
@@ -91,7 +91,7 @@ class LocalizationService {
       'profile_cat_title': "Your Pet's Name",
       'profile_cat_desc': "Secret security answer required to safely cancel an active emergency SOS alert.",
       'profile_contacts_title': 'Emergency Contacts',
-      'profile_contacts_desc': 'Contacts notified immediately when you trigger SOS.',
+      'profile_contacts_desc': 'Choose emergency contacts. Delivery depends on verification, consent and connectivity.',
       'profile_add_contact': '+ Add Emergency Contact',
       'profile_edit_btn': 'Edit Details',
       'profile_logout_btn': 'Log Out',
@@ -120,7 +120,7 @@ class LocalizationService {
       
       // Home Screen
       'home_welcome': 'እንኳን ወደ አለሁልሽ በደህና መጡ',
-      'home_standby': 'የ 24/7 የሴቶች ደህንነት ጠባቂና ጋሻ',
+      'home_standby': 'የደህንነት መሣሪያዎችና የአደጋ ጊዜ ተጠሪዎች',
       'home_quick_sos': 'ፈጣን የአደጋ ጊዜ ጥሪ',
       'home_quick_sos_sub': 'የአደጋ ጊዜ ራዳር ለማስተላለፍ ከታች ይጫኑ',
       'home_emergency_btn': 'የአደጋ ጊዜ ጥሪ',
@@ -131,7 +131,7 @@ class LocalizationService {
       'sos_title': 'የአደጋ ጊዜ SOS ማስተላለፊያ',
       'sos_shield_standby': 'የአደጋ ጊዜ ጋሻ ዝግጁ ነው',
       'sos_broadcast_active': 'የአደጋ ጊዜ ጥሪ ተሰራጭቷል',
-      'sos_ready_desc': 'የቀጥታ GPS ለአደጋ ጥሪ ዝግጁ ነው።',
+      'sos_ready_desc': 'የተመዘገበ የአካባቢ መረጃ አለ፤ የቆየ ሊሆን ይችላል።',
       'sos_tap_btn': 'SOS ላኪ',
       'sos_sent_btn': 'SOS\nተልኳል',
       'sos_cancel_btn': 'SOS ሰርዝ',
@@ -174,7 +174,7 @@ class LocalizationService {
       'profile_cat_title': 'የቤት እንስሳዎ ስም',
       'profile_cat_desc': 'የአደጋ ጊዜ ጥሪን (SOS) ለማቆም የሚያገለግል ሚስጥራዊ የደህንነት ማረጋገጫ ቃል።',
       'profile_contacts_title': 'የአደጋ ጊዜ እውቂያዎች',
-      'profile_contacts_desc': 'SOS ሲልኩ ወዲያውኑ መልእክት የሚደርሳቸው እውቂያዎች።',
+      'profile_contacts_desc': 'የአደጋ ጊዜ እውቂያዎችን ይምረጡ። መላክ በማረጋገጥ፣ በፈቃድ እና በአውታረ መረብ ይወሰናል።',
       'profile_add_contact': '+ የአደጋ ጊዜ እውቂያ ጨምር',
       'profile_edit_btn': 'መረጃ አሻሽል',
       'profile_logout_btn': 'ውጣ',

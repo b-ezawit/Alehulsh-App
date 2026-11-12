@@ -39,7 +39,13 @@ class VoiceNoteItem {
 }
 
 class EmergencyAlert {
+  final Map<String,int>? delivery;
+  final bool hasAcknowledged;
   final String id;
+  final String? incidentKey;
+  /// Non-null only for an authorized server-selected inbox projection.
+  final String? audience;
+  final int? acknowledgmentCount;
   final String userId;
   final String userName;
   final String userAvatar;
@@ -72,7 +78,12 @@ class EmergencyAlert {
   final List<String> emergencyContactUids;
 
   EmergencyAlert({
+    this.delivery,
+    this.hasAcknowledged=false,
     required this.id,
+    this.incidentKey,
+    this.audience,
+    this.acknowledgmentCount,
     required this.userId,
     required this.userName,
     this.userAvatar = 'U',
@@ -161,6 +172,7 @@ class EmergencyAlert {
   /// (AlertService and the native SosLocationDecision), so the three agree.
   static String _readLocationName(dynamic raw) {
     final text = raw?.toString().trim() ?? '';
+    if (text == 'Live GPS') return 'Recorded location (freshness unverified)';
     return text.isEmpty ? locationUnavailable : text;
   }
 
@@ -171,6 +183,7 @@ class EmergencyAlert {
     final validExpiresAt = expiresAt;
     return {
       'id': id,
+      if (incidentKey != null) 'alertKey': incidentKey,
       'userId': userId,
       'userName': userName,
       'userAvatar': userAvatar,
@@ -259,6 +272,7 @@ class EmergencyAlert {
 
     return EmergencyAlert(
       id: docId ?? map['id']?.toString() ?? '',
+      incidentKey: map['alertKey'] as String?,
       userId: map['userId']?.toString() ?? '',
       userName: map['userName']?.toString().isNotEmpty == true ? map['userName'].toString() : 'Alehulsh User',
       userAvatar: map['userAvatar']?.toString() ?? 'U',
@@ -271,8 +285,7 @@ class EmergencyAlert {
       // 'Live GPS' asserted a currency nothing had established - the reader's
       // half of the fabrication just removed from the writers.
       //
-      // Explicitly stored labels are preserved as written, including
-      // 'Live GPS' where a writer justified it.
+      // Legacy 'Live GPS' labels lack sufficient provenance and are downgraded.
       locationName: _readLocationName(map['locationName']),
       timestamp: parsedTimestamp,
       expiresAt: parsedExpiresAt,

@@ -1,9 +1,14 @@
+import '../api/api_runtime.dart';
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import '../auth/identity_runtime.dart';
+import '../api/account_api.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/user_profile_model.dart';
 import 'profile_initialization.dart';
+import 'account_scope.dart';
+import 'location_service.dart';
+import 'private_push_service.dart';
 
 /// Central state manager for User Data Tracking & Firebase Synchronization.
 class UserDataService {
@@ -11,8 +16,10 @@ class UserDataService {
   factory UserDataService() => _instance;
   UserDataService._internal();
 
-  final FirebaseAuth _auth = FirebaseAuth.instance;
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final AccountScope _scope = AccountScope();
+  bool _syncInitialized = false;
+  int _profileRevision = 0;
+  FirebaseFirestore get _firestore => FirebaseFirestore.instance;
 
   /// Reactive notifier for the active profile state
   /// Starts empty for signed-in and signed-out users alike.
@@ -30,8 +37,8 @@ class UserDataService {
   final ValueNotifier<bool> notificationsEnabledNotifier = ValueNotifier<bool>(true);
 
   UserProfile get currentProfile => profileNotifier.value;
-  User? get currentUser => _auth.currentUser;
-  bool get isLoggedIn => _auth.currentUser != null && currentProfile.uid.isNotEmpty;
+  AppIdentity? get currentUser => IdentityRuntime.current;
+  bool get isLoggedIn => IdentityRuntime.current != null && currentProfile.uid.isNotEmpty && currentProfile.uid == IdentityRuntime.current!.uid;
   bool get areNotificationsEnabled => notificationsEnabledNotifier.value;
 
   Future<void> initNotificationSetting() async {
@@ -43,84 +50,99 @@ class UserDataService {
 
   Future<void> setNotificationsEnabled(bool enabled) async {
     notificationsEnabledNotifier.value = enabled;
-    try {
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setBool('notifications_enabled', enabled);
-    } catch (_) {}
+      if(!await prefs.setBool('notifications_enabled', enabled))throw StateError('Notification preference was not persisted');
+      if(ApiRuntime.enabled&&!enabled)await PrivatePushService.instance.disable();
   }
 
-  /// Check if SOS was active prior to app exit
+  String? get _owner => IdentityRuntime.current?.uid;
+  String _cacheKey(String owner) => 'cached_user_profile:$owner';
+
   Future<bool> isSOSActiveLocally() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      return prefs.getBool('is_sos_active') ?? false;
-    } catch (_) {
-      return false;
+    final owner = _owner;
+    if (owner == null) return false;
+    final prefs = await SharedPreferences.getInstance();
+    if (_owner != owner) return false;
+    if (prefs.getString('active_alert_id') == owner && prefs.getBool('is_sos_active') == true) {
+      await prefs.setBool('is_sos_active:$owner', true);
+      await prefs.setString('active_alert_id:$owner', owner);
     }
+    return _owner == owner && (prefs.getBool('is_sos_active:$owner') ?? false);
   }
 
-  /// Get active SOS alert ID stored locally
   Future<String?> getActiveSOSAlertIdLocally() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      return prefs.getString('active_alert_id');
-    } catch (_) {
-      return null;
-    }
+    final owner = _owner;
+    if (owner == null) return null;
+    final prefs = await SharedPreferences.getInstance();
+    return _owner == owner ? prefs.getString('active_alert_id:$owner') : null;
   }
 
-  /// Set or clear active SOS state locally
   Future<void> setSOSActiveLocally(bool active, [String? alertId]) async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setBool('is_sos_active', active);
-      if (active && alertId != null) {
-        await prefs.setString('active_alert_id', alertId);
-      } else if (!active) {
+    final owner = _owner;
+    if (owner == null) return;
+    final ticket = _scope.capture(owner);
+    if (ticket == null) return;
+    final prefs = await _scope.read(ticket, SharedPreferences.getInstance);
+    if (prefs == null || _owner != owner) return;
+    await prefs.setBool('is_sos_active:$owner', active);
+    if (!_scope.owns(ticket) || _owner != owner) return;
+    if (active && alertId != null) {
+      await prefs.setString('active_alert_id:$owner', alertId);
+    } else {
+      await prefs.remove('active_alert_id:$owner');
+      if (prefs.getString('active_alert_id') == owner) {
         await prefs.remove('active_alert_id');
+        await prefs.remove('is_sos_active');
       }
-    } catch (e) {
-      debugPrint("[UserDataService] Error saving SOS state: $e");
     }
   }
 
   /// Initialize Firebase Auth listener & fetch active user profile from Firestore
   void initializeSync() async {
-    // 1. Immediately restore locally cached profile & UID for zero startup lag
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final localJson = prefs.getString('cached_user_profile');
-      if (localJson != null && localJson.isNotEmpty) {
-        profileNotifier.value = UserProfile.fromJson(localJson);
-        debugPrint("[UserDataService] Restored cached profile: ${profileNotifier.value.fullName} (UID: ${profileNotifier.value.uid})");
-      }
-    } catch (e) {
-      debugPrint("[UserDataService] Error reading cached profile: $e");
-    }
-
-    _auth.authStateChanges().listen((User? user) {
-      if (user != null) {
-        debugPrint("[UserDataService] User logged in: ${user.uid}");
-        loadProfileFromFirestore(user.uid);
-      } else {
-        debugPrint("[UserDataService] No active Firebase Auth user, switching to Guest Mode");
+    if (_syncInitialized) return;
+    _syncInitialized = true;
+    final initialOwner = _owner;
+    final initialRevision = _profileRevision;
+    _scope.bind(initialOwner);
+    if(ApiRuntime.enabled&&initialOwner!=null)profileNotifier.value=trustedOfflineProfile(initialOwner,email:currentUser?.email??'');
+    final initialTicket = initialOwner == null ? null : _scope.capture(initialOwner);
+    IdentityRuntime.changes.listen((AppIdentity? user) {
+      _scope.bind(user?.uid);
+      if (user == null) {
         clearOnSignOut();
+      } else {
+        if(ApiRuntime.enabled&&currentProfile.uid!=user.uid)profileNotifier.value=trustedOfflineProfile(user.uid,email:user.email??'');
+        loadProfileFromFirestore(user.uid);
       }
     });
-
-    // Initial load if already signed in
-    if (_auth.currentUser != null) {
-      loadProfileFromFirestore(_auth.currentUser!.uid);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = initialOwner == null ? null :
+          prefs.getString(_cacheKey(initialOwner)) ?? prefs.getString('cached_user_profile');
+      if (raw != null && _owner == initialOwner && initialTicket != null && _scope.owns(initialTicket) && _profileRevision == initialRevision) {
+        final cached = ApiRuntime.enabled?trustedCachedProfile(raw,pendingLocationOptOut:prefs.getBool('pending_location_opt_out:$initialOwner')??false):UserProfile.fromJson(raw);
+        if (cached.uid == initialOwner) {
+          if(ApiRuntime.enabled)await prefs.setString(_cacheKey(initialOwner!),cached.toJson());
+          if(_owner!=initialOwner||!_scope.owns(initialTicket))return;
+          profileNotifier.value = cached;
+          LocationService().configure(owner: initialOwner, enabled: cached.isLocationSharingEnabled);
+        }
+      }
+      // Purge the old global cache, which may contain a plaintext keyword.
+      await prefs.remove('cached_user_profile');
+    } catch (_) {
+      debugPrint('[UserDataService] Cached profile unavailable');
     }
+    if(ApiRuntime.enabled&&initialOwner!=null&&_owner==initialOwner&&initialTicket!=null&&_scope.owns(initialTicket))await loadProfileFromFirestore(initialOwner);
   }
 
   /// Update personal details
-  void updatePersonalInfo({
+  Future<void> updatePersonalInfo({
     required String fullName,
     required String email,
     required String phoneNumber,
     required String homeAddress,
-  }) {
+  }) async {
     final updated = currentProfile.copyWith(
       fullName: fullName,
       email: email,
@@ -128,6 +150,13 @@ class UserDataService {
       homeAddress: homeAddress,
       lastActiveAt: DateTime.now(),
     );
+    if(ApiRuntime.enabled){
+      final owner=_owner;if(owner==null||updated.uid!=owner)throw StateError('Sign in required');
+      final ticket=_scope.capture(owner);if(ticket==null)return;
+      await ApiRuntime.account.updateProfile(updated);
+      if(_scope.owns(ticket)&&_owner==owner)await loadProfileFromFirestore(owner);
+      return;
+    }
     profileNotifier.value = updated;
     logActivity(
       title: "Profile Updated",
@@ -157,7 +186,13 @@ class UserDataService {
   }
 
   /// Add emergency contact
-  void addEmergencyContact(EmergencyContact contact) {
+  Future<void> addEmergencyContact(EmergencyContact contact) async {
+    if(ApiRuntime.enabled) {
+      final owner=_owner;if(owner==null)throw StateError('Sign in required');
+      final id=RegExp(r'^[0-9a-f-]{36}$',caseSensitive:false).hasMatch(contact.id)?contact.id:AccountApi.newContactId();
+      await ApiRuntime.account.putContact(contact.copyWith(id:id));
+      await loadProfileFromFirestore(owner);return;
+    }
     final updatedContacts = List<EmergencyContact>.from(currentProfile.emergencyContacts);
     if (contact.isPrimary) {
       // Unmark other primary contacts
@@ -186,7 +221,12 @@ class UserDataService {
   }
 
   /// Remove emergency contact
-  void removeEmergencyContact(String id) {
+  Future<void> removeEmergencyContact(String id) async {
+    if(ApiRuntime.enabled) {
+      final owner=_owner;if(owner==null)throw StateError('Sign in required');
+      await ApiRuntime.account.removeContact(id);
+      await loadProfileFromFirestore(owner);return;
+    }
     final updatedContacts = List<EmergencyContact>.from(currentProfile.emergencyContacts);
     updatedContacts.removeWhere((c) => c.id == id);
 
@@ -205,7 +245,12 @@ class UserDataService {
   }
 
   /// Update existing emergency contact
-  void updateEmergencyContact(EmergencyContact contact) {
+  Future<void> updateEmergencyContact(EmergencyContact contact) async {
+    if(ApiRuntime.enabled) {
+      final owner=_owner;if(owner==null)throw StateError('Sign in required');
+      await ApiRuntime.account.putContact(contact);
+      await loadProfileFromFirestore(owner);return;
+    }
     final updatedContacts = List<EmergencyContact>.from(currentProfile.emergencyContacts);
     final index = updatedContacts.indexWhere((c) => c.id == contact.id);
     if (index != -1) {
@@ -231,19 +276,36 @@ class UserDataService {
 
   /// Immediately clear cached profile & UID for instantaneous logout response
   Future<void> clearOnSignOut() async {
+    final owner = currentProfile.uid;
+    _scope.bind(null);
+    // Invalidates collection synchronously before waiting for preferences.
+    final locationCleanup = LocationService().configure(owner: null, enabled: false);
+    _profileRevision++;
+    profileNotifier.value = UserProfile.guestProfile();
+    isFirestoreConnected.value = false;
+    await locationCleanup;
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove('cached_user_profile');
-      await prefs.remove('flutter.active_user_uid');
-      await prefs.remove('active_user_uid');
-    } catch (e) {
-      debugPrint("[UserDataService] Error clearing sign out prefs: $e");
+      if (owner.isNotEmpty) {
+        await prefs.remove(_cacheKey(owner));
+        await prefs.remove('is_sos_active:$owner');
+        await prefs.remove('active_alert_id:$owner');
+      }
+      if (prefs.getString('active_user_uid') == owner) {
+        await prefs.remove('active_user_uid');
+      }
+      if (prefs.getString('active_alert_id') == owner) {
+        await prefs.remove('active_alert_id');
+        await prefs.remove('is_sos_active');
+      }
+    } catch (_) {
+      debugPrint('[UserDataService] Local sign-out cleanup failed');
     }
-    profileNotifier.value = UserProfile.guestProfile();
   }
 
   /// Toggle safety preferences
-  void toggleSafetySetting(String settingKey, bool value) {
+  Future<void> toggleSafetySetting(String settingKey, bool value) async {
     UserProfile updated;
     switch (settingKey) {
       case 'locationSharing':
@@ -261,7 +323,27 @@ class UserDataService {
       default:
         return;
     }
+    if(ApiRuntime.enabled) {
+      final owner=_owner;if(owner==null||updated.uid!=owner)throw StateError('Sign in required');
+      final ticket=_scope.capture(owner);if(ticket==null)return;
+      // Stop this device immediately on opt-out, even during a network outage.
+      if(settingKey=='locationSharing'&&!value) {
+        profileNotifier.value=updated;
+        await LocationService().configure(owner:owner,enabled:false);
+        final prefs=await SharedPreferences.getInstance();await prefs.setBool('pending_location_opt_out:$owner',true);
+      }
+      const fields={'locationSharing':'locationSharingEnabled','autoAudioRecording':'autoAudioRecording','fakeCall':'fakeCallEnabled','communityAlerts':'communityAlertsEnabled'};
+      await ApiRuntime.account.updatePreference(fields[settingKey]!,value);
+      if(!_scope.owns(ticket)||_owner!=owner)return;
+      if(settingKey=='locationSharing') {
+        final prefs=await SharedPreferences.getInstance();await prefs.remove('pending_location_opt_out:$owner');
+      }
+      await loadProfileFromFirestore(owner);return;
+    }
     profileNotifier.value = updated;
+    if (settingKey == 'locationSharing') {
+      LocationService().configure(owner: _owner, enabled: value);
+    }
 
     logActivity(
       title: "Safety Setting Changed",
@@ -308,7 +390,7 @@ class UserDataService {
     profileNotifier.value = updated;
     logActivity(
       title: "EMERGENCY SOS Triggered!",
-      description: "High priority emergency broadcast dispatched to network.",
+      description: "Emergency submission recorded locally. Delivery is unconfirmed.",
       type: "sos",
     );
     syncToFirestore();
@@ -332,21 +414,30 @@ class UserDataService {
 
   /// Save active user profile directly to Firebase Firestore
   Future<void> syncToFirestore() async {
+    final owner = _owner;
+    final profile = currentProfile;
+    if (owner == null || profile.uid != owner) return;
+    final ticket = _scope.capture(owner);
+    if (ticket == null) return;
     try {
-      final targetUid = _auth.currentUser?.uid ?? currentProfile.uid;
-      // Also cache locally in SharedPreferences for instant app startup & native Kotlin services
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('cached_user_profile', currentProfile.toJson());
-      await prefs.setString('active_user_uid', targetUid);
-
-      await _firestore.collection('users').doc(targetUid).set(
-            currentProfile.toMap(),
-            SetOptions(merge: true),
-          );
-      isFirestoreConnected.value = true;
-      debugPrint("[UserDataService] Successfully synced profile to Firestore for UID: $targetUid");
-    } catch (e) {
-      debugPrint("[UserDataService] Error syncing to Firestore: $e");
+      final prefs = await _scope.read(ticket, SharedPreferences.getInstance);
+      if (prefs == null || _owner != owner) return;
+      await prefs.setString(_cacheKey(owner), profile.toJson());
+      if (!_scope.owns(ticket) || _owner != owner) {
+        await prefs.remove(_cacheKey(owner));
+        return;
+      }
+      if(ApiRuntime.enabled) {
+        // Cache/activity persistence must not replay stale server metadata or
+        // consent. Explicit account controls own authenticated PATCH requests.
+        return;
+      }
+      final data = profile.toMap();
+      await _firestore.collection('users').doc(owner).set(data, SetOptions(merge: true));
+      if (_scope.owns(ticket) && _owner == owner) isFirestoreConnected.value = true;
+    } catch (_) {
+      if (_scope.owns(ticket) && _owner == owner) isFirestoreConnected.value = false;
+      debugPrint('[UserDataService] Profile update could not be confirmed');
     }
   }
 
@@ -359,46 +450,50 @@ class UserDataService {
   /// "Login Required". resolveProfileOnAuth decides instead, from the
   /// authenticated uid alone.
   Future<void> loadProfileFromFirestore(String uid) async {
+    if (_owner != uid) return;
+    final ticket = _scope.capture(uid);
+    if (ticket == null) return;
     try {
-      final doc = await _firestore.collection('users').doc(uid).get();
-
+      if(ApiRuntime.enabled) {
+        final profile=await ApiRuntime.account.load(uid,email:currentUser?.email??'',previous:currentProfile.uid==uid?currentProfile:null);
+        final prefs=await _scope.read(ticket,SharedPreferences.getInstance);
+        if(prefs==null||_owner!=uid)return;
+        final effective=(prefs.getBool('pending_location_opt_out:$uid')??false)?profile.copyWith(isLocationSharingEnabled:false):profile;
+        await prefs.setString(_cacheKey(uid),effective.toJson());
+        if(!_scope.owns(ticket)||_owner!=uid)return;
+        _profileRevision++;profileNotifier.value=effective;isFirestoreConnected.value=true;
+        await LocationService().configure(owner:uid,enabled:effective.isLocationSharingEnabled);return;
+      }
+      final doc = await _scope.read(ticket, () => _firestore.collection('users').doc(uid).get());
+      if (doc == null || _owner != uid) return;
       final resolution = resolveProfileOnAuth(
-        // The token's uid, never a name, contact id or cached value.
-        authUid: _auth.currentUser?.uid ?? uid,
+        authUid: uid, documentUid: uid,
         existingDoc: doc.exists ? doc.data() : null,
         currentProfile: currentProfile,
-        authEmail: _auth.currentUser?.email,
-        authDisplayName: _auth.currentUser?.displayName,
+        authEmail: IdentityRuntime.current?.email,
+        authDisplayName: IdentityRuntime.current?.displayName,
       );
-
-      // Persist BEFORE publishing the profile. If this throws we fall into the
-      // catch below having changed nothing, so a failed initialisation can
-      // never present itself as a ready account.
-      //
-      // merge: true keeps the write idempotent - repeated auth events and
-      // concurrent initialisations converge on the same document instead of
-      // erasing fields.
+      if (!_scope.owns(ticket) || _owner != uid) return;
       if (resolution.needsWrite) {
-        await _firestore.collection('users').doc(resolution.profile.uid).set(
-              resolution.profile.toMap(),
-              SetOptions(merge: true),
-            );
+        final data = resolution.profile.toMap();
+        if (ApiRuntime.enabled) data.remove('catName');
+        await _firestore.collection('users').doc(uid).set(data, SetOptions(merge: true));
       }
-
+      if (!_scope.owns(ticket) || _owner != uid) return;
+      final prefs = await _scope.read(ticket, SharedPreferences.getInstance);
+      if (prefs == null || _owner != uid) return;
+      await prefs.setString(_cacheKey(uid), resolution.profile.toJson());
+      if (!_scope.owns(ticket) || _owner != uid) {
+        await prefs.remove(_cacheKey(uid));
+        return;
+      }
+      _profileRevision++;
       profileNotifier.value = resolution.profile;
+      LocationService().configure(owner: uid, enabled: resolution.profile.isLocationSharingEnabled);
       isFirestoreConnected.value = true;
-
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('cached_user_profile', resolution.profile.toJson());
-      await prefs.setString('active_user_uid', resolution.profile.uid);
-
-      debugPrint("[UserDataService] Profile ready for UID: ${resolution.profile.uid} (${resolution.reason})");
-    } catch (e) {
-      // Explicitly NOT downgrading to a guest profile. She is authenticated;
-      // losing her profile document must not silently revoke that, and
-      // overwriting the in-memory profile here is what would strand her.
-      isFirestoreConnected.value = false;
-      debugPrint("[UserDataService] Profile load/init FAILED for UID $uid - not marking ready: $e");
+    } catch (_) {
+      if (_scope.owns(ticket) && _owner == uid) isFirestoreConnected.value = false;
+      debugPrint('[UserDataService] Profile load could not be confirmed');
     }
   }
 }

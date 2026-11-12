@@ -54,3 +54,14 @@ extension SosSubmissionStateX on SosSubmissionState {
   bool get needsAttention =>
       this == SosSubmissionState.failed || this == SosSubmissionState.queued;
 }
+
+/// A delayed empty snapshot must not erase a newer submission or an operation
+/// that was still sending when the snapshot was observed.
+class SosReconciliationGuard {
+  int _generation = 0;
+  int get generation => _generation;
+  void beginSubmission() { _generation++; }
+  bool canApplyAbsence({required int observedGeneration,
+      required bool authoritative, required bool wasSending}) =>
+    authoritative && !wasSending && observedGeneration == _generation;
+}

@@ -1,3 +1,4 @@
+import '../services/location_evidence.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -11,10 +12,13 @@ import '../services/alert_service.dart';
 import '../services/location_service.dart';
 import '../services/localization_service.dart';
 import '../services/audio_recording_service.dart';
+import '../services/audio_evidence_limits.dart';
 import '../services/emergency_gesture_service.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import '../auth/identity_runtime.dart';
 import 'auth_screen.dart';
+import '../api/api_runtime.dart';
+import '../api/migration_api_client.dart';
 
 class EmergencyScreen extends StatefulWidget {
   const EmergencyScreen({Key? key}) : super(key: key);
@@ -36,10 +40,13 @@ class _EmergencyScreenState extends State<EmergencyScreen> with SingleTickerProv
   // NOT mean "delivered" - use _sosState.isDelivered for that. Conflating the
   // two is the bug this replaced.
   SosSubmissionState _sosState = SosSubmissionState.idle;
+  final _reconciliation = SosReconciliationGuard();
   bool get _isSOSSent => _sosState.hasAlert;
   String? _sosFailureDetail;
   String? _activeAlertId;
   bool _isUrgent = false;
+  int? _acknowledgmentCount;
+  Map<String,int>? _delivery;
   final TextEditingController _messageCtrl = TextEditingController();
   bool _isMessageSent = false;
 
@@ -49,6 +56,8 @@ class _EmergencyScreenState extends State<EmergencyScreen> with SingleTickerProv
 
   // Telegram-style Voice Recorder State
   bool _isRecordingVoice = false;
+  String? _recordingOwner,_recordingIncident;
+  int? _recordingEpoch;
   int _recordSeconds = 0;
   Timer? _recordTimer;
 
@@ -76,6 +85,10 @@ class _EmergencyScreenState extends State<EmergencyScreen> with SingleTickerProv
   }
 
   void _onProfileChanged() {
+    if(_isRecordingVoice&&IdentityRuntime.current?.uid!=_recordingOwner){
+      _recordTimer?.cancel();_audioRecordingService.stopRecording();
+      if(mounted)setState((){_isRecordingVoice=false;_recordSeconds=0;});
+    }
     _subscribeToUserActiveAlert();
   }
 
@@ -114,11 +127,11 @@ class _EmergencyScreenState extends State<EmergencyScreen> with SingleTickerProv
     final cachedAlertId = await _userDataService.getActiveSOSAlertIdLocally();
     final userId = _userDataService.currentProfile.uid.isNotEmpty
         ? _userDataService.currentProfile.uid
-        : (cachedAlertId ?? FirebaseAuth.instance.currentUser?.uid ?? '');
+        : (cachedAlertId ?? IdentityRuntime.current?.uid ?? '');
     if (userId.isEmpty) return;
 
     _userAlertSubscription = _alertService.getUserActiveAlertStream(userId).listen((snapshot) async {
-      if (!mounted) return;
+      if (!mounted || IdentityRuntime.current?.uid != userId) return;
 
       final activeAlert = snapshot.alert;
       if (activeAlert != null) {
@@ -133,7 +146,7 @@ class _EmergencyScreenState extends State<EmergencyScreen> with SingleTickerProv
           // reason. _triggerSOS owns the outcome until it resolves, and it
           // settles on queued itself if the server does not acknowledge in
           // time. Promotion to `sent` is always allowed.
-          if (snapshot.isPendingDelivery) {
+          if (snapshot.isPendingDelivery || snapshot.isFromCache) {
             if (_sosState != SosSubmissionState.sending) {
               _sosState = SosSubmissionState.queued;
             }
@@ -143,6 +156,8 @@ class _EmergencyScreenState extends State<EmergencyScreen> with SingleTickerProv
           if (snapshot.isConfirmedDelivered) _sosFailureDetail = null;
           _activeAlertId = activeAlert.id;
           _isUrgent = activeAlert.isUrgent;
+          _acknowledgmentCount = activeAlert.acknowledgmentCount;
+          _delivery=activeAlert.delivery;
           if (activeAlert.message.trim().isNotEmpty) {
             _messageCtrl.text = activeAlert.message.trim();
             _isMessageSent = true;
@@ -152,13 +167,20 @@ class _EmergencyScreenState extends State<EmergencyScreen> with SingleTickerProv
       } else {
         // No alert on the server. Only clear if this device does not believe one
         // is outstanding, so an offline queued alert is not silently forgotten.
+        final observed = _reconciliation.generation;
+        final wasSending = _sosState == SosSubmissionState.sending;
         final isLocallyActive = await _userDataService.isSOSActiveLocally();
-        if (!isLocallyActive && mounted) {
+        if (observed != _reconciliation.generation) return;
+        final terminal = _reconciliation.canApplyAbsence(observedGeneration: observed,
+            authoritative: snapshot.isAuthoritative, wasSending: wasSending);
+        if (terminal) await _userDataService.setSOSActiveLocally(false);
+        if ((!isLocallyActive || terminal) && mounted && IdentityRuntime.current?.uid == userId) {
           setState(() {
             _sosState = SosSubmissionState.idle;
             _sosFailureDetail = null;
             _activeAlertId = null;
             _isUrgent = false;
+            _acknowledgmentCount = null;
             _isMessageSent = false;
             _messageCtrl.clear();
           });
@@ -235,17 +257,25 @@ class _EmergencyScreenState extends State<EmergencyScreen> with SingleTickerProv
     // Already sending, or an alert already exists. Retrying a FAILED send is
     // allowed and lands here from the retry button.
     if (_sosState.isBusy || _sosState.hasAlert) return;
+    _reconciliation.beginSubmission();
 
     // Immediate tactile feedback
     HapticFeedback.heavyImpact();
 
     final profile = _userDataService.currentProfile;
 
+    final submissionOwner=IdentityRuntime.current?.uid,submissionEpoch=ApiRuntime.enabled?ApiRuntime.client.accountEpoch():null;
+    bool sameAccount()=>IdentityRuntime.current?.uid==submissionOwner&&(!ApiRuntime.enabled||ApiRuntime.client.accountEpoch()==submissionEpoch);
+
     // No fabricated fallback. This previously defaulted to (9.0125, 38.7636),
     // Addis Ababa city centre, so an SOS sent without a GPS fix asserted she was
     // downtown and would send responders to the wrong place.
-    final double? lat = _livePosition?.latitude ?? _locationService.currentPosition?.latitude;
-    final double? lng = _livePosition?.longitude ?? _locationService.currentPosition?.longitude;
+    final position = _livePosition ?? _locationService.currentPosition;
+    final fix = LocationEvidence.decide(consent: profile.isLocationSharingEnabled,
+      latitude: position?.latitude, longitude: position?.longitude,
+      accuracyMeters: position?.accuracy, measuredAt: position?.timestamp, now: DateTime.now());
+    final lat = fix.latitude;
+    final lng = fix.longitude;
     final bool hasLocation = lat != null && lng != null;
 
     // "sending", NOT "sent". Nothing has been confirmed at this point.
@@ -265,21 +295,24 @@ class _EmergencyScreenState extends State<EmergencyScreen> with SingleTickerProv
     // The alert id is known in advance because the document id is the user's
     // uid, which is also what makes a retry idempotent.
     await _userDataService.setSOSActiveLocally(true, profile.uid);
+    if(!sameAccount())return;
 
     try {
       // Firestore resolves set() on SERVER acknowledgement. Offline it never
       // completes and never throws, so without this timeout the method would
       // hang here forever while the screen showed an active broadcast.
-      final String alertId = await _alertService
+      final creation = _alertService
           .createSOSAlert(
             profile: profile,
             latitude: lat,
             longitude: lng,
-            locationName: hasLocation ? "Live GPS" : "Location unavailable",
+            locationName: fix.label,
+            accuracyMeters: fix.accuracyMeters, locationAgeMs: fix.ageMs,
             message: _messageCtrl.text,
             isUrgent: _isUrgent,
-          )
-          .timeout(_serverAckTimeout);
+          );
+      final String alertId=await (_alertService.usesTrustedApi?creation:creation.timeout(_serverAckTimeout));
+      if(!sameAccount())return;
 
       // The server has it. This is the only path that may claim delivery.
       await _userDataService.setSOSActiveLocally(true, alertId);
@@ -315,6 +348,7 @@ class _EmergencyScreenState extends State<EmergencyScreen> with SingleTickerProv
         );
       }
     } on TimeoutException {
+      if(!sameAccount())return;
       // The write stays queued in Firestore's cache and will be sent when
       // connectivity returns. It has NOT reached anyone. Say exactly that: the
       // old copy claimed the alert "will broadcast the millisecond connection is
@@ -342,6 +376,13 @@ class _EmergencyScreenState extends State<EmergencyScreen> with SingleTickerProv
         );
       }
     } catch (e) {
+      if(!sameAccount())return;
+      if(e is PendingSosNeedsAction){
+        await _userDataService.setSOSActiveLocally(true,profile.uid);
+        if(!mounted||!sameAccount())return;
+        setState((){_sosState=SosSubmissionState.queued;_sosFailureDetail='Pending SOS needs sign-in or review. Delivery is unconfirmed.';});
+        _snack('SOS remains saved on this device and needs sign-in or review before sending.',Colors.orange.shade800);return;
+      }
       // A failed SOS must be impossible to mistake for a successful one. The old
       // implementation only wrote to debugPrint here and left the screen showing
       // an active broadcast.
@@ -433,6 +474,18 @@ class _EmergencyScreenState extends State<EmergencyScreen> with SingleTickerProv
 
   /// Second line of the banner: what she should do, not what we hope happened.
   String get _sosStatusDetail {
+    if (_sosState == SosSubmissionState.sent && _acknowledgmentCount != null) {
+      final delivery=_delivery;
+      if(delivery!=null){
+        final selection=(delivery['selectionPendingTasks']??0)>0?'Recipient selection is pending. ':
+          (delivery['selectionAbandonedTasks']??0)>0?'Recipient selection needs recovery. ':
+          (delivery['selectedRecipients']??0)==0?'No eligible recipients were selected. ':'';
+        return 'Backend received SOS. $selection${delivery['queuedDeviceIntents']??0} device deliveries queued; '
+        '${delivery['providerAcceptedDeviceIntents']??0} accepted by provider; ${delivery['deviceReportedReceipts']??0} device-reported receipts; '
+        '${delivery['openedDeviceIntents']??0} opened; $_acknowledgmentCount active in-app responses. Arrival is unverified.';
+      }
+      return 'Backend received SOS. $_acknowledgmentCount active in-app responses. Delivery and arrival are unverified.';
+    }
     final amharic = _loc.isAmharic;
     switch (_sosState) {
       case SosSubmissionState.queued:
@@ -506,19 +559,28 @@ class _EmergencyScreenState extends State<EmergencyScreen> with SingleTickerProv
   }
 
   // Toggle Urgent Status
-  void _onToggleUrgent(bool val) {
+  Future<void> _onToggleUrgent(bool val) async {
+    final id=_activeAlertId,owner=IdentityRuntime.current?.uid;
+    final epoch=ApiRuntime.enabled?ApiRuntime.client.accountEpoch():null;
+    if(id!=null){
+      try{await _alertService.toggleUrgentStatus(id,val);}catch(_){
+        _snack('Urgency change could not be confirmed. SOS escalation remains active.',Colors.orange);return;
+      }
+    }
+    if(!mounted||IdentityRuntime.current?.uid!=owner||_activeAlertId!=id||
+       (ApiRuntime.enabled&&ApiRuntime.client.accountEpoch()!=epoch))return;
     setState(() {
       _isUrgent = val;
     });
-    if (_activeAlertId != null) {
-      _alertService.toggleUrgentStatus(_activeAlertId!, val);
-    }
   }
 
   final AudioRecordingService _audioRecordingService = AudioRecordingService();
 
   // Telegram-Style Real Voice Note Recording Flow
   Future<void> _startVoiceRecording() async {
+    _recordingOwner=IdentityRuntime.current?.uid;_recordingIncident=_activeAlertId;
+    _recordingEpoch=ApiRuntime.enabled?ApiRuntime.client.accountEpoch():null;
+    if(_recordingOwner==null||_recordingIncident==null)return;
     bool started = await _audioRecordingService.startRecording();
     if (!started) {
       if (mounted) {
@@ -532,6 +594,10 @@ class _EmergencyScreenState extends State<EmergencyScreen> with SingleTickerProv
       return;
     }
 
+    if(!mounted||IdentityRuntime.current?.uid!=_recordingOwner||
+        (ApiRuntime.enabled&&ApiRuntime.client.accountEpoch()!=_recordingEpoch)){
+      await _audioRecordingService.stopRecording();return;
+    }
     setState(() {
       _isRecordingVoice = true;
       _recordSeconds = 0;
@@ -552,36 +618,93 @@ class _EmergencyScreenState extends State<EmergencyScreen> with SingleTickerProv
 
     _recordTimer?.cancel();
     int secondsRecorded = _recordSeconds;
+    final recordingOwner=_recordingOwner,recordingIncident=_recordingIncident,recordingEpoch=_recordingEpoch;
 
     setState(() {
       _isRecordingVoice = false;
       _recordSeconds = 0;
     });
 
-    // Stop real microphone recording and get base64 encoded audio string
-    final String? audioBase64 = await _audioRecordingService.stopRecording();
+    final capture = await _audioRecordingService.stopRecording();
+    if(IdentityRuntime.current?.uid!=recordingOwner||_activeAlertId!=recordingIncident||
+        (ApiRuntime.enabled&&ApiRuntime.client.accountEpoch()!=recordingEpoch))return;
+
+    if(_alertService.usesTrustedApi){
+      var saved=false;
+      try {
+        if(capture.isOk&&capture.filePath!=null)saved=await _alertService.attachVoiceFile(owner:recordingOwner!,alertId:recordingIncident!,filePath:capture.filePath!,durationMs:secondsRecorded*1000);
+      }catch(_){/* A failed save is never presented as evidence stored. */}
+      final message=!capture.isOk?'No usable recording was attached. Please try again.':saved?'Voice note attached to this incident.':'Upload is not confirmed. The recording remains on this device; saved pending uploads retry while the app is open.';
+      _snack(message,saved?AppTheme.primaryPink:Colors.orange.shade800);
+      return;
+    }
 
     String durationStr = "0:${secondsRecorded.toString().padLeft(2, '0')}";
+
+    // Nothing usable was captured, or it is too large for the document. Either
+    // way NO note is attached, and nothing may suggest one was. This used to
+    // turn a null into an empty audioUrl, attach a note with no audio in it,
+    // and report success.
+    if (!capture.isOk) {
+      switch (capture.verdict) {
+        case AudioEvidenceVerdict.tooLarge:
+          _snack(
+            _loc.isAmharic
+                ? "ቅጂው ($durationStr) በጣም ረጅም ነው፤ አልተያያዘም። እባክዎ ከ$kApproxMaxRecordingSeconds ሰከንድ በታች ይቅረጹ።"
+                : "Recording ($durationStr) is too long to attach and was NOT saved. "
+                    "Record under $kApproxMaxRecordingSeconds seconds and try again.",
+            Colors.orange.shade800,
+          );
+        case AudioEvidenceVerdict.empty:
+        case AudioEvidenceVerdict.ok:
+          _snack(
+            _loc.isAmharic
+                ? "ቅጂው አልተሳካም፤ አልተያያዘም። እባክዎ እንደገና ይሞክሩ።"
+                : "Recording failed and was NOT attached. Please try again.",
+            Colors.redAccent,
+          );
+      }
+      return;
+    }
 
     final voiceNote = VoiceNoteItem(
       id: "vn_${DateTime.now().millisecondsSinceEpoch}",
       title: "Emergency Audio Clip",
       duration: durationStr,
       timestamp: DateTime.now(),
-      audioUrl: audioBase64 ?? '',
+      audioUrl: capture.dataUri!,
     );
 
     final targetAlertId = _activeAlertId ?? _userDataService.currentProfile.uid;
-    await _alertService.addVoiceNote(targetAlertId, voiceNote);
+    final saved = await _alertService.addVoiceNote(targetAlertId, voiceNote);
 
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(_loc.isAmharic ? "የድምፅ መልእክት ($durationStr) ከአደጋ ጥሪዎ ጋር ተያይዟል!" : "Voice note ($durationStr) recorded and attached to alert!"),
-          backgroundColor: AppTheme.primaryPink,
-        ),
+    if (!saved.isSaved) {
+      _snack(
+        _loc.isAmharic
+            ? "የድምፅ መልእክቱ አልተቀመጠም። እባክዎ እንደገና ይሞክሩ።"
+            : "Voice note could NOT be saved to your alert. Please try again.",
+        Colors.redAccent,
       );
+      return;
     }
+
+    _snack(
+      _loc.isAmharic
+          ? "የድምፅ መልእክት ($durationStr) ከአደጋ ጥሪዎ ጋር ተያይዟል!"
+          : "Voice note ($durationStr) recorded and attached to alert!",
+      AppTheme.primaryPink,
+    );
+  }
+
+  /// Show a message, if this screen is still on-screen.
+  ///
+  /// Every call site here follows an `await`, so the mounted check belongs in
+  /// one place rather than being remembered at each of them.
+  void _snack(String message, Color background) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), backgroundColor: background),
+    );
   }
 
   Future<void> _cancelVoiceRecording() async {
@@ -666,6 +789,11 @@ class _EmergencyScreenState extends State<EmergencyScreen> with SingleTickerProv
             ElevatedButton(
               onPressed: () async {
                 if (_activeAlertId != null) {
+                  // Captured BEFORE any await. Reading Navigator.of(ctx) after
+                  // an await is a BuildContext use across an async gap, and the
+                  // dialog's element may be gone by then.
+                  final dialogNavigator = Navigator.of(ctx);
+
                   final result = await _alertService.cancelSOSAlert(
                     alertId: _activeAlertId!,
                     userCatName: profile.catName,
@@ -675,24 +803,49 @@ class _EmergencyScreenState extends State<EmergencyScreen> with SingleTickerProv
                   if (result.isSuccess) {
                     await _userDataService.setSOSActiveLocally(false);
                     await EmergencyGestureService().recordCancellation();
-                    Navigator.pop(ctx);
-                    setState(() {
-                      _sosState = SosSubmissionState.idle;
-                      _sosFailureDetail = null;
-                      _activeAlertId = null;
-                      _isUrgent = false;
-                      _isMessageSent = false;
-                      _messageCtrl.clear();
-                    });
+
+                    // ORDER MATTERS. The cancellation has already committed on
+                    // the server and locally, so the screen must reflect it
+                    // before anything else can interrupt. Previously the
+                    // dialog was popped first and `setState` ran unguarded
+                    // after three awaits: if she had navigated away the
+                    // setState threw, and the screen could be left showing an
+                    // SOS that no longer existed.
                     if (mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text(_loc.isAmharic ? "የአደጋ ጥሪው ተሰርዟል። ሁኔታው ደህና ተብሏል።" : "SOS Alert safely cancelled. Status set to SAFE."),
-                          backgroundColor: Colors.green,
-                        ),
-                      );
+                      setState(() {
+                        _sosState = SosSubmissionState.idle;
+                        _sosFailureDetail = null;
+                        _activeAlertId = null;
+                        _isUrgent = false;
+                        _isMessageSent = false;
+                        _messageCtrl.clear();
+                      });
                     }
+
+                    // Only close the dialog if it is still open. Guarded on the
+                    // dialog's own context, not the screen's: the two can be
+                    // disposed independently.
+                    if (ctx.mounted) dialogNavigator.pop();
+
+                    _snack(
+                      _loc.isAmharic
+                          ? "የአደጋ ጥሪው ተሰርዟል። ሁኔታው ደህና ተብሏል።"
+                          : "SOS Alert safely cancelled. Status set to SAFE.",
+                      Colors.green,
+                    );
                   } else {
+                    // A FAILED cancellation must stay visible. If the dialog
+                    // has gone, the error is surfaced on the screen instead of
+                    // being dropped - she needs to know her SOS is still live.
+                    if (!ctx.mounted) {
+                      _snack(
+                        _loc.isAmharic
+                            ? "ጥሪው አልተሰረዘም። አደጋ ጥሪዎ አሁንም ገቢር ነው።"
+                            : "Cancellation failed. Your SOS is still ACTIVE.",
+                        Colors.redAccent,
+                      );
+                      return;
+                    }
                     setStateModal(() {
                       if (result.isSecurityMismatch) {
                         errorTxt = _loc.isAmharic
@@ -716,7 +869,10 @@ class _EmergencyScreenState extends State<EmergencyScreen> with SingleTickerProv
     );
   }
 
-  void _sendEmergencyMessageNote() {
+  Future<void> _sendEmergencyMessageNote() async {
+    final id=_activeAlertId,owner=IdentityRuntime.current?.uid;
+    final epoch=ApiRuntime.enabled?ApiRuntime.client.accountEpoch():null;
+    if(id==null)return;
     final text = _messageCtrl.text.trim();
     if (text.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -728,8 +884,12 @@ class _EmergencyScreenState extends State<EmergencyScreen> with SingleTickerProv
       return;
     }
     if (_activeAlertId != null) {
-      _alertService.updateMessageNote(_activeAlertId!, text);
+      try{await _alertService.updateMessageNote(_activeAlertId!,text);}catch(_){
+        _snack('The note could not be confirmed. Please retry.',Colors.orange.shade800);return;
+      }
     }
+    if(!mounted||IdentityRuntime.current?.uid!=owner||_activeAlertId!=id||
+       (ApiRuntime.enabled&&ApiRuntime.client.accountEpoch()!=epoch))return;
     setState(() {
       _isMessageSent = true;
     });
@@ -772,7 +932,7 @@ class _EmergencyScreenState extends State<EmergencyScreen> with SingleTickerProv
                 actions: [
                   IconButton(
                     icon: const Icon(Icons.my_location_rounded, color: AppTheme.primaryPink),
-                    tooltip: "Update Live GPS Location",
+                    tooltip: "Request a new GPS fix",
                     onPressed: () async {
                       setState(() => _isFetchingLocation = true);
                       Position? pos = await _locationService.getCurrentLocation();

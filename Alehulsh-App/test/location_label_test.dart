@@ -31,14 +31,14 @@ void main() {
       }
     });
 
-    test('an explicitly stored label is preserved exactly', () {
+    test('recorded labels survive while unproven legacy Live GPS claims are downgraded', () {
       for (final stored in [
         'Live GPS',
         'Last known location (45 min old)',
         'Bole, Addis Ababa',
       ]) {
         final a = EmergencyAlert.fromMap(docWith({'locationName': stored}), docId: 'a1');
-        expect(a.locationName, stored);
+        expect(a.locationName, stored == 'Live GPS' ? 'Recorded location (freshness unverified)' : stored);
       }
     });
 

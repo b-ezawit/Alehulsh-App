@@ -1,9 +1,14 @@
+import '../api/migration_api_client.dart';
+import 'dart:async';
+import '../api/api_runtime.dart';
+import '../api/trusted_alert_gateway.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/alert_model.dart';
 import '../models/user_profile_model.dart';
 import '../utils/geohash_util.dart';
 import 'keyword_verification.dart';
+import 'pending_evidence_service.dart';
 
 class CancelSOSResult {
   final bool isSuccess;
@@ -25,6 +30,27 @@ class CancelSOSResult {
 /// receiving an alert proves nothing about delivery. [isPendingDelivery]
 /// separates "written on this phone" from "accepted by the server", which is the
 /// difference between an alarm that will reach someone and one that will not.
+/// What happened to a voice note we tried to attach.
+///
+/// `addVoiceNote` previously returned void and caught every exception, so a
+/// failed write was indistinguishable from a successful one - and the caller
+/// showed "recorded and attached to alert!" either way. For audio recorded
+/// during an assault that is the worst possible lie to tell.
+enum VoiceNoteSaveOutcome {
+  saved,
+
+  /// The document write was refused or failed. The commonest real cause is the
+  /// 1 MiB document ceiling once several notes have accumulated, which no
+  /// client-side per-note limit can fully prevent.
+  writeFailed,
+}
+
+class VoiceNoteSaveResult {
+  const VoiceNoteSaveResult(this.outcome);
+  final VoiceNoteSaveOutcome outcome;
+  bool get isSaved => outcome == VoiceNoteSaveOutcome.saved;
+}
+
 class ActiveAlertSnapshot {
   /// The user's active alert, or null when she has none.
   final EmergencyAlert? alert;
@@ -38,14 +64,18 @@ class ActiveAlertSnapshot {
   /// True when this snapshot was served from the local cache.
   final bool isFromCache;
 
+  /// Absence is meaningful only after an authenticated server read.
+  final bool isAuthoritative;
+
   const ActiveAlertSnapshot({
     this.alert,
     this.isPendingDelivery = false,
     this.isFromCache = false,
+    this.isAuthoritative = false,
   });
 
   /// The server holds this alert: it has reached the backend.
-  bool get isConfirmedDelivered => alert != null && !isPendingDelivery;
+  bool get isConfirmedDelivered => alert != null && !isPendingDelivery && !isFromCache;
 
   static const ActiveAlertSnapshot none = ActiveAlertSnapshot();
 }
@@ -55,10 +85,18 @@ class AlertService {
   factory AlertService() => _instance;
   AlertService._internal();
 
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  FirebaseFirestore get _firestore => FirebaseFirestore.instance;
+  TrustedAlertGateway? _gateway;
+  TrustedAlertGateway? _testGateway;
+  @visibleForTesting
+  AlertService.withTrustedApi(TrustedAlertGateway gateway) { _testGateway = gateway; }
+  bool get usesTrustedApi => _testGateway != null || ApiRuntime.enabled;
+  TrustedAlertGateway get _api => _testGateway ?? (_gateway ??= TrustedAlertGateway(ApiRuntime.client));
+
 
   /// Optimized Real-time stream of active alerts with 2-hour TTL filtering
   Stream<List<EmergencyAlert>> get alertsStream {
+    if (usesTrustedApi) return _inboxStream();
     return _firestore
         .collection('active_alerts')
         .where('status', isEqualTo: 'active')
@@ -113,6 +151,7 @@ class AlertService {
     required double userLng,
     double radiusInKm = 0.5,
   }) {
+    if (usesTrustedApi) return _inboxStream();
     // 5-character Geohash covers ~2.4km surrounding grid (encompassing 500m radar)
     final geohashPrefix = GeohashUtil.getFCMTopicGeohash(userLat, userLng);
     final queryRange = GeohashUtil.getGeohashQueryRange(geohashPrefix);
@@ -159,6 +198,7 @@ class AlertService {
     if (userId.isEmpty) {
       return Stream.value(ActiveAlertSnapshot.none);
     }
+    if (usesTrustedApi) return _ownStream(userId);
     return _firestore
         .collection('active_alerts')
         .doc(userId)
@@ -171,22 +211,59 @@ class AlertService {
       try {
         if (doc.exists && doc.data() != null) {
           final alert = EmergencyAlert.fromMap(doc.data()!, docId: doc.id);
-          if (alert.status == 'active' && !alert.isExpired) {
+          if (['active', 'escalated'].contains(alert.status) && !alert.isExpired) {
             return ActiveAlertSnapshot(
               alert: alert,
               isPendingDelivery: doc.metadata.hasPendingWrites,
               isFromCache: doc.metadata.isFromCache,
+              isAuthoritative: !doc.metadata.isFromCache && !doc.metadata.hasPendingWrites,
             );
           }
         }
       } catch (e) {
         debugPrint("[AlertService] Error reading active user alert: $e");
       }
-      return ActiveAlertSnapshot(isFromCache: doc.metadata.isFromCache);
+      return ActiveAlertSnapshot(isFromCache: doc.metadata.isFromCache,
+        isAuthoritative: !doc.metadata.isFromCache && !doc.metadata.hasPendingWrites);
     }).handleError((error) {
       debugPrint("[AlertService] getUserActiveAlertStream error handled: $error");
       return ActiveAlertSnapshot.none;
     });
+  }
+
+  Stream<ActiveAlertSnapshot> _ownStream(String owner) async* {
+    final gateway = _api; // Missing configured API fails closed, before SDK access.
+    final epoch = gateway.client.accountEpoch();
+    while (gateway.client.knownSubject() == owner && gateway.client.accountEpoch() == epoch) {
+      try {
+        await gateway.client.flush(); // Durable retry on resume and each poll.
+        final alert = await gateway.own(owner);
+        final pending = await gateway.client.outbox.pending(owner);
+        if (gateway.client.knownSubject() != owner || gateway.client.accountEpoch() != epoch) return;
+        yield ActiveAlertSnapshot(alert: alert?.isExpired == false ? alert : null,
+            isAuthoritative: pending.isEmpty);
+      } catch (_) {
+        if (gateway.client.knownSubject() != owner || gateway.client.accountEpoch() != epoch) return;
+        yield const ActiveAlertSnapshot(); // Unknown, never terminal evidence.
+      }
+      await Future<void>.delayed(gateway.pollInterval);
+    }
+    yield const ActiveAlertSnapshot();
+  }
+
+  Stream<List<EmergencyAlert>> _inboxStream() async* {
+    final gateway = _api;
+    final owner = gateway.client.knownSubject();
+    final epoch = gateway.client.accountEpoch();
+    while (owner != null && gateway.client.knownSubject() == owner && gateway.client.accountEpoch() == epoch) {
+      try { yield await gateway.inbox(); }
+      catch (_) {
+        yield const []; // Retract precise locations before reporting unavailability.
+        yield* Stream<List<EmergencyAlert>>.error(const ApiOperationException(503));
+      }
+      await Future<void>.delayed(gateway.pollInterval);
+    }
+    yield const [];
   }
 
   /// Create or Update the user's single SOS alert document in Firestore using doc(profile.uid)
@@ -207,7 +284,14 @@ class AlertService {
     required String locationName,
     String message = '',
     bool isUrgent = false,
+    double? accuracyMeters,
+    double? locationAgeMs,
+    String? requestId,
   }) async {
+    if (usesTrustedApi) {
+      return _api.create(profile.uid, latitude: latitude, longitude: longitude,
+          accuracyMeters: accuracyMeters, locationAgeMs: locationAgeMs,requestId:requestId);
+    }
     try {
       // Document ID is strictly profile.uid to guarantee 1 alert per user
       final docRef = _firestore.collection('active_alerts').doc(profile.uid);
@@ -309,6 +393,7 @@ class AlertService {
 
   /// Toggle Urgent status for active alert
   Future<void> toggleUrgentStatus(String alertId, bool isUrgent) async {
+    if (usesTrustedApi) return _api.updateDetails(alertId,isUrgent:isUrgent);
     try {
       await _firestore.collection('active_alerts').doc(alertId).update({
         'isUrgent': isUrgent,
@@ -321,6 +406,7 @@ class AlertService {
 
   /// Update optional message note for active alert
   Future<void> updateMessageNote(String alertId, String message) async {
+    if (usesTrustedApi) return _api.updateDetails(alertId,message:message.trim());
     try {
       await _firestore.collection('active_alerts').doc(alertId).update({
         'message': message.trim(),
@@ -331,16 +417,36 @@ class AlertService {
     }
   }
 
-  /// Add a recorded voice note to an active alert (Appends seamlessly to the single active alert)
-  Future<void> addVoiceNote(String alertId, VoiceNoteItem voiceNote) async {
+  /// Add a recorded voice note to an active alert.
+  ///
+  /// Reports the outcome instead of swallowing it. The caller must not tell
+  /// her the recording is attached unless this says it is.
+  Future<VoiceNoteSaveResult> addVoiceNote(
+    String alertId,
+    VoiceNoteItem voiceNote,
+  ) async {
+    if (usesTrustedApi) return const VoiceNoteSaveResult(VoiceNoteSaveOutcome.writeFailed);
     try {
       await _firestore.collection('active_alerts').doc(alertId).update({
         'voiceNotes': FieldValue.arrayUnion([voiceNote.toMap()]),
       });
-      debugPrint("[AlertService] Voice note added to alert $alertId");
+      return const VoiceNoteSaveResult(VoiceNoteSaveOutcome.saved);
     } catch (e) {
-      debugPrint("[AlertService] Error adding voice note: $e");
+      // Classification only. The exception text is not surfaced to the UI: it
+      // can carry document contents, and this document holds her coordinates
+      // and her contacts.
+      debugPrint("[AlertService] Voice note write failed: ${e.runtimeType}");
+      return const VoiceNoteSaveResult(VoiceNoteSaveOutcome.writeFailed);
     }
+  }
+
+  Future<bool> attachVoiceFile({required String owner,required String alertId,required String filePath,required int durationMs})async{
+    if(!usesTrustedApi)return false;
+    final epoch=ApiRuntime.client.accountEpoch();
+    if(ApiRuntime.client.knownSubject()!=owner)return false;
+    final current=await _api.own(owner);
+    if(current==null||current.id!=alertId||current.incidentKey==null||ApiRuntime.client.accountEpoch()!=epoch||ApiRuntime.client.knownSubject()!=owner)return false;
+    return PendingEvidenceService.instance.attach(owner:owner,alertId:alertId,incidentKey:current.incidentKey!,sourcePath:filePath,durationMs:durationMs);
   }
 
   /// Cancel SOS alert and remove it from Firestore (verifies cat's name security code)
@@ -349,6 +455,15 @@ class AlertService {
     required String userCatName,
     required String inputCatName,
   }) async {
+    if (usesTrustedApi) {
+      try {
+        final ended = await _api.resolve(alertId, inputCatName);
+        return ended ? CancelSOSResult.success : const CancelSOSResult(isSuccess: false,
+          errorMessage: 'Resolution is not confirmed. The alert remains active.');
+      } catch (_) {
+        return const CancelSOSResult(isSuccess: false, errorMessage: 'Resolution could not be confirmed.');
+      }
+    }
     // No keyword configured, nothing entered, and a wrong answer all land here
     // and all return the SAME result, so an onlooker cannot tell which case he
     // is in. See keyword_verification.dart for why that matters.
@@ -378,6 +493,7 @@ class AlertService {
 
   /// Accept an alert as a responder (increments responder count in real time)
   Future<void> acceptAlert(String alertId, String responderUserId) async {
+    if (usesTrustedApi) return _api.accept(alertId, responderUserId);
     try {
       await _firestore.collection('active_alerts').doc(alertId).update({
         'responders': FieldValue.arrayUnion([responderUserId]),
@@ -390,6 +506,7 @@ class AlertService {
 
   /// Cancel response to an alert (decrements responder count in real time)
   Future<void> unacceptAlert(String alertId, String responderUserId) async {
+    if (usesTrustedApi) return _api.withdraw(alertId,responderUserId);
     try {
       await _firestore.collection('active_alerts').doc(alertId).update({
         'responders': FieldValue.arrayRemove([responderUserId]),
@@ -402,6 +519,7 @@ class AlertService {
 
   /// Delete ALL alerts from Firestore active_alerts collection
   Future<void> deleteAllAlerts() async {
+    if (usesTrustedApi) throw UnsupportedError('This operation is unavailable on the trusted backend');
     try {
       final snapshot = await _firestore.collection('active_alerts').get();
       final batch = _firestore.batch();

@@ -214,7 +214,7 @@ class _WomenForWomenScreenState extends State<WomenForWomenScreen> {
                     }
 
                     if (snapshot.hasError) {
-                      debugPrint("[WomenForWomenScreen] Alert stream note: ${snapshot.error}");
+                      return const Center(child: Text('Alerts are unavailable. Retrying securely…'));
                     }
 
                     final allAlerts = snapshot.data ?? [];
@@ -222,7 +222,8 @@ class _WomenForWomenScreenState extends State<WomenForWomenScreen> {
                     // Filter Alerts: 500m geodesic radius for community, universal for Emergency Contacts & Own Alert
                     List<EmergencyAlert> filteredAlerts = allAlerts.where((alert) {
                       // Only show active alerts
-                      if (alert.status != 'active') return false;
+                      if (!['active', 'escalated'].contains(alert.status) || alert.isExpired) return false;
+                      if (_alertService.usesTrustedApi) return _selectedCategory != 'Contacts' || alert.audience == 'contact';
 
                       bool isMe = alert.userId.isNotEmpty && alert.userId == currentUserId;
 
@@ -411,7 +412,7 @@ class _WomenForWomenScreenState extends State<WomenForWomenScreen> {
     bool isDarkMode,
   ) {
     bool isMyAlert = (alert.userId == currentUserId);
-    bool isAcceptedByMe = alert.responders.contains(currentUserId);
+    bool isAcceptedByMe = alert.hasAcknowledged||alert.responders.contains(currentUserId);
     String distanceStr = alert.distanceLabel(userLat, userLng);
 
     final targetHighlightId = EmergencyPingService.targetHighlightAlertId.value;
@@ -694,7 +695,7 @@ class _WomenForWomenScreenState extends State<WomenForWomenScreen> {
           const SizedBox(height: 12),
 
           // 3. "I am going" / "You are going" + Cancel Button
-          if (alert.status == 'active' && !isMyAlert)
+          if (['active', 'escalated'].contains(alert.status) && !isMyAlert)
             SizedBox(
               width: double.infinity,
               child: isAcceptedByMe
@@ -757,7 +758,10 @@ class _WomenForWomenScreenState extends State<WomenForWomenScreen> {
                                   TextButton(
                                     onPressed: () async {
                                       Navigator.pop(ctx);
-                                      await _alertService.unacceptAlert(alert.id, currentUserId);
+                                      try{await _alertService.unacceptAlert(alert.id,currentUserId);}catch(_){
+                                        if(context.mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Withdrawal could not be confirmed. Please retry.')));
+                                        return;
+                                      }
                                       if (context.mounted) {
                                         ScaffoldMessenger.of(context).showSnackBar(
                                           SnackBar(
@@ -800,7 +804,11 @@ class _WomenForWomenScreenState extends State<WomenForWomenScreen> {
                               : "You must log in to respond to an emergency alert!");
                           return;
                         }
-                        await _alertService.acceptAlert(alert.id, currentUserId);
+                        try { await _alertService.acceptAlert(alert.id, currentUserId); }
+                        catch (_) {
+                          if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Your response could not be confirmed. Please retry.')));
+                          return;
+                        }
                         _userDataService.recordAlertResponded();
                         if (context.mounted) {
                           ScaffoldMessenger.of(context).showSnackBar(

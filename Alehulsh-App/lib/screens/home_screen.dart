@@ -219,6 +219,11 @@ class HomeScreen extends StatelessWidget {
                   onTap: () async {
                     try {
                       final platform = MethodChannel('com.example.alehulsh_app/hardware_sos');
+                      final available = await platform.invokeMethod<bool>('hardwareSosAvailable') ?? false;
+                      if (!available && context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Hardware SOS is not enabled in this build. Use the on-screen SOS.')));
+                        return;
+                      }
                       final isEnabled = await platform.invokeMethod<bool>('isAccessibilityEnabled') ?? false;
                       if (!isEnabled && context.mounted) {
                         ScaffoldMessenger.of(context).showSnackBar(
@@ -272,7 +277,7 @@ class HomeScreen extends StatelessWidget {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                loc.isAmharic ? "የ 5x ፓወር ቁልፍ ድንገተኛ SOS" : "5x Physical Power Button SOS",
+                                "Hardware SOS: device validation required",
                                 style: const TextStyle(
                                   fontWeight: FontWeight.bold,
                                   fontSize: 14,
@@ -281,9 +286,7 @@ class HomeScreen extends StatelessWidget {
                               ),
                               const SizedBox(height: 4),
                               Text(
-                                loc.isAmharic
-                                    ? "ስልክዎ ተቆልፎም ቢሆን የፓወር ቁልፉን 5 ጊዜ በፍጥነት በመጫን (5x Power Button) ወይም የ SOS ቁልፍ በመንካት የቀጥታ GPS የአደጋ ጥሪ ወዲያውኑ ይላካል"
-                                    : "Press physical power button 5 times quickly (even when screen is closed/locked) or tap the SOS button to instantly broadcast live GPS emergency SOS",
+                                "Use the on-screen SOS. Physical power-button detection is available only in explicit debug validation builds and must be tested on the device.",
                                 style: TextStyle(
                                   fontSize: 12,
                                   height: 1.35,
@@ -348,8 +351,8 @@ class HomeScreen extends StatelessWidget {
                                 const SizedBox(height: 4),
                                 Text(
                                   loc.isAmharic
-                                      ? "የቀጥታ የጂፒኤስ አደጋ ጥሪ ይላኩ እና የድምጽ ማስታወሻ ይመዝግቡ"
-                                      : "Broadcast live GPS emergency alert & record audio note",
+                                      ? "ባለው የአካባቢ መረጃ የአደጋ ጥሪ ይላኩ"
+                                      : "Send an emergency alert using available location",
                                   style: TextStyle(
                                     color: isDarkMode ? const Color(0xFFFFB3BA) : const Color(0xFFC2185B),
                                     fontSize: 12,
@@ -652,7 +655,9 @@ class HomeScreen extends StatelessWidget {
                                 value: notifsEnabled,
                                 activeColor: AppTheme.primaryPink,
                                 onChanged: (value) async {
-                                  await UserDataService().setNotificationsEnabled(value);
+                                  try{await UserDataService().setNotificationsEnabled(value);}catch(_){
+                                    if(context.mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Notification preference or server opt-out could not be confirmed. Please retry.')));
+                                  }
                                 },
                               ),
                             ],

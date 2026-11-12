@@ -8,6 +8,9 @@ import android.location.Location
 import android.location.LocationManager
 import android.os.Build
 import android.os.SystemClock
+import android.os.Handler
+import android.os.Looper
+import java.util.concurrent.Executors
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.google.firebase.auth.FirebaseAuth
@@ -36,42 +39,47 @@ object AlehulshSosDispatcher {
 
     @Volatile
     private var lastTriggerAt = 0L
-
-    @Volatile
-    private var lastCancellationAt = 0L
+    private val trustedExecutor by lazy {Executors.newSingleThreadExecutor()}
 
     fun recordCancellation() {
-        val now = System.currentTimeMillis()
-        lastCancellationAt = now
-        lastTriggerAt = now
-        Log.d(TAG, "Manual SOS cancellation recorded. Hardware triggers locked for 20s.")
+        // A new genuine emergency must not be disabled by cancellation.
+        lastTriggerAt = 0L
     }
 
     fun trigger(context: Context, source: String) {
         val now = System.currentTimeMillis()
-        if (now - lastCancellationAt < 20000L) {
-            Log.d(TAG, "Ignoring trigger: user recently cancelled ($source)")
-            return
-        }
         if (now - lastTriggerAt < DEBOUNCE_MS) {
             Log.d(TAG, "Debounced SOS from $source (cooldown active)")
             return
         }
         lastTriggerAt = now
 
+        if(BuildConfig.TRUSTED_API_REQUIRED){
+            val app=context.applicationContext
+            trustedExecutor.execute {
+                var requestId:String?=null
+                var owner:String?=null
+                try {
+                    val saved=NativeTrustedSos.recovery(app).enqueue();requestId=saved.requestId;owner=saved.ownerSubject
+                    val scheduled=NativeTrustedSos.schedule(app)
+                    Log.i(TAG,if(scheduled)"SOS saved; recovery scheduled"else"SOS saved; foreground recovery required")
+                }catch(_:Exception){Log.w(TAG,"Native SOS could not be saved; foreground action required")}
+                Handler(Looper.getMainLooper()).post {notifyFlutter(source,requestId,owner);bringAppToForeground(app)}
+            };return
+        }
         notifyFlutter(source)
-        writeFirestoreAlert(context, source)
+        if (!BuildConfig.TRUSTED_API_REQUIRED) writeFirestoreAlert(context, source)
         bringAppToForeground(context)
     }
 
-    private fun notifyFlutter(source: String) {
+    private fun notifyFlutter(source: String,requestId:String?=null,owner:String?=null) {
         try {
             methodChannel?.invokeMethod(
                 "onHardwareSOS",
-                mapOf("source" to source, "independentOfOsCancel" to true)
+                mapOf("source" to source,"requestId" to requestId,"ownerSubject" to owner, "independentOfOsCancel" to true)
             )
         } catch (e: Exception) {
-            Log.w(TAG, "Flutter channel not ready: ${e.message}")
+            Log.w(TAG, "Flutter channel not ready: ${e.javaClass.simpleName}")
         }
     }
 
@@ -88,38 +96,25 @@ object AlehulshSosDispatcher {
                 context.startActivity(launch)
             }
         } catch (e: Exception) {
-            Log.w(TAG, "Could not open app: ${e.message}")
+            Log.w(TAG, "Could not open app: ${e.javaClass.simpleName}")
         }
-    }
-
-    private fun getCachedOrDeviceId(context: Context): String {
-        val prefs = context.getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
-        val cachedUid = prefs.getString("flutter.active_user_uid", null)
-        if (!cachedUid.isNullOrBlank()) return cachedUid
-        val devicePrefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        var devId = devicePrefs.getString("device_user_id", null)
-        if (devId.isNullOrBlank()) {
-            devId = "device_" + java.util.UUID.randomUUID().toString().take(8)
-            devicePrefs.edit().putString("device_user_id", devId).apply()
-        }
-        return devId
     }
 
     private fun setLocalSosActive(context: Context, alertId: String) {
         try {
             val prefs = context.getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
             prefs.edit()
-                .putBoolean("flutter.local_sos_active", true)
-                .putString("flutter.local_sos_alert_id", alertId)
-                .putString("flutter.local_sos_triggered_at", utcIsoNow())
-                .apply()
+                .putBoolean("flutter.is_sos_active:$alertId", true)
+                .putString("flutter.active_alert_id:$alertId", alertId)
+                                .apply()
         } catch (e: Exception) {
-            Log.w(TAG, "Could not set local SOS state: ${e.message}")
+            Log.w(TAG, "Could not set local SOS state: ${e.javaClass.simpleName}")
         }
     }
 
     @Suppress("MissingPermission")
     private fun writeFirestoreAlert(context: Context, source: String) {
+        if(!BuildConfig.DEBUG || BuildConfig.TRUSTED_API_REQUIRED) return
         // A WRITE to the live project from a test build would be worse than a
         // read: it would put a fabricated alert in front of real responders.
         // This path does not go through FlutterFire, so the Dart emulator
@@ -129,64 +124,32 @@ object AlehulshSosDispatcher {
             return
         }
 
+        // And the project this binary was BUILT for must be the one Firebase
+        // resolved. A stale or wrong google-services.json would otherwise put
+        // a test SOS in front of real responders, or a real SOS into a project
+        // nobody is watching - silently, in both directions.
+        //
+        // Returning here means notifyFlutter() has already run, so the Dart
+        // SOS path still executes and reports its own outcome. What is skipped
+        // is this write AND showSenderConfirmation(), which is only reached
+        // from the write's success callback - so a refusal cannot produce
+        // "Your Alert has been sent."
+        if (!FirebaseProjectGuard.allows("native SOS write")) return
+
         try {
             val user = FirebaseAuth.getInstance().currentUser
-            val uid = user?.uid ?: getCachedOrDeviceId(context)
+            val uid = user?.uid ?: return
+            fun stillOwner(): Boolean = FirebaseAuth.getInstance().currentUser?.uid == uid
             setLocalSosActive(context, uid)
 
             val db = FirebaseFirestore.getInstance()
 
-            // No fallback coordinate. This used to default to
-            // (9.0125, 38.7636) - Addis Ababa city centre - so an SOS raised
-            // with no GPS asserted she was downtown, and responders would be
-            // sent to the wrong place while the alert looked complete.
-            //
-            // Null here is a real, supported state: latitude/longitude are
-            // nullable in the Dart model, AlertService writes them as null,
-            // and AlehulshForegroundService already reads them null-safely
-            // (`?: return false`), so an unlocatable alert is simply never
-            // proximity-matched. The alert itself is still raised - her
-            // emergency contacts are matched by explicit link, not by
-            // distance, so losing GPS must not cost her the alert.
-            val loc = lastKnownLocation(context)
-
-            // Age from the MONOTONIC clock, not wall time. Location.time is
-            // wall-clock and moves when the device clock does - NTP sync, a
-            // manual change, a timezone-confused ROM - which previously could
-            // make a stale fix look current, or a current one look negative.
-            // elapsedRealtimeNanos counts from boot and cannot be rewritten.
-            //
-            // Some providers leave it unset (0); that is reported as unknown
-            // age rather than as an enormous one.
-            val fixAgeMs: Long? = loc?.let {
-                val stamped = it.elapsedRealtimeNanos
-                if (stamped <= 0L) {
-                    null
-                } else {
-                    (SystemClock.elapsedRealtimeNanos() - stamped) / 1_000_000L
-                }
-            }
-
-            // Accuracy is passed as EVIDENCE the provider measured something,
-            // not as a quality bar - no fix is discarded for being imprecise.
-            // hasAccuracy() distinguishes "no accuracy reported" from 0.0.
-            val accuracyMeters: Double? =
-                loc?.takeIf { it.hasAccuracy() }?.accuracy?.toDouble()
-
-            val fix = SosLocationDecision.decide(
-                latitude = loc?.latitude,
-                longitude = loc?.longitude,
-                ageMs = fixAgeMs,
-                accuracyMeters = accuracyMeters,
-            )
-            val lat: Double? = fix.latitude
-            val lng: Double? = fix.longitude
-            val iso = utcIsoNow()
-
             // 1. Check if user already has an active alert (do NOT overwrite voice note or user note)
             db.collection("active_alerts").document(uid).get()
                 .addOnSuccessListener { existingSnap ->
-                    if (existingSnap.exists() && existingSnap.getString("status") == "active") {
+                    if (!stillOwner()) return@addOnSuccessListener
+                    if (existingSnap.exists() && existingSnap.getString("status") in setOf("active", "escalated") &&
+                        (existingSnap.getTimestamp("expiresAtTimestamp")?.toDate()?.time ?: 0L) > System.currentTimeMillis()) {
                         Log.d(TAG, "Active SOS alert already exists for $uid; preserving voice notes & message.")
                         return@addOnSuccessListener
                     }
@@ -194,7 +157,57 @@ object AlehulshSosDispatcher {
                     // 2. Otherwise create initial alert from profile
                     db.collection("users").document(uid).get()
                         .addOnSuccessListener { userSnap ->
+                            if (!stillOwner()) return@addOnSuccessListener
                             val data = userSnap.data ?: emptyMap()
+                            // No fallback coordinate. This used to default to
+                            // (9.0125, 38.7636) - Addis Ababa city centre - so an SOS raised
+                            // with no GPS asserted she was downtown, and responders would be
+                            // sent to the wrong place while the alert looked complete.
+                            //
+                            // Null here is a real, supported state: latitude/longitude are
+                            // nullable in the Dart model, AlertService writes them as null,
+                            // and AlehulshForegroundService already reads them null-safely
+                            // (`?: return false`), so an unlocatable alert is simply never
+                            // proximity-matched. The alert itself is still raised - her
+                            // emergency contacts are matched by explicit link, not by
+                            // distance, so losing GPS must not cost her the alert.
+                            val sharing = data["isLocationSharingEnabled"] == true && (data["locationSharingConsentVersion"] as? Number)?.toInt() == 1
+                            val loc = if (sharing) lastKnownLocation(context) else null
+
+                            // Age from the MONOTONIC clock, not wall time. Location.time is
+                            // wall-clock and moves when the device clock does - NTP sync, a
+                            // manual change, a timezone-confused ROM - which previously could
+                            // make a stale fix look current, or a current one look negative.
+                            // elapsedRealtimeNanos counts from boot and cannot be rewritten.
+                            //
+                            // Some providers leave it unset (0); that is reported as unknown
+                            // age rather than as an enormous one.
+                            val fixAgeMs: Long? = loc?.let {
+                                val stamped = it.elapsedRealtimeNanos
+                                if (stamped <= 0L) {
+                                    null
+                                } else {
+                                    (SystemClock.elapsedRealtimeNanos() - stamped) / 1_000_000L
+                                }
+                            }
+
+                            // Accuracy is passed as EVIDENCE the provider measured something,
+                            // not as a quality bar - no fix is discarded for being imprecise.
+                            // hasAccuracy() distinguishes "no accuracy reported" from 0.0.
+                            val accuracyMeters: Double? =
+                                loc?.takeIf { it.hasAccuracy() }?.accuracy?.toDouble()
+
+                            val fix = SosLocationDecision.decide(
+                                latitude = loc?.latitude,
+                                longitude = loc?.longitude,
+                                ageMs = fixAgeMs,
+                                accuracyMeters = accuracyMeters,
+                            )
+                            val lat: Double? = fix.latitude
+                            val lng: Double? = fix.longitude
+                            val iso = utcIsoNow()
+
+
                             val fullName = (data["fullName"] as? String)?.takeIf { it.isNotBlank() }
                                 ?: user?.displayName
                                 ?: "Alehulsh User"
@@ -264,7 +277,8 @@ object AlehulshSosDispatcher {
                             db.collection("active_alerts").document(uid)
                                 .set(alert, SetOptions.merge())
                                 .addOnSuccessListener {
-                                    Log.d(TAG, "Native initial SOS written for $uid")
+                                    if (!stillOwner()) return@addOnSuccessListener
+                                    Log.d(TAG, "Native initial SOS acknowledged")
                                     showSenderConfirmation(context)
                                     db.collection("users").document(uid).set(
                                         mapOf(
@@ -273,11 +287,11 @@ object AlehulshSosDispatcher {
                                         ),
                                         SetOptions.merge()
                                     )
-                                }
-                        }
-                }
+                                }.addOnFailureListener { Log.w(TAG, "Native SOS write could not be confirmed; Flutter recovery remains available") }
+                        }.addOnFailureListener { Log.w(TAG, "Native profile read unavailable; Flutter recovery remains available") }
+                }.addOnFailureListener { Log.w(TAG, "Native incident read unavailable; Flutter recovery remains available") }
         } catch (e: Exception) {
-            Log.e(TAG, "writeFirestoreAlert failed: ${e.message}")
+            Log.e(TAG, "writeFirestoreAlert failed: ${e.javaClass.simpleName}")
         }
     }
 
@@ -319,13 +333,33 @@ object AlehulshSosDispatcher {
                 )
             } else null
 
+            // The lock-screen face of this notification carries NO mention of
+            // an alert. VISIBILITY_PUBLIC put "Your Alert has been sent" on the
+            // lock screen, so a coercer holding her phone learned she had
+            // called for help - the single most dangerous thing this app can
+            // disclose. The full text is still shown once the device is
+            // unlocked, so she loses no confirmation.
+            //
+            // LIMIT, not a guarantee: VISIBILITY_PRIVATE only redacts on a
+            // SECURE lock screen. With no PIN, pattern or biometric set,
+            // Android shows the real content regardless and nothing here can
+            // prevent that.
+            val redacted = NotificationCompat.Builder(context, "emergency_ping_channel")
+                .setSmallIcon(R.mipmap.ic_launcher)
+                .setContentTitle(context.getString(R.string.lockscreen_redacted_title))
+                .setContentText(context.getString(R.string.lockscreen_redacted_text))
+                .setCategory(NotificationCompat.CATEGORY_ALARM)
+                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                .build()
+
             val notification = NotificationCompat.Builder(context, "emergency_ping_channel")
                 .setSmallIcon(R.mipmap.ic_launcher)
                 .setContentTitle("🚨 Your Alert has been sent.")
                 .setContentText("Emergency SOS broadcast sent to nearby network and contacts.")
                 .setPriority(NotificationCompat.PRIORITY_MAX)
                 .setCategory(NotificationCompat.CATEGORY_ALARM)
-                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+                .setPublicVersion(redacted)
                 .setAutoCancel(true)
                 .setDefaults(android.app.Notification.DEFAULT_ALL)
                 .apply { if (pending != null) setContentIntent(pending) }
@@ -333,7 +367,7 @@ object AlehulshSosDispatcher {
 
             nm.notify(71002, notification)
         } catch (e: Exception) {
-            Log.w(TAG, "Sender confirmation notification failed: ${e.message}")
+            Log.w(TAG, "Sender confirmation notification failed: ${e.javaClass.simpleName}")
         }
     }
 

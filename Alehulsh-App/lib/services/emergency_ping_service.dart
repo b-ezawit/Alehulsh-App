@@ -1,13 +1,17 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import '../auth/identity_runtime.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:geolocator/geolocator.dart';
 import '../models/alert_model.dart';
 import 'alert_service.dart';
 import 'user_data_service.dart';
 import 'location_service.dart';
+import 'private_push_service.dart';
+import '../api/private_notification_api.dart';
+import '../api/api_runtime.dart';
+import 'private_notification_settings.dart';
 
 /// Emergency Ping Notification Service
 /// Utilizes Flutter Local Notifications + Real-Time Firestore Proximity Geofencing (500m Radius)
@@ -52,6 +56,49 @@ class EmergencyPingService {
   bool _isInitialized = false;
   StreamSubscription<List<EmergencyAlert>>? _alertsSubscription;
   final Set<String> _notifiedAlertIds = {};
+  final Set<String> _privateNotificationTags={};
+
+  Future<void> _privateHint(String deliveryId,bool opened) async {
+    final client=ApiRuntime.client,owner=client.knownSubject(),epoch=client.accountEpoch();
+    if(owner==null)return;
+    try {
+      if(!opened&&!await privateNotificationsAllowed(requireConsent:true))return;
+      if(opened)await _notificationsPlugin.cancel(0,tag:'delivery:$deliveryId');
+      final hint=await PrivateNotificationApi(client).receipt(deliveryId,opened:opened);
+      if(client.knownSubject()!=owner||client.accountEpoch()!=epoch)return;
+      startProximityRadarMonitor();
+      if(!hint.active){
+        await _notificationsPlugin.cancel(0,tag:hint.incidentId);
+        _privateNotificationTags.remove(hint.incidentId);return;
+      }
+      if(opened){
+        final inbox=await client.inbox();
+        if(client.knownSubject()!=owner||client.accountEpoch()!=epoch)return;
+        final items=inbox['items'];
+        if(items is! List||!items.any((item)=>item is Map&&item['alertId']==hint.incidentId))return;
+        targetHighlightAlertId.value=hint.incidentId;targetNavigationTab.value=1;
+      }else{
+        _privateNotificationTags.add(hint.incidentId);
+        await _notificationsPlugin.show(0,'Alehulsh','Open the app to check for an update.',
+          NotificationDetails(android:AndroidNotificationDetails('alehulsh_private_updates_v1','Private updates',
+            importance:Importance.high,priority:Priority.high,visibility:NotificationVisibility.private,tag:hint.incidentId)),
+          payload:'private:$deliveryId');
+        if(client.knownSubject()!=owner||client.accountEpoch()!=epoch){
+          await _notificationsPlugin.cancel(0,tag:hint.incidentId);
+          _privateNotificationTags.remove(hint.incidentId);
+        }
+      }
+    }catch(_){ /* Unauthenticated, expired and offline hints never authorize navigation. */ }
+  }
+
+  void _openPayload(String? payload){
+    if(payload==null||payload.isEmpty)return;
+    if(_alertService.usesTrustedApi){
+      if(payload.startsWith('private:'))_privateHint(payload.substring(8),true);
+      return;
+    }
+    targetHighlightAlertId.value=payload;targetNavigationTab.value=1;
+  }
 
   /// Initialize notification channel, icon, tap listener, and start background proximity stream monitor
   Future<void> initialize() async {
@@ -67,11 +114,8 @@ class EmergencyPingService {
     await _notificationsPlugin.initialize(
       initSettings,
       onDidReceiveNotificationResponse: (NotificationResponse response) {
-        debugPrint("[EmergencyPingService] Notification tapped! Payload: ${response.payload}");
-        if (response.payload != null && response.payload!.isNotEmpty) {
-          targetHighlightAlertId.value = response.payload;
-          targetNavigationTab.value = 1; // Switch to Alerts tab (WomenForWomenScreen at Index 1)
-        }
+        debugPrint('[EmergencyPingService] Notification navigation requested');
+        _openPayload(response.payload);
       },
     );
 
@@ -79,10 +123,7 @@ class EmergencyPingService {
     final launchDetails = await _notificationsPlugin.getNotificationAppLaunchDetails();
     if (launchDetails != null && launchDetails.didNotificationLaunchApp) {
       final payload = launchDetails.notificationResponse?.payload;
-      if (payload != null && payload.isNotEmpty) {
-        targetHighlightAlertId.value = payload;
-        targetNavigationTab.value = 1;
-      }
+      _openPayload(payload);
     }
 
     // Request notification permissions for Android 13+ (API 33+)
@@ -95,7 +136,11 @@ class EmergencyPingService {
     // Listen for high-priority FCM emergency messages dispatched by Cloud Functions
     try {
       FirebaseMessaging.onMessage.listen((RemoteMessage message) {
-        debugPrint("[EmergencyPingService] FCM Emergency broadcast received: ${message.data}");
+        if (_alertService.usesTrustedApi) {
+          PrivatePushService.instance.handle(message);
+          return;
+        }
+        debugPrint('[EmergencyPingService] Emergency refetch hint received');
         final alertId = message.data['alertId']?.toString() ?? '';
         final userName = message.data['userName']?.toString() ?? 'Nearby Protector';
         // A push that carries no label means nobody recorded where she was.
@@ -120,6 +165,18 @@ class EmergencyPingService {
     }
 
     _isInitialized = true;
+    if(_alertService.usesTrustedApi){
+      var notificationOwner=ApiRuntime.client.knownSubject(),notificationEpoch=ApiRuntime.client.accountEpoch();
+      IdentityRuntime.changes.listen((_){
+        final owner=ApiRuntime.client.knownSubject(),epoch=ApiRuntime.client.accountEpoch();
+        if(owner==notificationOwner&&epoch==notificationEpoch)return;
+        notificationOwner=owner;notificationEpoch=epoch;
+        for(final tag in _privateNotificationTags){_notificationsPlugin.cancel(0,tag:tag);}
+        _privateNotificationTags.clear();_notifiedAlertIds.clear();
+        targetHighlightAlertId.value=null;
+      });
+      try{await PrivatePushService.instance.initialize(_privateHint);}catch(_){/* Foreground inbox remains available. */}
+    }
     debugPrint("[EmergencyPingService] Initialized successfully with Cloud Function FCM support.");
 
     // Start 500m Proximity Radar Monitor
@@ -131,10 +188,23 @@ class EmergencyPingService {
   /// If an alert is detected within 500m (0.5 km) radius OR from a designated Emergency Contact, fires an instant Emergency Ping Notification!
   void startProximityRadarMonitor() {
     _alertsSubscription?.cancel();
+    final trustedOwner=_alertService.usesTrustedApi?ApiRuntime.client.knownSubject():null;
+    final trustedEpoch=_alertService.usesTrustedApi?ApiRuntime.client.accountEpoch():null;
 
     _alertsSubscription = _alertService.alertsStream.listen((alerts) async {
+      if(_alertService.usesTrustedApi){
+        if(ApiRuntime.client.knownSubject()!=trustedOwner||ApiRuntime.client.accountEpoch()!=trustedEpoch)return;
+        // The authorized inbox is rendered in-app. Push receipt processing
+        // supplies private notifications; never synthesize delivery facts or
+        // publish a profile/location through a radar notification.
+        final live=alerts.map((a)=>a.id).toSet();
+        for(final tag in _privateNotificationTags.toList()){
+          if(!live.contains(tag)){await _notificationsPlugin.cancel(0,tag:tag);_privateNotificationTags.remove(tag);}
+        }
+        return;
+      }
       final currentProfile = _userDataService.currentProfile;
-      final currentAuthUid = FirebaseAuth.instance.currentUser?.uid ?? '';
+      final currentAuthUid = IdentityRuntime.current?.uid ?? '';
       final profileUid = currentProfile.uid.trim();
       final profileName = currentProfile.fullName.trim().toLowerCase();
       final currentUserEmail = currentProfile.email.trim().toLowerCase();
@@ -168,9 +238,10 @@ class EmergencyPingService {
 
       // 1. STRICT RULE: NEVER ALERT THE SENDER WHEN THEY REQUEST FOR HELP!
       final cachedAlertId = await _userDataService.getActiveSOSAlertIdLocally();
+      if (IdentityRuntime.current?.uid != currentAuthUid) return;
 
       for (var alert in alerts) {
-        if (alert.status != 'active') continue;
+        if (!['active', 'escalated'].contains(alert.status) || alert.isExpired) continue;
 
         if (currentAuthUid.isNotEmpty && alert.userId == currentAuthUid) continue;
         if (profileUid.isNotEmpty && alert.userId == profileUid) continue;
@@ -179,7 +250,7 @@ class EmergencyPingService {
         if (profileName.isNotEmpty && alert.userName.trim().toLowerCase() == profileName) continue;
 
         // Key to deduplicate notification pings per alert event
-        String pingKey = "${alert.id}_${alert.timestamp.millisecondsSinceEpoch}";
+        String pingKey = "$currentAuthUid:${alert.incidentKey ?? alert.id}:${alert.timestamp.millisecondsSinceEpoch}";
         if (_notifiedAlertIds.contains(pingKey)) continue;
 
         // Check if viewer is an emergency contact of alerter or vice-versa
@@ -225,7 +296,8 @@ class EmergencyPingService {
         }
 
         // Rule: Dispatch Ping if within 500m radius OR if user is a designated Emergency Contact!
-        if (isEmergencyContact || isWithin500m) {
+        if (IdentityRuntime.current?.uid != currentAuthUid) return;
+        if (isEmergencyContact || isWithin500m || _alertService.usesTrustedApi) {
           _notifiedAlertIds.add(pingKey);
           // Say nothing about distance unless we have one. An emergency contact
           // is still pinged for an alert we cannot locate - she is the person
@@ -252,7 +324,7 @@ class EmergencyPingService {
           );
         }
       }
-    });
+    }, onError: (_) { debugPrint('[EmergencyPingService] Authorized inbox is unavailable'); });
   }
 
   /// Dispatch high-priority Heads-Up Notification Ping with sound, vibration, and exact person title
@@ -281,7 +353,7 @@ class EmergencyPingService {
       ledOnMs: 1000,
       ledOffMs: 500,
       fullScreenIntent: true,
-      visibility: NotificationVisibility.public,
+      visibility: NotificationVisibility.private,
       category: AndroidNotificationCategory.alarm,
     );
 
@@ -307,7 +379,7 @@ class EmergencyPingService {
       payload: alertId,
     );
 
-    debugPrint("[EmergencyPingService] 🚨 Dispatched notification: '$title' to nearby responder!");
+    debugPrint('[EmergencyPingService] Local notification posted');
   }
 
   void dispose() {

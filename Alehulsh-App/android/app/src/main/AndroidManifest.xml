@@ -60,6 +60,9 @@
             </intent-filter>
         </activity>
 
+        <service android:name=".SosRecoveryJob" android:exported="false"
+            android:permission="android.permission.BIND_JOB_SERVICE" />
+
         <service
             android:name=".AlehulshForegroundService"
             android:exported="false"

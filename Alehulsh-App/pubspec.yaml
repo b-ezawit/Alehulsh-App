@@ -15,6 +15,7 @@ dependencies:
   cloud_firestore: ^5.6.0
   geoflutterfire_plus: ^0.0.32
   http: ^1.2.2
+  gotrue: 2.27.3
   url_launcher: ^6.3.0
   geolocator: ^13.0.0
   audioplayers: ^6.0.0

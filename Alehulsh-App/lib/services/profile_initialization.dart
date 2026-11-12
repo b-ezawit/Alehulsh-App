@@ -16,6 +16,21 @@ library;
 
 import '../models/user_profile_model.dart';
 
+/// A selected identity can queue an SOS offline without inventing a ready
+/// server profile, a keyword, contact eligibility, or collection consent.
+UserProfile trustedOfflineProfile(String uid,{String email=''})=>UserProfile(uid:uid,fullName:'',email:email,phoneNumber:'',
+  emergencyContacts:[],activities:[],safetyScore:0,isAutoAudioRecording:false,isFakeCallEnabled:false,isCommunityAlertsEnabled:false,
+  createdAt:DateTime.now(),lastActiveAt:DateTime.now());
+
+UserProfile honorPendingLocationOptOut(UserProfile cached,{required bool pending})=>pending?
+  cached.copyWith(isLocationSharingEnabled:false):cached;
+
+UserProfile trustedCachedProfile(String raw,{required bool pendingLocationOptOut}){
+  final cached=UserProfile.fromJson(raw);
+  return honorPendingLocationOptOut(cached.copyWith(catName:'',bloodType:'',medicalNotes:'',
+    keywordConfigured:cached.keywordConfigured),pending:pendingLocationOptOut);
+}
+
 /// What should happen to the profile after an auth event.
 class ProfileResolution {
   /// The profile that should be held in memory.
@@ -51,6 +66,7 @@ class ProfileResolution {
 /// [existingDoc] is the raw Firestore document, or null when she has none yet.
 ProfileResolution resolveProfileOnAuth({
   required String? authUid,
+  String? documentUid,
   required Map<String, dynamic>? existingDoc,
   required UserProfile currentProfile,
   String? authEmail,
@@ -58,6 +74,9 @@ ProfileResolution resolveProfileOnAuth({
   /// Injected so the result is deterministic in tests.
   DateTime? now,
 }) {
+  if (documentUid != null && documentUid != authUid) {
+    throw StateError('Profile belongs to a different account');
+  }
   final createdAt = now ?? DateTime.now();
   // ---- Genuine guest -----------------------------------------------------
   // No authenticated user at all. Unchanged behaviour: guest profile, nothing

@@ -25,7 +25,7 @@ import com.google.firebase.firestore.ListenerRegistration
 
 /**
  * Sticky foreground service:
- * - 24/7 Screen transition listener: Detects rapid power button toggles when screen is closed.
+ * Legacy alert listener only. Hardware events are handled by the gated key source.
  * - Listens to Firestore active_alerts and posts high-priority pings immediately.
  */
 class AlehulshForegroundService : Service() {
@@ -34,123 +34,12 @@ class AlehulshForegroundService : Service() {
     private var pingListenerSeeded = false
     private var wakeLock: PowerManager.WakeLock? = null
 
-    // Power Button Screen-Off counter
-    // Each power-button press from ON state fires ACTION_SCREEN_OFF.
-    // 5x presses from ON state = ~3 SCREEN_OFF events (ON→OFF→ON→OFF→ON→OFF pattern)
-    // We also count SCREEN_ON presses as backup to handle ON→OFF→ON→OFF→ON (starts ON) pattern
-    private var screenOffCount = 0
-    private var screenAnyCount = 0
-    private var firstScreenOffTime = 0L
-    private var firstScreenAnyTime = 0L
-    private var lastScreenTime = 0L
-
-    private val screenReceiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context?, intent: Intent?) {
-            val action = intent?.action
-            val now = System.currentTimeMillis()
-
-            // Android Emergency SOS detection for API 31+
-            if (action == "android.intent.action.EMERGENCY_STATE_CHANGED" ||
-                action == "android.telephony.action.SECRET_CODE") {
-                Log.d("AlehulshForeground", "🚨 Android Emergency State Changed! Dispatching SOS...")
-                AlehulshSosDispatcher.trigger(this@AlehulshForegroundService, "5x Power Button Gesture")
-                return
-            }
-
-            if (action == Intent.ACTION_SCREEN_OFF) {
-                // Reset if too long since last event
-                if (lastScreenTime > 0 && (now - lastScreenTime > 3000L)) {
-                    screenOffCount = 0
-                    screenAnyCount = 0
-                    firstScreenOffTime = 0L
-                    firstScreenAnyTime = 0L
-                }
-                if (firstScreenOffTime == 0L) firstScreenOffTime = now
-                if (firstScreenAnyTime == 0L) firstScreenAnyTime = now
-                screenOffCount++
-                screenAnyCount++
-                lastScreenTime = now
-                Log.d("AlehulshForeground", "SCREEN_OFF #$screenOffCount elapsed=${now - firstScreenOffTime}ms")
-
-                // 2 SCREEN_OFF events in rapid sequence (<= 2.5s) indicates rapid power clicks
-                if (screenOffCount >= 2 && (now - firstScreenOffTime <= 2500L)) {
-                    resetScreenCounters()
-                    Log.d("AlehulshForeground", "🚨 2x SCREEN_OFF Confirmed (Rapid power clicks)! Dispatching SOS...")
-                    AlehulshSosDispatcher.trigger(this@AlehulshForegroundService, "5x Power Button Gesture")
-                    return
-                }
-            }
-
-            if (action == Intent.ACTION_SCREEN_ON) {
-                if (lastScreenTime > 0 && (now - lastScreenTime > 3000L)) {
-                    screenOffCount = 0
-                    screenAnyCount = 0
-                    firstScreenOffTime = 0L
-                    firstScreenAnyTime = 0L
-                }
-                if (firstScreenAnyTime == 0L) firstScreenAnyTime = now
-                screenAnyCount++
-                lastScreenTime = now
-                Log.d("AlehulshForeground", "SCREEN_ON #$screenAnyCount elapsed=${now - firstScreenAnyTime}ms")
-
-                // 3 screen toggles within 3.0s indicates rapid power presses
-                if (screenAnyCount >= 3 && (now - firstScreenAnyTime <= 3000L)) {
-                    resetScreenCounters()
-                    Log.d("AlehulshForeground", "🚨 3x Rapid Screen Toggle Confirmed! Dispatching SOS...")
-                    AlehulshSosDispatcher.trigger(this@AlehulshForegroundService, "5x Power Button Gesture")
-                    return
-                }
-            }
-
-            try {
-                if (wakeLock?.isHeld != true) {
-                    wakeLock?.acquire()
-                }
-            } catch (e: Exception) {
-                Log.e("AlehulshForeground", "WakeLock error: ${e.message}")
-            }
-        }
-    }
-
-    private fun resetScreenCounters() {
-        screenOffCount = 0
-        screenAnyCount = 0
-        firstScreenOffTime = 0L
-        firstScreenAnyTime = 0L
-        lastScreenTime = 0L
-    }
-
     override fun onCreate() {
         super.onCreate()
         try {
             createChannels()
             startAsForeground()
 
-            val powerManager = getSystemService(Context.POWER_SERVICE) as? PowerManager
-            wakeLock = powerManager?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "Alehulsh::ForegroundWakeLock")
-            wakeLock?.setReferenceCounted(false)
-            try {
-                wakeLock?.acquire()
-            } catch (e: Exception) {
-                Log.e("AlehulshForeground", "WakeLock acquire failed: ${e.message}")
-            }
-
-            val filter = IntentFilter().apply {
-                addAction(Intent.ACTION_SCREEN_OFF)
-                addAction(Intent.ACTION_SCREEN_ON)
-                // Android 12+ Emergency SOS state change broadcast
-                addAction("android.intent.action.EMERGENCY_STATE_CHANGED")
-                addAction("android.telephony.action.SECRET_CODE")
-            }
-            // Screen events must be registered as not-exported but without RECEIVER_NOT_EXPORTED
-            // restriction because ACTION_SCREEN_OFF/ON are protected system broadcasts
-            try {
-                registerReceiver(screenReceiver, filter)
-            } catch (e: Exception) {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                    ContextCompat.registerReceiver(this, screenReceiver, filter, ContextCompat.RECEIVER_EXPORTED)
-                }
-            }
             startAlertPingListener()
         } catch (e: Exception) {
             Log.e("AlehulshForeground", "Error initializing service in onCreate: ${e.message}", e)
@@ -158,22 +47,16 @@ class AlehulshForegroundService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        try {
-            startAsForeground()
-            if (wakeLock?.isHeld != true) {
-                wakeLock?.acquire()
-            }
-        } catch (e: Exception) {
-            Log.e("AlehulshForeground", "Error in onStartCommand: ${e.message}")
-        }
-        return START_STICKY
+        startAsForeground()
+        return START_NOT_STICKY
     }
+
+    override fun onTimeout(startId: Int, fgsType: Int) { stopSelf(startId) }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
         try {
-            unregisterReceiver(screenReceiver)
             if (wakeLock?.isHeld == true) {
                 wakeLock?.release()
             }
@@ -222,12 +105,16 @@ class AlehulshForegroundService : Service() {
                 description = "Instant SOS pings"
                 enableVibration(true)
                 enableLights(true)
-                lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+                // Channel default. A ping names the woman who raised the
+                // alert, so a public lock screen hands her identity and
+                // emergency to whoever is holding the responder's phone.
+                lockscreenVisibility = Notification.VISIBILITY_PRIVATE
             }
         )
     }
 
     private fun startAlertPingListener() {
+        if(!BuildConfig.DEBUG || BuildConfig.TRUSTED_API_REQUIRED) return
         // An emulator build must not reach the live project. This listener runs
         // in native Kotlin, outside FlutterFire, so useFirestoreEmulator() on
         // the Dart side never applied to it: it was querying PRODUCTION
@@ -248,6 +135,12 @@ class AlehulshForegroundService : Service() {
             Log.w("AlehulshForegroundService", "Emulator build: native alert listener NOT started (no live-project access).")
             return
         }
+
+        // Same gate as the SOS write. A listener against the wrong project
+        // shows this user other people's live alerts from an environment she
+        // has no relationship to - exact coordinates included - or shows her
+        // nothing while appearing to work.
+        if (!FirebaseProjectGuard.allows("native alert listener")) return
 
         try {
             alertsReg = FirebaseFirestore.getInstance()
@@ -351,6 +244,21 @@ class AlehulshForegroundService : Service() {
             launch,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
+        // `title` and `body` carry the name of the woman who raised the alert,
+        // so the lock-screen face is replaced with an urgent but ANONYMOUS
+        // one: a responder still sees that someone nearby needs help and can
+        // act, without her identity being readable by anyone who picks up the
+        // phone. Urgency is preserved; identity is not disclosed.
+        //
+        // LIMIT: VISIBILITY_PRIVATE redacts only on a SECURE lock screen.
+        val redacted = NotificationCompat.Builder(this, CHANNEL_PING)
+            .setSmallIcon(R.mipmap.ic_launcher)
+            .setContentTitle(getString(R.string.lockscreen_ping_title))
+            .setContentText(getString(R.string.lockscreen_ping_text))
+            .setCategory(NotificationCompat.CATEGORY_ALARM)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .build()
+
         val notification = NotificationCompat.Builder(this, CHANNEL_PING)
             .setSmallIcon(R.mipmap.ic_launcher)
             .setContentTitle(title)
@@ -358,7 +266,8 @@ class AlehulshForegroundService : Service() {
             .setStyle(NotificationCompat.BigTextStyle().bigText(body))
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
-            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+            .setPublicVersion(redacted)
             .setAutoCancel(true)
             .setContentIntent(pending)
             .setDefaults(Notification.DEFAULT_ALL)

@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:alehulsh_app/models/user_profile_model.dart';
 import 'package:alehulsh_app/services/profile_initialization.dart';
@@ -41,6 +42,24 @@ bool isLoggedIn({required bool hasAuthUser, required UserProfile profile}) =>
     hasAuthUser && profile.uid.isNotEmpty;
 
 void main() {
+  test('cold trusted identity may queue offline without fabricated profile data or collection consent',(){
+    final p=trustedOfflineProfile('synthetic-owner');
+    expect(p.uid,'synthetic-owner');expect(p.fullName,isEmpty);expect(p.emergencyContacts,isEmpty);expect(p.catName,isEmpty);
+    expect(p.hasSafetyKeyword,isFalse);expect(p.isAutoAudioRecording,isFalse);expect(p.isLocationSharingEnabled,isFalse);expect(p.safetyScore,0);
+  });
+  test('restart cannot reactivate cached location consent after a failed network opt-out',(){
+    final prior=trustedOfflineProfile('synthetic-owner').copyWith(isLocationSharingEnabled:true);
+    final restored=honorPendingLocationOptOut(prior,pending:true);
+    expect(restored.uid,prior.uid);expect(restored.isLocationSharingEnabled,isFalse);
+    expect(honorPendingLocationOptOut(prior,pending:false).isLocationSharingEnabled,isTrue);
+  });
+  test('trusted cache hydration scrubs legacy plaintext keyword/health data before it can be used or rewritten',(){
+    final legacy=trustedOfflineProfile('synthetic-owner').copyWith(catName:'synthetic-old-secret',bloodType:'synthetic-retired',medicalNotes:'synthetic-retired-note');
+    final raw=legacy.toMap()..['bloodType']='synthetic-retired'..['medicalNotes']='synthetic-retired-note';
+    final cached=trustedCachedProfile(jsonEncode(raw),pendingLocationOptOut:false);
+    expect(cached.catName,isEmpty);expect(cached.bloodType,isEmpty);expect(cached.medicalNotes,isEmpty);expect(cached.hasSafetyKeyword,isFalse);
+    expect(cached.toJson(),isNot(contains('synthetic-old-secret')));
+  });
   group('1. authenticated user whose Firestore profile is missing', () {
     test('initialises the profile with the Firebase Auth uid', () {
       final r = resolveProfileOnAuth(
@@ -107,7 +126,7 @@ void main() {
   });
 
   group('3. an existing profile is preserved', () {
-    test('catName, contacts and other fields are untouched', () {
+    test('supported profile fields survive; retired medical fields are not loaded', () {
       final r = resolveProfileOnAuth(
         authUid: authUid, existingDoc: storedDoc(),
         currentProfile: guestInMemory(), now: fixedNow,
@@ -118,8 +137,8 @@ void main() {
       expect(r.profile.fullName, 'Test User');
       expect(r.profile.homeAddress, 'Test Address');
       expect(r.profile.safetyScore, 77);
-      expect(r.profile.bloodType, 'A+');
-      expect(r.profile.medicalNotes, 'Asthma');
+      expect(r.profile.bloodType, '');
+      expect(r.profile.medicalNotes, '');
     });
 
     test('an intact profile triggers no write at all', () {

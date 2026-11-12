@@ -1,3 +1,5 @@
+import '../api/api_runtime.dart';
+import '../services/private_push_service.dart';
 import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 import '../models/user_profile_model.dart';
@@ -16,6 +18,47 @@ class ProfileScreen extends StatefulWidget {
 class _ProfileScreenState extends State<ProfileScreen> {
   final UserDataService _userDataService = UserDataService();
   final LocalizationService _loc = LocalizationService();
+
+  Future<bool> _runAccountUpdate(Future<void> Function() operation) async {
+    try {await operation();return true;}catch(_) {
+      if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('This change could not be confirmed. Please retry.')));
+      return false;
+    }
+  }
+
+  Future<void> _showKeywordRecovery()async{
+    final client=ApiRuntime.client,owner=ApiRuntime.client.knownSubject(),epoch=ApiRuntime.client.accountEpoch();
+    bool current()=>client.knownSubject()==owner&&client.accountEpoch()==epoch;
+    await _runAccountUpdate(()async{
+      var state=await client.keywordRecovery();if(!mounted||!current())return;
+      final keyword=TextEditingController();String? error;
+      try{
+        await showDialog<void>(context:context,builder:(dialog)=>StatefulBuilder(builder:(context,update){
+          final pending=state['pending']==true,eligible=DateTime.tryParse(state['eligibleAt']?.toString()??'');
+          Future<void> run(Future<void>Function() action)async{
+            if(!current())return;
+            try{await action();if(dialog.mounted&&current())Navigator.pop(dialog);}
+            catch(_){if(dialog.mounted&&current())update(()=>error='Recovery could not be confirmed. The current keyword has not been changed.');}
+          }
+          return AlertDialog(title:const Text('Keyword recovery'),content:Column(mainAxisSize:MainAxisSize.min,children:[
+            Text(pending?'Recovery is pending. Server eligibility: ${eligible?.toLocal().toString()??'unavailable'}. The current keyword still works. Starting an SOS voids recovery.':
+              'Request delayed recovery when you have forgotten your keyword. The server controls eligibility; this does not change your current keyword or cancel an emergency.'),
+            if(pending)TextField(controller:keyword,obscureText:true,autocorrect:false,enableSuggestions:false,decoration:const InputDecoration(labelText:'New keyword')),
+            if(error!=null)Text(error!),
+          ]),actions:[
+            TextButton(onPressed:()=>Navigator.pop(dialog),child:const Text('Close')),
+            if(pending)TextButton(onPressed:()=>run(client.cancelKeywordRecovery),child:const Text('Cancel recovery request')),
+            if(pending)TextButton(onPressed:()=>run(()async{await client.confirmKeywordRecovery(keyword.text);if(current()&&owner!=null)await _userDataService.loadProfileFromFirestore(owner);}),child:const Text('Confirm new keyword')),
+            if(!pending)TextButton(onPressed:()async{
+              if(!current())return;
+              try{final result=await client.requestKeywordRecovery();if(dialog.mounted&&current())update(()=>state={...result,'pending':true});}
+              catch(_){if(dialog.mounted&&current())update(()=>error='Recovery could not be requested. Please retry.');}
+            },child:const Text('Request recovery')),
+          ]);
+        }));
+      }finally{keyword.clear();keyword.dispose();}
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -211,7 +254,35 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
                 const SizedBox(height: 24),
 
+                SwitchListTile(
+                  title: const Text('Share location with new emergency alerts'),
+                  subtitle: const Text('Updates your last known location while the app is running. Turning this off stops collection; it does not retract an existing alert.'),
+                  value: profile.isLocationSharingEnabled,
+                  onChanged: (enabled) => _runAccountUpdate(()=>_userDataService.toggleSafetySetting('locationSharing', enabled)),
+                ),
+                const SizedBox(height: 16),
+
+                if(ApiRuntime.enabled)ListTile(
+                  title:const Text('Private notification delivery'),
+                  subtitle:const Text('Review consent before registering this device. In-app alerts remain available.'),
+                  trailing:const Icon(Icons.notifications_outlined),
+                  onTap:()async{
+                    final client=ApiRuntime.client,owner=ApiRuntime.client.knownSubject(),epoch=ApiRuntime.client.accountEpoch();
+                    await _runAccountUpdate(()async{
+                      final consent=await PrivatePushService.instance.api.policy();
+                      if(!mounted||client.knownSubject()!=owner||client.accountEpoch()!=epoch)return;
+                      final choice=await showDialog<bool>(context:context,builder:(ctx)=>AlertDialog(title:const Text('Private notifications'),
+                        content:Text(consent.text),actions:[TextButton(onPressed:()=>Navigator.pop(ctx,false),child:const Text('Disable on this device')),
+                          TextButton(onPressed:()=>Navigator.pop(ctx),child:const Text('Cancel')),
+                          TextButton(onPressed:()=>Navigator.pop(ctx,true),child:const Text('Agree and enable'))]));
+                      if(choice==null||client.knownSubject()!=owner||client.accountEpoch()!=epoch)return;
+                      if(choice)await PrivatePushService.instance.enable(consent);else await PrivatePushService.instance.disable();
+                    });
+                  },
+                ),
+
                 // 2. YOUR CAT'S NAME SECTION (SOS Cancel Verification Code)
+                if(ApiRuntime.enabled)TextButton(onPressed:_showKeywordRecovery,child:const Text('Recover a forgotten keyword')),
                 Text(
                   _loc.tr('profile_cat_title'),
                   style: TextStyle(
@@ -258,11 +329,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                 ),
                                 const SizedBox(height: 2),
                                 Text(
-                                  profile.catName.isNotEmpty ? "••••••••" : (_loc.isAmharic ? "አልተቀመጠም" : "Not set"),
+                                  profile.hasSafetyKeyword ? "••••••••" : (_loc.isAmharic ? "አልተቀመጠም" : "Not set"),
                                   style: TextStyle(
                                     fontSize: 18,
                                     fontWeight: FontWeight.bold,
-                                    letterSpacing: profile.catName.isNotEmpty ? 4.0 : 0.0,
+                                    letterSpacing: profile.hasSafetyKeyword ? 4.0 : 0.0,
                                     color: textMain,
                                   ),
                                 ),
@@ -411,7 +482,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 Center(
                   child: TextButton.icon(
                     onPressed: () async {
-                      await AuthService().signOut();
+                      await _runAccountUpdate(()async{
+                        final confirmed=await AuthService().signOut();
+                        if(!confirmed&&context.mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Signed out on this device. Server sign-out could not be confirmed.')));
+                      });
                     },
                     icon: const Icon(Icons.logout_rounded, color: Colors.redAccent, size: 18),
                     label: Text(
@@ -523,7 +597,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               IconButton(
                 icon: const Icon(Icons.delete_outline_rounded, color: Colors.redAccent, size: 20),
                 tooltip: _loc.isAmharic ? "ሰርዝ" : "Delete",
-                onPressed: () => _userDataService.removeEmergencyContact(contact.id),
+                onPressed: () => _runAccountUpdate(()=>_userDataService.removeEmergencyContact(contact.id)),
               ),
             ],
           ),
@@ -553,11 +627,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
               const SizedBox(height: 10),
               TextField(
                 controller: phoneCtrl,
+                readOnly:ApiRuntime.enabled,
                 decoration: InputDecoration(labelText: _loc.isAmharic ? "ስልክ ቁጥር" : "Phone Number"),
               ),
               const SizedBox(height: 10),
               TextField(
                 controller: emailCtrl,
+                readOnly:ApiRuntime.enabled,
                 decoration: InputDecoration(labelText: _loc.isAmharic ? "ኢሜይል አድራሻ" : "Email Address"),
               ),
             ],
@@ -569,15 +645,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
             child: Text(_loc.isAmharic ? "ሰርዝ" : "Cancel"),
           ),
           ElevatedButton(
-            onPressed: () {
-              final updated = profile.copyWith(
-                fullName: nameCtrl.text.trim(),
-                phoneNumber: phoneCtrl.text.trim(),
-                email: emailCtrl.text.trim(),
-              );
-              _userDataService.profileNotifier.value = updated;
-              _userDataService.syncToFirestore();
-              Navigator.pop(ctx);
+            onPressed: () async {
+              final saved=await _runAccountUpdate(()=>_userDataService.updatePersonalInfo(fullName:nameCtrl.text.trim(),
+                phoneNumber:phoneCtrl.text.trim(),email:emailCtrl.text.trim(),homeAddress:profile.homeAddress));
+              if(saved&&ctx.mounted)Navigator.pop(ctx);
             },
             style: ElevatedButton.styleFrom(backgroundColor: AppTheme.primaryPink),
             child: Text(_loc.isAmharic ? "አስቀምጥ" : "Save", style: const TextStyle(color: Colors.white)),
@@ -611,7 +682,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 ),
                 const SizedBox(height: 14),
 
-                if (profile.catName.isNotEmpty) ...[
+                if (profile.hasSafetyKeyword) ...[
                   TextField(
                     controller: prevCatNameCtrl,
                     obscureText: true,
@@ -627,7 +698,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
                 TextField(
                   controller: newCatNameCtrl,
-                  autofocus: profile.catName.isEmpty,
+                  autofocus: !profile.hasSafetyKeyword,
                   decoration: InputDecoration(
                     labelText: _loc.isAmharic ? "አዲስ የቤት እንስሳ ስም" : "New Pet's Name",
                     prefixIcon: const Icon(Icons.pets, color: AppTheme.primaryPink, size: 20),
@@ -650,7 +721,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 child: Text(_loc.isAmharic ? "ሰርዝ" : "Cancel"),
               ),
               ElevatedButton(
-                onPressed: () {
+                onPressed: () async {
                   final prevInput = prevCatNameCtrl.text.trim().toLowerCase();
                   final currentCat = profile.catName.trim().toLowerCase();
                   final newInput = newCatNameCtrl.text.trim();
@@ -664,7 +735,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     return;
                   }
 
-                  if (profile.catName.isNotEmpty && prevInput != currentCat) {
+                  if (!ApiRuntime.enabled && profile.hasSafetyKeyword && prevInput != currentCat) {
                     setModalState(() {
                       errorMessage = _loc.isAmharic
                           ? "የቀደመው የድመት ስም የተሳሳተ ነው!"
@@ -673,9 +744,21 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     return;
                   }
 
-                  final updated = profile.copyWith(catName: newInput);
-                  _userDataService.profileNotifier.value = updated;
-                  _userDataService.syncToFirestore();
+                  if (ApiRuntime.enabled) {
+                    try {
+                      await ApiRuntime.client.setKeyword(newCatNameCtrl.text,
+                        currentKeyword: profile.hasSafetyKeyword ? prevCatNameCtrl.text : null);
+                      if (!ctx.mounted || _userDataService.currentProfile.uid != profile.uid) return;
+                      _userDataService.profileNotifier.value = _userDataService.currentProfile.copyWith(catName: '', keywordConfigured: true);
+                    } catch (_) {
+                      if (ctx.mounted) setModalState(() { errorMessage = 'Keyword update could not be confirmed. Please retry.'; });
+                      return;
+                    }
+                  } else {
+                    _userDataService.profileNotifier.value = profile.copyWith(catName: newInput);
+                    _userDataService.syncToFirestore();
+                  }
+                  if (!ctx.mounted) return;
                   Navigator.pop(ctx);
 
                   ScaffoldMessenger.of(context).showSnackBar(
@@ -753,9 +836,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
               child: Text(_loc.isAmharic ? "ሰርዝ" : "Cancel"),
             ),
             ElevatedButton(
-              onPressed: () {
+              onPressed: () async {
                 if (nameCtrl.text.trim().isNotEmpty && phoneCtrl.text.trim().isNotEmpty) {
-                  _userDataService.addEmergencyContact(
+                  final saved=await _runAccountUpdate(()=>_userDataService.addEmergencyContact(
                     EmergencyContact(
                       id: "contact_${DateTime.now().millisecondsSinceEpoch}",
                       name: nameCtrl.text.trim(),
@@ -764,8 +847,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       relationship: relationCtrl.text.trim().isEmpty ? "Emergency Contact" : relationCtrl.text.trim(),
                       isPrimary: isPrimary,
                     ),
-                  );
-                  Navigator.pop(ctx);
+                  ));
+                  if(saved&&ctx.mounted)Navigator.pop(ctx);
                 }
               },
               style: ElevatedButton.styleFrom(backgroundColor: AppTheme.primaryPink),
@@ -835,9 +918,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
               child: Text(_loc.isAmharic ? "ሰርዝ" : "Cancel"),
             ),
             ElevatedButton(
-              onPressed: () {
+              onPressed: () async {
                 if (nameCtrl.text.trim().isNotEmpty && phoneCtrl.text.trim().isNotEmpty) {
-                  _userDataService.updateEmergencyContact(
+                  final saved=await _runAccountUpdate(()=>_userDataService.updateEmergencyContact(
                     contact.copyWith(
                       name: nameCtrl.text.trim(),
                       phone: phoneCtrl.text.trim(),
@@ -845,8 +928,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       relationship: relationCtrl.text.trim().isEmpty ? "Emergency Contact" : relationCtrl.text.trim(),
                       isPrimary: isPrimary,
                     ),
-                  );
-                  Navigator.pop(ctx);
+                  ));
+                  if(saved&&ctx.mounted)Navigator.pop(ctx);
                 }
               },
               style: ElevatedButton.styleFrom(backgroundColor: AppTheme.primaryPink),

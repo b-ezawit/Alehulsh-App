@@ -15,7 +15,9 @@ class AuthScreen extends StatefulWidget {
 
 class _AuthScreenState extends State<AuthScreen> {
   bool _isSignUp = true;
+  bool _completeExistingSetup = false;
   bool _isLoading = false;
+  bool _legacyPasswordSpacing = false;
   String _errorMessage = '';
 
   // Form Controllers
@@ -120,7 +122,10 @@ class _AuthScreenState extends State<AuthScreen> {
               : "Please provide at least 1 Emergency Contact.");
         }
 
-        await AuthService().signUp(
+        if(_completeExistingSetup) {
+          await AuthService().completeAccountSetup(fullName:_fullNameCtrl.text,homeAddress:'',keyword:_catNameCtrl.text,contacts:contacts);
+        } else {
+        final outcome=await AuthService().signUp(
           email: _emailCtrl.text,
           password: _passwordCtrl.text,
           fullName: _fullNameCtrl.text,
@@ -138,16 +143,26 @@ class _AuthScreenState extends State<AuthScreen> {
           catName: _catNameCtrl.text,
           emergencyContacts: contacts,
         );
+        if(outcome==AuthFlowResult.confirmationRequired) {
+          if(mounted)setState((){_isSignUp=false;_errorMessage='If registration can proceed, check your email, then sign in to complete your safety profile.';});
+          _passwordCtrl.clear();_catNameCtrl.clear();return;
+        }
+        }
       } else {
         if (_emailCtrl.text.isEmpty || _passwordCtrl.text.isEmpty) {
           throw Exception(_loc.isAmharic
               ? "እባክዎ ኢሜይል እና የይለፍ ቃል ያስገቡ"
               : "Please enter your email and password.");
         }
-        await AuthService().signIn(
+        final outcome=await AuthService().signIn(
           email: _emailCtrl.text,
           password: _passwordCtrl.text,
+          legacyPasswordSpacing: _legacyPasswordSpacing,
         );
+        if(outcome==AuthFlowResult.accountSetupRequired) {
+          if(mounted)setState((){_completeExistingSetup=true;_isSignUp=true;_errorMessage='Signed in. Complete a new safety profile. Existing Firebase history is not linked automatically.';});
+          return;
+        }
       }
 
       if (mounted) {
@@ -158,6 +173,7 @@ class _AuthScreenState extends State<AuthScreen> {
         );
       }
     } catch (e) {
+      if(!mounted)return;
       setState(() {
         _errorMessage = e.toString().replaceAll("Exception: ", "");
       });
@@ -432,6 +448,13 @@ class _AuthScreenState extends State<AuthScreen> {
                               ),
                             ),
 
+                            if (!_isSignUp) CheckboxListTile(
+                              value: _legacyPasswordSpacing,
+                              onChanged: _isLoading ? null : (value) => setState(() => _legacyPasswordSpacing = value ?? false),
+                              contentPadding: EdgeInsets.zero,
+                              title: const Text('Use password spacing from older app versions'),
+                              subtitle: const Text('Only for an older account: ignore spaces at the beginning and end.'),
+                            ),
                             if (_isSignUp) ...[
                               const SizedBox(height: 12),
                               TextField(

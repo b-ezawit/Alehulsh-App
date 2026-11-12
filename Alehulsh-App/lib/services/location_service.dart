@@ -1,17 +1,44 @@
+import '../api/api_runtime.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import '../auth/identity_runtime.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import '../utils/geohash_util.dart';
+import 'account_scope.dart';
 
 class LocationService {
   static final LocationService _instance = LocationService._internal();
   factory LocationService() => _instance;
-  LocationService._internal() {
-    _initFastLocation();
+  LocationService._internal();
+
+  final AccountScope _scope = AccountScope();
+  String? _owner;
+  bool _enabled = false;
+  Future<void> _topicWork = Future.value();
+
+  bool _valid(AccountTicket ticket) => _enabled && _scope.owns(ticket) && IdentityRuntime.current?.uid == ticket.owner;
+
+  /// Applies to collection and future alerts, never cancellation of an incident.
+  Future<void> configure({required String? owner, required bool enabled}) async {
+    if (_owner == owner && _enabled == enabled) return;
+    _owner = owner;
+    _enabled = enabled && owner != null;
+    _scope.bind(null);
+    _scope.bind(_enabled ? owner : null);
+    _streamActive = false;
+    final old = _positionStreamSub;
+    _positionStreamSub = null;
+    _currentPosition = null;
+    _lastSyncedPosition = null;
+    _lastFirestoreSyncTime = null;
+    positionNotifier.value = null;
+    _setTopic(null, null);
+    await old?.cancel();
+    final ticket = owner == null ? null : _scope.capture(owner);
+    if (ticket != null && _valid(ticket)) await _initFastLocation(ticket);
   }
 
   Position? _currentPosition;
@@ -26,28 +53,30 @@ class LocationService {
   DateTime? _lastFirestoreSyncTime;
   Position? _lastSyncedPosition;
 
-  Future<void> _initFastLocation() async {
+  Future<void> _initFastLocation(AccountTicket ticket) async {
+    if (!_valid(ticket)) return;
     try {
       // 1. Immediately grab cached last known position in microseconds
       Position? lastKnown = await Geolocator.getLastKnownPosition();
-      if (lastKnown != null) {
+      if (lastKnown != null && _valid(ticket)) {
         _currentPosition = lastKnown;
         positionNotifier.value = lastKnown;
-        _updateFCMGeohashSubscription(lastKnown.latitude, lastKnown.longitude);
-        debugPrint("[LocationService] Fast cached GPS available: ${lastKnown.latitude}, ${lastKnown.longitude}");
+        _updateFCMGeohashSubscription(lastKnown.latitude, lastKnown.longitude, ticket);
+        debugPrint('[LocationService] Cached location available');
       }
     } catch (_) {}
 
     // 2. Start continuous live GPS stream for real-time accuracy
-    _startPositionStream();
+    _startPositionStream(ticket);
   }
 
-  void _startPositionStream() async {
+  void _startPositionStream(AccountTicket ticket) async {
+    if (!_valid(ticket)) return;
     if (_streamActive) return; // Prevent duplicate stream subscriptions
     try {
       bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
       LocationPermission permission = await Geolocator.checkPermission();
-      if (serviceEnabled && (permission == LocationPermission.always || permission == LocationPermission.whileInUse)) {
+      if (_valid(ticket) && serviceEnabled && (permission == LocationPermission.always || permission == LocationPermission.whileInUse)) {
         _positionStreamSub?.cancel();
         _streamActive = true;
         _positionStreamSub = Geolocator.getPositionStream(
@@ -56,43 +85,53 @@ class LocationService {
             distanceFilter: 50, // Only update on significant movement (50m) to conserve Firestore writes & battery
           ),
         ).listen((Position position) {
+          if (!_valid(ticket)) return;
           _currentPosition = position;
           positionNotifier.value = position;
-          _updateFCMGeohashSubscription(position.latitude, position.longitude);
-          _syncLocationToFirestoreDebounced(position);
+          _updateFCMGeohashSubscription(position.latitude, position.longitude, ticket);
+          _syncLocationToFirestoreDebounced(position, ticket);
         }, onError: (e) {
+          if (!_valid(ticket)) return;
           _streamActive = false;
-          debugPrint("[LocationService] Position stream error: $e");
+          _currentPosition = null;
+          positionNotifier.value = null;
+          debugPrint('[LocationService] Location stream unavailable');
         }, cancelOnError: false);
       }
     } catch (_) {
-      _streamActive = false;
+      if (_valid(ticket)) _streamActive = false;
     }
   }
 
   /// Automatically subscribe device to local 500m / 2km Geohash FCM broadcast topic
-  void _updateFCMGeohashSubscription(double lat, double lng) async {
-    try {
-      final geohash5 = GeohashUtil.getFCMTopicGeohash(lat, lng);
-      final newTopic = "sos_radar_$geohash5";
-      if (newTopic != _currentFCMGeohashTopic) {
-        if (_currentFCMGeohashTopic != null) {
-          await FirebaseMessaging.instance.unsubscribeFromTopic(_currentFCMGeohashTopic!);
+  void _updateFCMGeohashSubscription(double lat, double lng, AccountTicket ticket) {
+    if(ApiRuntime.enabled)return;
+    if (_valid(ticket)) _setTopic('sos_radar_${GeohashUtil.getFCMTopicGeohash(lat, lng)}', ticket);
+  }
+
+  void _setTopic(String? topic, AccountTicket? ticket) {
+    _topicWork = _topicWork.catchError((_) {}).then((_) async {
+      if (topic != null && (ticket == null || !_valid(ticket))) return;
+      if (_currentFCMGeohashTopic == topic) return;
+      final previous = _currentFCMGeohashTopic;
+      _currentFCMGeohashTopic = null;
+      if (previous != null) await FirebaseMessaging.instance.unsubscribeFromTopic(previous).timeout(const Duration(seconds: 5));
+      if (topic != null && ticket != null && _valid(ticket)) {
+        await FirebaseMessaging.instance.subscribeToTopic(topic).timeout(const Duration(seconds: 5));
+        if (_valid(ticket)) {
+          _currentFCMGeohashTopic = topic;
+        } else {
+          await FirebaseMessaging.instance.unsubscribeFromTopic(topic).timeout(const Duration(seconds: 5));
         }
-        await FirebaseMessaging.instance.subscribeToTopic(newTopic);
-        _currentFCMGeohashTopic = newTopic;
-        debugPrint("[LocationService] Subscribed to localized 500m SOS topic: $newTopic");
       }
-    } catch (e) {
-      debugPrint("[LocationService] FCM topic subscription note: $e");
-    }
+    }).catchError((_) { debugPrint('[LocationService] Subscription cleanup pending'); });
   }
 
   /// Debounced sync to user's profile to prevent high write costs during viral movement
-  void _syncLocationToFirestoreDebounced(Position position) async {
+  void _syncLocationToFirestoreDebounced(Position position, AccountTicket ticket) async {
+    if(ApiRuntime.enabled || !_valid(ticket)) return;
     final now = DateTime.now();
-    final uid = FirebaseAuth.instance.currentUser?.uid;
-    if (uid == null || uid.isEmpty) return;
+    final uid = ticket.owner;
 
     // Check distance moved since last sync
     double distanceMoved = 999.0;
@@ -124,9 +163,9 @@ class LocationService {
           'lastKnownLng': position.longitude,
           'lastActive': FieldValue.serverTimestamp(),
         }, SetOptions(merge: true));
-        debugPrint("[LocationService] Synced user geohash to Firestore: $geohash");
+        debugPrint('[LocationService] Location update confirmed');
       } catch (e) {
-        debugPrint("[LocationService] Note syncing user location: $e");
+        debugPrint('[LocationService] Location update unavailable');
       }
     }
   }
@@ -136,21 +175,24 @@ class LocationService {
 
   /// Check location service status and prompt user if turned off
   Future<Position?> checkAndRequestLocation({BuildContext? context}) async {
+    final owner = _owner;
+    final ticket = owner == null ? null : _scope.capture(owner);
+    if (ticket == null || !_valid(ticket)) return null;
     bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) {
       if (context != null && context.mounted) {
         _showEnableLocationDialog(context);
       }
       debugPrint("[LocationService] Location service is disabled on device.");
-      return _currentPosition;
+      return _valid(ticket) ? _currentPosition : null;
     }
 
     LocationPermission permission = await Geolocator.checkPermission();
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
       if (permission == LocationPermission.denied) {
-        debugPrint("[LocationService] Location permission denied by user.");
-        return _currentPosition;
+        await configure(owner: owner, enabled: false);
+        return null;
       }
     }
 
@@ -159,7 +201,8 @@ class LocationService {
       if (context != null && context.mounted) {
         _showPermissionDeniedForeverDialog(context);
       }
-      return _currentPosition;
+      await configure(owner: owner, enabled: false);
+      return null;
     }
 
     try {
@@ -169,14 +212,15 @@ class LocationService {
           timeLimit: Duration(seconds: 6),
         ),
       );
+      if (!_valid(ticket)) return null;
       _currentPosition = position;
       positionNotifier.value = position;
-      if (!_streamActive) _startPositionStream();
-      debugPrint("[LocationService] Live GPS obtained: ${position.latitude}, ${position.longitude}");
+      if (!_streamActive) _startPositionStream(ticket);
+      debugPrint('[LocationService] Location fix obtained');
       return position;
     } catch (e) {
-      debugPrint("[LocationService] Error fetching live location: $e");
-      return _currentPosition;
+      debugPrint('[LocationService] Fresh location unavailable');
+      return _valid(ticket) ? _currentPosition : null;
     }
   }
 

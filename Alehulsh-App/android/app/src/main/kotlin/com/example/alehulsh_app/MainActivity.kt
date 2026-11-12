@@ -12,13 +12,16 @@ class MainActivity : FlutterActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        MigrationOutboxChannel.register(flutterEngine.dartExecutor.binaryMessenger, applicationContext)
+        TrustedSessionChannel.register(flutterEngine.dartExecutor.binaryMessenger, applicationContext)
         val channel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, channelName)
         AlehulshSosDispatcher.methodChannel = channel
         channel.setMethodCallHandler { call, result ->
             when (call.method) {
+                "hardwareSosAvailable" -> result.success(BuildConfig.DEBUG && BuildConfig.HARDWARE_SOS_EXPERIMENTAL)
                 "startBackgroundServices" -> {
-                    AlehulshForegroundService.start(this)
-                    result.success(true)
+                    // No indefinite dataSync service is promised for hardware detection.
+                    result.success(false)
                 }
                 "recordCancellation" -> {
                     AlehulshSosDispatcher.recordCancellation()
@@ -38,7 +41,6 @@ class MainActivity : FlutterActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        AlehulshForegroundService.start(this)
         handleLaunchExtras(intent)
     }
 

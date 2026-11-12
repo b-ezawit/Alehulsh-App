@@ -49,6 +49,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> with Widget
 
   Future<void> _checkAccessibilityService({bool silent = false}) async {
     try {
+      if (await _platformChannel.invokeMethod<bool>('hardwareSosAvailable') != true) return;
       final isEnabled = await _platformChannel.invokeMethod<bool>('isAccessibilityEnabled') ?? false;
       if (!isEnabled && mounted) {
         _showAccessibilityPrompt();

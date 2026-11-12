@@ -112,6 +112,8 @@ class UserProfile {
   /// value: a shared default is a keyword every attacker already knows.
   /// AlertService treats empty as 'cannot cancel', which escalates instead.
   final String catName;
+  final bool keywordConfigured;
+  bool get hasSafetyKeyword => keywordConfigured || catName.isNotEmpty;
   final List<EmergencyContact> emergencyContacts;
   final int safetyScore; // 0 to 100
   final int alertsTriggeredCount;
@@ -130,15 +132,16 @@ class UserProfile {
     required this.email,
     required this.phoneNumber,
     this.avatarUrl = '',
-    this.bloodType = 'O+',
-    this.medicalNotes = 'None',
+    this.bloodType = '',
+    this.medicalNotes = '',
     this.homeAddress = '',
     this.catName = '',
+    this.keywordConfigured = false,
     required this.emergencyContacts,
     this.safetyScore = 92,
     this.alertsTriggeredCount = 0,
     this.alertsRespondedCount = 0,
-    this.isLocationSharingEnabled = true,
+    this.isLocationSharingEnabled = false,
     this.isAutoAudioRecording = true,
     this.isFakeCallEnabled = true,
     this.isCommunityAlertsEnabled = true,
@@ -157,6 +160,7 @@ class UserProfile {
     String? medicalNotes,
     String? homeAddress,
     String? catName,
+    bool? keywordConfigured,
     List<EmergencyContact>? emergencyContacts,
     int? safetyScore,
     int? alertsTriggeredCount,
@@ -179,6 +183,7 @@ class UserProfile {
       medicalNotes: medicalNotes ?? this.medicalNotes,
       homeAddress: homeAddress ?? this.homeAddress,
       catName: catName ?? this.catName,
+      keywordConfigured: keywordConfigured ?? this.keywordConfigured,
       emergencyContacts: emergencyContacts ?? this.emergencyContacts,
       safetyScore: safetyScore ?? this.safetyScore,
       alertsTriggeredCount: alertsTriggeredCount ?? this.alertsTriggeredCount,
@@ -200,8 +205,6 @@ class UserProfile {
       'email': email,
       'phoneNumber': phoneNumber,
       'avatarUrl': avatarUrl,
-      'bloodType': bloodType,
-      'medicalNotes': medicalNotes,
       'homeAddress': homeAddress,
       'catName': catName,
       'emergencyContacts': emergencyContacts.map((x) => x.toMap()).toList(),
@@ -209,6 +212,7 @@ class UserProfile {
       'alertsTriggeredCount': alertsTriggeredCount,
       'alertsRespondedCount': alertsRespondedCount,
       'isLocationSharingEnabled': isLocationSharingEnabled,
+      'locationSharingConsentVersion': isLocationSharingEnabled ? 1 : 0,
       'isAutoAudioRecording': isAutoAudioRecording,
       'isFakeCallEnabled': isFakeCallEnabled,
       'isCommunityAlertsEnabled': isCommunityAlertsEnabled,
@@ -225,17 +229,18 @@ class UserProfile {
       email: map['email'] ?? '',
       phoneNumber: map['phoneNumber'] ?? '',
       avatarUrl: map['avatarUrl'] ?? '',
-      bloodType: map['bloodType'] ?? 'O+',
-      medicalNotes: map['medicalNotes'] ?? 'None',
+      bloodType: '',
+      medicalNotes: '',
       homeAddress: map['homeAddress'] ?? '',
       catName: map['catName'] ?? '',
+      keywordConfigured: map['keywordConfigured'] == true || (map['safetyKeywordHash'] is String && (map['safetyKeywordHash'] as String).isNotEmpty),
       emergencyContacts: map['emergencyContacts'] != null
           ? List<EmergencyContact>.from((map['emergencyContacts'] as List).map((x) => EmergencyContact.fromMap(x)))
           : [],
       safetyScore: map['safetyScore']?.toInt() ?? 90,
       alertsTriggeredCount: map['alertsTriggeredCount']?.toInt() ?? 0,
       alertsRespondedCount: map['alertsRespondedCount']?.toInt() ?? 0,
-      isLocationSharingEnabled: map['isLocationSharingEnabled'] ?? true,
+      isLocationSharingEnabled: map['locationSharingConsentVersion'] == 1 && map['isLocationSharingEnabled'] == true,
       isAutoAudioRecording: map['isAutoAudioRecording'] ?? true,
       isFakeCallEnabled: map['isFakeCallEnabled'] ?? true,
       isCommunityAlertsEnabled: map['isCommunityAlertsEnabled'] ?? true,
@@ -247,7 +252,11 @@ class UserProfile {
     );
   }
 
-  String toJson() => json.encode(toMap());
+  String toJson() {
+    final cache = toMap()..remove('catName')..remove('bloodType')..remove('medicalNotes');
+    cache['keywordConfigured'] = hasSafetyKeyword;
+    return json.encode(cache);
+  }
   factory UserProfile.fromJson(String source) => UserProfile.fromMap(json.decode(source));
 
   static UserProfile guestProfile() {
