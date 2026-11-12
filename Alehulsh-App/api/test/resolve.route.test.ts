@@ -96,7 +96,7 @@ describe('correct keyword', () => {
     await queue.schedule({ key: taskKeys.safetyCheck(a), runAt: new Date(), payload: {} });
     await queue.schedule({ key: taskKeys.expiry(a), runAt: new Date(), payload: {} });
     await resolve(OWNER, KEYWORD);
-    assert.equal(queue.scheduled.size, 0);
+    assert.equal([...queue.scheduled.values()].filter(t => t.payload['kind'] !== 'retract-inbox').length, 0);
   });
 
   test('a late answer on an escalated alert resolves as owner_late', async () => {
@@ -127,7 +127,7 @@ describe('wrong keyword', () => {
     seedActive();
     await resolve(OWNER, 'wrong');
     const keys = [...queue.scheduled.keys()];
-    assert.equal(keys.filter((k) => k.startsWith('notify-contacts:')).length, 1);
+    assert.equal(keys.filter((k) => k.endsWith(':escalation')).length, 1);
   });
 
   test('records the attempt — a cluster of these is evidence', async () => {
@@ -218,4 +218,25 @@ describe('timing', () => {
     assert.ok(withHash > 20, `expected real work, got ${withHash}ms`);
     assert.ok(withoutHash > 20, `expected dummy work, got ${withoutHash}ms`);
   });
+});
+
+test('a delayed resolution for an old incident key cannot resolve or penalize the replacement', async () => {
+  const current = seedActive();
+  for (const keyword of [KEYWORD, 'incorrect']) {
+    const response = await app.inject({ method: 'POST', url: `/v1/alerts/${OWNER}/resolve`,
+      headers: authAs(OWNER), payload: { keyword, incidentKey: 'old-incident-key' } });
+    assert.equal(response.statusCode, 200);
+    assert.deepEqual(response.json(), { acknowledged: true });
+    assert.equal(alerts.store.get(OWNER)!.status, 'active');
+    assert.equal(alerts.store.get(OWNER)!.attemptCount, current.attemptCount);
+    assert.equal(queue.scheduled.size, 0);
+  }
+});
+
+test('parallel wrong keyword requests cannot exceed the atomic verification admission budget', async () => {
+  seedActive();
+  const results=await Promise.all(Array.from({length:12},()=>resolve(OWNER,'incorrect')));
+  for(const response of results){assert.equal(response.statusCode,200);assert.deepEqual(response.json(),{acknowledged:true});}
+  assert.equal(alerts.store.get(OWNER)!.attemptCount,3);
+  assert.equal(alerts.store.get(OWNER)!.status,'escalated');
 });

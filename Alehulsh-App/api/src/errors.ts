@@ -131,6 +131,19 @@ export function toClientError(err: unknown): {
   return {
     status: 500,
     body: { error: { code: 'internal', message: PUBLIC_MESSAGE.internal } },
-    internal: { unhandled: err instanceof Error ? err.message : String(err) },
+    internal: {
+      errorType: err instanceof TypeError ? 'TypeError' : 'Error',
+      // PostgreSQL's classification fields describe our schema, unlike its
+      // message/detail fields which can contain an entire sensitive row.
+      ...safeDatabaseClassification(err),
+    },
   };
+}
+
+function safeDatabaseClassification(err: unknown): Record<string, string> {
+  if (!err || typeof err !== 'object') return {};
+  const { code, constraint } = err as { code?: unknown; constraint?: unknown };
+  if (typeof code !== 'string' || !/^[0-9A-Z]{5}$/.test(code)) return {};
+  return { sqlstate: code,
+    ...(typeof constraint === 'string' && /^[a-z][a-z0-9_]{0,62}$/.test(constraint) ? { constraint } : {}) };
 }

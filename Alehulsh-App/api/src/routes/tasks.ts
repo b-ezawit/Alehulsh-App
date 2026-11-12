@@ -1,125 +1,22 @@
-import { isTerminalStatus } from '../repositories/types.js';
 import type { FastifyInstance } from 'fastify';
 import { requireTaskRunner } from '../auth/taskAuth.js';
 import type { Deps } from '../server.js';
-import { taskKeys } from '../tasks.js';
+import { processAlertTask, type AlertTaskInput, type AlertTaskKind } from '../services/processAlertTask.js';
 
-/**
- * Internal task endpoints.  (P3-06)
- *
- * The safety check is the mechanism docs/coercion-and-escalation.md rests on,
- * and it does not exist in the shipped app at all: a wrong keyword shows red
- * text and nothing happens, and an unanswered check does nothing either.
- *
- * Scheduled rather than polled. A cron sweeping for due alerts cannot express
- * "fire in two minutes unless she resolves first" without either a coarse
- * window or a table scan, and the window is the part that matters — two
- * minutes late is two minutes of her not being helped.
- *
- * Every handler is idempotent. At-least-once delivery is the normal case for
- * any queue, so a redelivered task must not escalate twice or notify her
- * contacts twice.
- */
 const bodySchema = {
-  type: 'object',
-  required: ['alertId'],
-  additionalProperties: false,
-  properties: { alertId: { type: 'string', minLength: 1, maxLength: 128 } },
+  type: 'object', required: ['alertId'], additionalProperties: false,
+  properties: {
+    alertId: { type: 'string', minLength: 1, maxLength: 128 },
+    alertKey: { type: 'string', minLength: 1, maxLength: 128 }
+  },
 } as const;
 
+/** Same domain operation is used by the bounded Workers dispatcher. */
 export function registerTaskRoutes(app: FastifyInstance, deps: Deps): void {
   const preHandler = requireTaskRunner(deps.config.taskRunnerSecret);
-
-  /**
-   * The safety check window has elapsed with no answer.
-   * coercion-and-escalation.md §4: silence is not consent.
-   */
-  app.post<{ Body: { alertId: string } }>(
-    '/internal/tasks/safety-check',
-    { schema: { body: bodySchema }, preHandler },
-    async (req, reply) => {
-      const alert = await deps.alerts.findById(req.body.alertId);
-
-      // Gone, or already terminal. A redelivery after she resolved must not
-      // drag her back into an escalated state.
-      if (!alert || alert.status !== 'active') {
-        deps.logger.info('safety check skipped', {
-          alertId: req.body.alertId, status: alert?.status ?? 'missing',
-        });
-        return reply.send({ handled: false });
-      }
-
-      const now = new Date();
-      // The transition is CONDITIONAL, and it can legitimately do nothing: she
-      // may have resolved between the read above and this write.
-      // `transition_alert` only moves an alert out of active/escalated, so in
-      // that case nothing changes - and `updateStatus` returns the alert AS IT
-      // STANDS, not as it was asked to be. Measured: resolve, then
-      // updateStatus(escalated) returns status 'resolved' and does not throw.
-      //
-      // So the result is checked before anything irreversible follows.
-      // Scheduling contact notification for an alert she has already resolved
-      // would tell her contacts about an emergency that is over - the exact
-      // outcome docs/coercion-and-escalation.md and the cancel-on-resolve path
-      // exist to prevent.
-      const updated = await deps.alerts.updateStatus(alert.id, 'escalated', {
-        escalatedAt: now,
-        escalationReason: 'no_answer',
-      });
-
-      if (updated.status !== 'escalated') {
-        deps.logger.info('safety check lost the race; alert already ended', {
-          alertId: alert.id, status: updated.status,
-        });
-        return reply.send({ handled: false });
-      }
-
-      // Keyed on the alert, not the moment, so a redelivered task collapses
-      // onto the same notification instead of telling her contacts twice.
-      await deps.queue.schedule({
-        key: taskKeys.notifyContacts(alert, alert.createdAt),
-        runAt: now,
-        payload: { kind: 'notify-contacts', alertId: alert.id, reason: 'no_answer' },
-      });
-
-      deps.logger.warn('alert escalated: no answer to the safety check', { alertId: alert.id });
-      return reply.send({ handled: true });
-    },
-  );
-
-  /**
-   * The active window elapsed without resolution or escalation.
-   *
-   * alert-lifecycle.md §2: if escalation worked this is unreachable, so
-   * reaching it means our own machinery failed. It is logged at error level on
-   * purpose — this is the line that should page someone once P2-17 gives us
-   * somewhere to page to.
-   */
-  app.post<{ Body: { alertId: string } }>(
-    '/internal/tasks/expiry',
-    { schema: { body: bodySchema }, preHandler },
-    async (req, reply) => {
-      const alert = await deps.alerts.findById(req.body.alertId);
-
-      if (!alert || isTerminalStatus(alert.status)) {
-        return reply.send({ handled: false });
-      }
-
-      await deps.alerts.updateStatus(alert.id, 'expired', {});
-
-      if (alert.status === 'active') {
-        // Never escalated. The safety check did not run.
-        deps.logger.error('alert expired while still active — escalation did not run', {
-          alertId: alert.id, createdAt: alert.createdAt.toISOString(),
-        });
-      } else {
-        // Escalated but never resolved. Expected, and still worth recording.
-        deps.logger.warn('escalated alert expired unresolved', { alertId: alert.id });
-      }
-
-      // Deliberately no notification. The window has passed and a late message
-      // saying she may be in danger is worse than none.
-      return reply.send({ handled: true });
-    },
-  );
+  for (const kind of ['safety-check', 'expiry', 'notify-contacts', 'retract-inbox'] satisfies AlertTaskKind[]) {
+    app.post<{ Body: AlertTaskInput; }>(`/internal/tasks/${kind}`,
+      { schema: { body: bodySchema }, preHandler },
+      async (req, reply) => reply.send(await processAlertTask(deps, kind, req.body)));
+  }
 }

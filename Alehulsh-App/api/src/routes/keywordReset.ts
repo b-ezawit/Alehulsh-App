@@ -1,3 +1,4 @@
+import { keywordConfirmSchema as confirmSchema } from '../http/schemas.js';
 import type { FastifyInstance } from 'fastify';
 import { requireSubject, subjectOf } from '../auth/middleware.js';
 import { AppError } from '../errors.js';
@@ -38,12 +39,7 @@ import type { Deps } from '../server.js';
  */
 export const RESET_DELAY_MS = 72 * 60 * 60 * 1000;
 
-const confirmSchema = {
-  type: 'object',
-  required: ['keyword'],
-  additionalProperties: false,
-  properties: { keyword: { type: 'string', minLength: 1, maxLength: 256 } },
-} as const;
+
 
 const MIN_LENGTH = 3;
 
@@ -149,8 +145,7 @@ export function registerKeywordResetRoutes(app: FastifyInstance, deps: Deps): vo
       }
 
       const hash = await hashKeyword(req.body.keyword, deps.config.keywordPepper);
-      await deps.users.setSafetyKeywordHash(uid, hash);
-      await deps.keywordResets.update(uid, { status: 'confirmed' });
+      await deps.keywordResets.confirm(uid, pending.requestedAt, hash, now);
 
       deps.logger.warn('safety keyword reset completed', { subject: uid });
       return reply.send({ keywordSet: true });

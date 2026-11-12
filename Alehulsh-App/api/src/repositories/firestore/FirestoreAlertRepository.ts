@@ -1,4 +1,5 @@
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
+import { prepareAlertWork } from '../../queue/FirestoreAlertWork.js';
 import type { Firestore } from 'firebase-admin/firestore';
 import { Timestamp } from 'firebase-admin/firestore';
 import { AppError } from '../../errors.js';
@@ -104,11 +105,14 @@ const TRANSITION_TARGETS: ReadonlySet<AlertStatus> =
   new Set<AlertStatus>(['escalated', 'resolved', 'cancelled', 'expired']);
 
 interface AlertDoc {
+  message?:string;
+  isUrgent?:boolean;
   requestId?: string;
   alertKey?: string;
   userId: string;
   status: AlertStatus;
-  createdAt: Timestamp;
+  createdAt?: Timestamp;
+  timestamp?: string;
   expiresAtTimestamp: Timestamp;
   latitude: number | null;
   longitude: number | null;
@@ -132,13 +136,14 @@ interface AlertDoc {
 
 function toAlert(id: string, d: AlertDoc): Alert {
   const a: Alert = {
+    ...(d.message?{message:d.message}:{}),...(d.isUrgent?{isUrgent:true}:{}),
     id,
-    // Older documents predate the key. Falling back to the slot id keeps them
-    // readable; they simply cannot be told apart, which is the bug this fixes.
-    key: d.alertKey ?? id,
+    // Legacy rows must be adopted before delayed work can address them.
+    // Never equate an uninitialized owner slot with an immutable incident.
+    key: d.alertKey ?? `uninitialized:${id}`,
     ownerId: d.userId,
     status: d.status,
-    createdAt: d.createdAt.toDate(),
+    createdAt: d.createdAt?.toDate() ?? new Date(d.timestamp ?? 0),
     expiresAt: d.expiresAtTimestamp.toDate(),
     latitude: d.latitude ?? null,
     longitude: d.longitude ?? null,
@@ -172,9 +177,38 @@ function toAlert(id: string, d: AlertDoc): Alert {
 }
 
 export class FirestoreAlertRepository implements AlertRepository {
+  async updateOwnedDetails(uid:string,id:string,key:string,details:{message?:string;isUrgent?:boolean}):Promise<void>{
+    if(!couldBeAlertDocId(id))throw new AppError('not_found');
+    await this.db.runTransaction(async tx=>{
+      const source=this.db.collection(COLLECTION).doc(id),row=await tx.get(source);
+      if(!row.exists||row.get('userId')!==uid||row.get('alertKey')!==key||
+        !['active','escalated'].includes(row.get('status'))||row.get('expiresAtTimestamp').toMillis()<=Date.now())throw new AppError('not_found');
+      const projections=details.isUrgent===undefined?null:await tx.get(this.db.collectionGroup('alerts').where('alertId','==',id).limit(401));
+      if(projections&&projections.size>400)throw new AppError('rate_limited');
+      tx.update(source,details);
+      for(const p of projections?.docs??[])if(p.ref.path.startsWith('inbox/')&&p.ref.path.split('/').length===4&&p.get('alertKey')===key)tx.update(p.ref,{isUrgent:details.isUrgent});
+    });
+  }
+  async admitKeywordVerification(id: string, key: string, cap: number, cooldownMs: number): Promise<boolean> {
+    if (!couldBeAlertDocId(id) || !Number.isSafeInteger(cap) || cap < 1 || !Number.isSafeInteger(cooldownMs) || cooldownMs < 1) return false;
+    return this.db.runTransaction(async tx => {
+      const ref = this.db.collection(COLLECTION).doc(id), snap = await tx.get(ref);
+      const data = snap.data(), now = Date.now();
+      if (!data || data['alertKey'] !== key || !['active','escalated'].includes(data['status']) ||
+          !(data['expiresAtTimestamp'] instanceof Timestamp) || data['expiresAtTimestamp'].toMillis() <= now) return false;
+      const start = data['keywordAdmissionAt'];
+      const reset = !(start instanceof Timestamp) || start.toMillis() + cooldownMs <= now;
+      const count = reset ? 0 : Number(data['keywordAdmissionCount']) || 0;
+      if (count >= cap) return false;
+      tx.update(ref, { keywordAdmissionCount: count + 1,
+        keywordAdmissionAt: reset ? Timestamp.fromMillis(now) : start });
+      return true;
+    });
+  }
   constructor(
     private readonly db: Firestore,
     private readonly activeWindowMs: number,
+    private readonly safetyCheckDelayMs = 120_000,
   ) {}
 
   /**
@@ -217,28 +251,33 @@ export class FirestoreAlertRepository implements AlertRepository {
     if (!couldBeAlertDocId(input.ownerId)) {
       throw new AppError('invalid_request', 'owner id cannot name a document');
     }
+    await this.ensureWorkflow(input.ownerId);
     const ref = this.db.collection(COLLECTION).doc(input.ownerId);
+    const receipt = this.db.collection('alert_requests').doc(
+      createHash('sha256').update(JSON.stringify([input.ownerId, input.requestId])).digest('hex'));
     const now = new Date();
 
     return this.db.runTransaction(async (tx) => {
-      const snap = await tx.get(ref);
+      const [snap, priorRequest] = await Promise.all([tx.get(ref), tx.get(receipt)]);
       const existing = snap.exists ? (snap.data() as AlertDoc) : undefined;
 
-      if (existing && (existing.status === 'active' || existing.status === 'escalated')) {
-        // Pure retry, or a re-trigger. Either way, one alert.
-        return { alert: toAlert(ref.id, existing), created: false };
+      if (priorRequest.exists && priorRequest.get('alertKey') !== existing?.alertKey) {
+        const archived = await tx.get(this.db.collection(HISTORY).doc(priorRequest.get('alertKey')));
+        if (!archived.exists) throw new AppError('conflict', 'previous alert no longer available');
+        return { alert: toAlert(ref.id, archived.data() as AlertDoc), created: false };
       }
 
-      // A terminal alert is about to be overwritten. Copy it to the archive
-      // FIRST, in this transaction, so there is no window where the only copy
-      // has been replaced. Losing an alert here is losing her evidence.
-      if (existing) {
-        const previous = toAlert(ref.id, existing);
-        tx.set(this.db.collection(HISTORY).doc(previous.key), {
-          ...existing,
-          alertKey: previous.key,
-          archivedAt: Timestamp.fromDate(now),
-        });
+      if (existing && (priorRequest.exists || existing.requestId === input.requestId ||
+          existing.status === 'active' || existing.status === 'escalated')) {
+        const alert = toAlert(ref.id, existing);
+        const writeWork = await prepareAlertWork(this.db, tx, alert, this.safetyCheckDelayMs);
+        const reset = await tx.get(this.db.collection('keyword_resets').doc(input.ownerId));
+        writeWork();
+        if (!priorRequest.exists) tx.create(receipt, { ownerId: input.ownerId, alertKey: alert.key, createdAt: Timestamp.now() });
+        if (!isTerminalStatus(alert.status) && reset.get('status') === 'pending') {
+          tx.update(reset.ref, { status: 'voided_by_alert' });
+        }
+        return { alert, created: false };
       }
 
       // The same normalisation the Postgres path applies, from the same
@@ -274,6 +313,24 @@ export class FirestoreAlertRepository implements AlertRepository {
         ...(input.occurredAt ? { deviceReportedAt: Timestamp.fromDate(input.occurredAt) } : {}),
         reportedDelayMs: reportedDelayMs(now, input.occurredAt ?? null),
       };
+      const alert = toAlert(ref.id, doc);
+      const writeWork = await prepareAlertWork(this.db, tx, alert, this.safetyCheckDelayMs);
+      const reset = await tx.get(this.db.collection('keyword_resets').doc(input.ownerId));
+      // A terminal alert is about to be overwritten. Copy it to the archive
+      // FIRST, in this transaction, so there is no window where the only copy
+      // has been replaced. Losing an alert here is losing her evidence.
+      if (existing) {
+        const previous = toAlert(ref.id, existing);
+        tx.set(this.db.collection(HISTORY).doc(previous.key), {
+          ...existing,
+          alertKey: previous.key,
+          archivedAt: Timestamp.fromDate(now),
+        });
+      }
+
+      writeWork();
+      if (reset.get('status') === 'pending') tx.update(reset.ref, { status: 'voided_by_alert' });
+      tx.create(receipt, { ownerId: input.ownerId, alertKey: alert.key, createdAt: Timestamp.now() });
       tx.set(ref, doc);
       return { alert: toAlert(ref.id, doc), created: true };
     });
@@ -300,7 +357,7 @@ export class FirestoreAlertRepository implements AlertRepository {
    * and the write. A read outside the transaction followed by an
    * unconditional write would NOT be safe, which is why this stays here.
    */
-  async updateStatus(id: string, next: AlertStatus, fields: Partial<Alert>): Promise<Alert> {
+  async updateStatus(id: string, next: AlertStatus, fields: Partial<Alert>, expectedKey?: string): Promise<Alert> {
     // Matches transition_alert's first rule, which RAISES rather than
     // returning false: a target of 'active' is a programming error, not a
     // race. No caller does this; the check exists so none can start.
@@ -321,19 +378,26 @@ export class FirestoreAlertRepository implements AlertRepository {
       if (!snap.exists) throw new AppError('not_found', `alert ${id} missing`);
 
       const current = snap.data() as AlertDoc;
+      if (expectedKey !== undefined && (!current.alertKey || toAlert(id, current).key !== expectedKey)) {
+        throw new AppError('conflict', 'alert instance changed');
+      }
 
       // Terminal states are final. NOT an error: a cancel racing a resolve,
       // or a queued safety check arriving after she resolved, are both normal.
       // The caller is told what the alert actually is and decides from there.
       if (isTerminalStatus(current.status)) {
-        return toAlert(id, current);
+        const alert = toAlert(id, current);
+        (await prepareAlertWork(this.db, tx, alert, this.safetyCheckDelayMs))();
+        return alert;
       }
 
       // No double escalation. transition_alert refuses escalated -> escalated,
       // so a redelivered safety check cannot overwrite the original
       // escalatedAt and reason with a later one.
       if (next === 'escalated' && current.status === 'escalated') {
-        return toAlert(id, current);
+        const alert = toAlert(id, current);
+        (await prepareAlertWork(this.db, tx, alert, this.safetyCheckDelayMs))();
+        return alert;
       }
 
       const patch: Record<string, unknown> = { status: next };
@@ -341,24 +405,85 @@ export class FirestoreAlertRepository implements AlertRepository {
       if (fields.resolvedBy) patch['resolvedBy'] = fields.resolvedBy;
       if (fields.escalatedAt) patch['escalatedAt'] = Timestamp.fromDate(fields.escalatedAt);
       if (fields.escalationReason) patch['escalationReason'] = fields.escalationReason;
+      const updated = toAlert(id, { ...current, ...patch } as AlertDoc);
+      const writeWork = await prepareAlertWork(this.db, tx, updated, this.safetyCheckDelayMs);
+      writeWork();
       tx.update(ref, patch);
-      return toAlert(id, { ...current, ...patch } as AlertDoc);
+      return updated;
     });
   }
 
-  async recordFailedAttempt(id: string, at: Date): Promise<Alert> {
+  async failKeywordAttempt(id: string, at: Date, expectedKey?: string): Promise<Alert> {
+    if (!couldBeAlertDocId(id)) throw new AppError('not_found', 'alert not found');
+    const ref = this.db.collection(COLLECTION).doc(id);
+    return this.db.runTransaction(async tx => {
+      const snap = await tx.get(ref);
+      if (!snap.exists) throw new AppError('not_found', 'alert not found');
+      const data = snap.data() as AlertDoc;
+      const current = toAlert(id, data);
+      if (expectedKey !== undefined && (!data.alertKey || current.key !== expectedKey)) {
+        throw new AppError('conflict', 'alert instance changed');
+      }
+      if (isTerminalStatus(current.status)) return current;
+      const patch = {
+        attemptCount: current.attemptCount + 1, lastAttemptAt: Timestamp.fromDate(at),
+        ...(current.status === 'active' ? {
+          status: 'escalated' as const, escalatedAt: Timestamp.fromDate(at),
+          escalationReason: 'wrong_keyword' as const,
+        } : {}),
+      };
+      const updated = toAlert(id, { ...data, ...patch });
+      const writeWork = await prepareAlertWork(this.db, tx, updated, this.safetyCheckDelayMs);
+      writeWork();
+      tx.update(ref, patch);
+      return updated;
+    });
+  }
+
+  async recordFailedAttempt(id: string, at: Date, expectedKey?: string): Promise<Alert> {
     if (!couldBeAlertDocId(id)) throw new AppError('not_found', 'alert not found');
     const ref = this.db.collection(COLLECTION).doc(id);
     return this.db.runTransaction(async (tx) => {
       const snap = await tx.get(ref);
       if (!snap.exists) throw new AppError('not_found', `alert ${id} missing`);
       const current = snap.data() as AlertDoc;
+      if (expectedKey !== undefined && (!current.alertKey || toAlert(id, current).key !== expectedKey)) {
+        throw new AppError('conflict', 'alert instance changed');
+      }
+      if (isTerminalStatus(current.status)) return toAlert(id, current);
       const patch = {
         attemptCount: (current.attemptCount ?? 0) + 1,
         lastAttemptAt: Timestamp.fromDate(at),
       };
       tx.update(ref, patch);
       return toAlert(id, { ...current, ...patch });
+    });
+  }
+
+  /** Recovery for legacy direct mobile writes; never advances a deadline. */
+  async ensureWorkflow(id: string): Promise<void> {
+    if (!couldBeAlertDocId(id)) return;
+    await this.db.runTransaction(async (tx) => {
+      const snap = await tx.get(this.db.collection(COLLECTION).doc(id));
+      if (!snap.exists) return;
+      const data = snap.data() as AlertDoc;
+      // Legacy clients only wrote a device timestamp. Adopt the server's
+      // document update time once, then persist it so recovery cannot postpone.
+      const adoptedAt = data.createdAt ?? snap.updateTime!;
+      const adoptedExpiry = data.createdAt ? data.expiresAtTimestamp
+        : Timestamp.fromMillis(adoptedAt.toMillis() + this.activeWindowMs);
+      const generatedKey = data.alertKey ? undefined : randomUUID();
+      const alert = toAlert(id, { ...data, createdAt: adoptedAt,
+        expiresAtTimestamp: adoptedExpiry, alertKey: data.alertKey ?? generatedKey! });
+      const writeWork = await prepareAlertWork(this.db, tx, alert, this.safetyCheckDelayMs);
+      const reset = await tx.get(this.db.collection('keyword_resets').doc(alert.ownerId));
+      writeWork();
+      if (generatedKey || !data.createdAt) tx.update(snap.ref, {
+        alertKey: alert.key, createdAt: adoptedAt, expiresAtTimestamp: adoptedExpiry,
+      });
+      if (!isTerminalStatus(alert.status) && reset.get('status') === 'pending') {
+        tx.update(reset.ref, { status: 'voided_by_alert' });
+      }
     });
   }
 
@@ -407,6 +532,17 @@ export class FirestoreAlertRepository implements AlertRepository {
       for (const d of archived.docs.slice(i, i + 400)) batch.delete(d.ref);
       await batch.commit();
       removed += Math.min(400, archived.docs.length - i);
+    }
+    for (const query of [
+      this.db.collection('alert_requests').where('ownerId', '==', ownerUid),
+      this.db.collection('alert_task_outbox').where('payload.alertId', '==', ownerUid),
+    ]) {
+      const rows = await query.get();
+      for (let i = 0; i < rows.size; i += 400) {
+        const batch = this.db.batch();
+        for (const row of rows.docs.slice(i, i + 400)) batch.delete(row.ref);
+        await batch.commit();
+      }
     }
     return removed;
   }

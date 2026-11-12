@@ -1,0 +1,27 @@
+# Production-target local configuration only. This file does not provision
+# bindings, upload secrets, deploy a Worker, or approve notification delivery.
+# Supply secrets through secure local editing/secret management, not chat.
+# Keep the existing authoritative pepper; never generate a replacement.
+# Public operator pins only; excluded from Worker request bindings.
+CLOUDFLARE_ACCOUNT_ID=
+CLOUDFLARE_WORKER_NAME=
+SUPABASE_AUTH_ISSUER=
+SUPABASE_AUTH_AUDIENCE=authenticated
+KEYWORD_PEPPER=
+R2_ENDPOINT=
+R2_BUCKET=
+R2_ACCESS_KEY_ID=
+R2_SECRET_ACCESS_KEY=
+SUPABASE_SESSION_MAX_AGE_SECONDS=
+SUPABASE_SESSION_INACTIVITY_SECONDS=
+TASK_BATCH_SIZE=
+TASK_CONCURRENCY=
+TASK_LEASE_MS=
+TASK_DISPATCH_TIMEOUT_MS=
+TASK_QUERY_TIMEOUT_MS=
+PUSH_DELIVERY_ENABLED=false
+PUSH_CONSENT_VERSION=
+PUSH_CONSENT_TEXT=
+FCM_PROJECT_ID=
+FCM_CLIENT_EMAIL=
+FCM_PRIVATE_KEY=

@@ -13,7 +13,7 @@ const { test, before, after, describe } = require('node:test');
 const {
   initializeTestEnvironment, assertSucceeds, assertFails,
 } = require('@firebase/rules-unit-testing');
-const { doc, getDoc, setDoc, updateDoc, deleteDoc } = require('firebase/firestore');
+const { doc, getDoc, setDoc, updateDoc, deleteDoc, Timestamp } = require('firebase/firestore');
 
 const ALICE = 'alice_uid';
 const BOB = 'bob_uid';
@@ -26,13 +26,15 @@ const alertDoc = (uid) => ({
 let env, alice, bob;
 
 before(async () => {
+  const endpoint = process.env.FIRESTORE_EMULATOR_HOST || '127.0.0.1:8080';
+  if (!/^127\.0\.0\.1:\d+$/.test(endpoint)) throw new Error('loopback emulator required');
   env = await initializeTestEnvironment({
     // Its own project id so it cannot collide with the live-ruleset suite.
     projectId: 'alehulsh-closed-rules-test',
     firestore: {
       rules: readFileSync(join(__dirname, '..', '..', 'firestore.rules.closed'), 'utf8'),
       host: '127.0.0.1',
-      port: 8080,
+      port: Number(endpoint.split(':')[1]),
     },
   });
   await env.withSecurityRulesDisabled(async (ctx) => {
@@ -90,7 +92,7 @@ describe('what this switch deliberately does not close', () => {
 
   test('the inbox stays readable and unwritable', async () => {
     await env.withSecurityRulesDisabled((ctx) =>
-      setDoc(doc(ctx.firestore(), 'inbox', ALICE, 'alerts', 'a1'), { alertId: 'a1' }));
+      Promise.all([setDoc(doc(ctx.firestore(), 'active_alerts', 'a1'), { userId: BOB, alertKey: 'incident-a1', status: 'active', expiresAtTimestamp: Timestamp.fromMillis(Date.now() + 60000) }), setDoc(doc(ctx.firestore(), 'inbox', ALICE, 'alerts', 'a1'), { alertId: 'a1', alertKey: 'incident-a1' })]));
     await assertSucceeds(getDoc(doc(alice, 'inbox', ALICE, 'alerts', 'a1')));
     await assertFails(setDoc(doc(alice, 'inbox', ALICE, 'alerts', 'a2'), { alertId: 'a2' }));
   });

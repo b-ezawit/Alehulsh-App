@@ -7,6 +7,7 @@
  * logs or error messages.
  */
 import { Pool, type PoolClient, type PoolConfig, type QueryResult, type QueryResultRow } from 'pg';
+import { IdentityNotMappedError } from '../repositories/types.js';
 
 /**
  * Anything that can run a statement: a Pool, or one client inside a
@@ -36,6 +37,8 @@ export interface DbConfig {
   database: string;
   user: string;
   password: string;
+  /** PEM certificate chain, if the host does not use a publicly trusted CA. */
+  sslCa?: string;
 }
 
 /**
@@ -64,21 +67,43 @@ export function loadDbConfig(env: NodeJS.ProcessEnv = process.env): DbConfig {
     database: required('PGDATABASE'),
     user: required('PGUSER'),
     password: required('PGPASSWORD'),
+    ...(env['PGSSL_CA_PEM'] ? { sslCa: env['PGSSL_CA_PEM'] } : {}),
+  };
+}
+
+export function isLoopbackHost(host: string): boolean {
+  return host === 'localhost' || host === '::1' || host === '[::1]'
+    || /^127\.(?:\d{1,3}\.){2}\d{1,3}$/.test(host);
+}
+
+/** Remote PostgreSQL always authenticates its server certificate. */
+export function databaseTls(config: Pick<DbConfig, 'host' | 'sslCa'>): PoolConfig['ssl'] {
+  return isLoopbackHost(config.host) ? false : {
+    rejectUnauthorized: true,
+    ...(config.sslCa ? { ca: config.sslCa } : {}),
   };
 }
 
 /** A pool for the given config. The caller owns its lifecycle. */
 export function createPool(config: DbConfig, extra: PoolConfig = {}): Pool {
+  if (extra.connectionString) {
+    throw new Error('pool connection strings must be parsed into DbConfig before use');
+  }
+  if (!isLoopbackHost(config.host)
+    && (extra.ssl === false || (typeof extra.ssl === 'object' && extra.ssl?.rejectUnauthorized === false))) {
+    throw new Error('remote database TLS certificate verification cannot be disabled');
+  }
   return new Pool({
+    max: 10,
+    idleTimeoutMillis: 10_000,
+    connectionTimeoutMillis: 5_000,
+    ...extra,
     host: config.host,
     port: config.port,
     database: config.database,
     user: config.user,
     password: config.password,
-    max: 10,
-    idleTimeoutMillis: 10_000,
-    connectionTimeoutMillis: 5_000,
-    ...extra,
+    ssl: extra.ssl ?? databaseTls(config),
   });
 }
 
@@ -121,8 +146,8 @@ class TransactionScope implements Queryable {
  * Runs `fn` inside one transaction on one connection.
  *
  * Commits when `fn` returns, rolls back when it throws, and releases the
- * connection either way - including when the ROLLBACK itself fails, which
- * happens when the connection has already died. A leaked client is worse than
+ * connection either way. BEGIN/COMMIT failures discard the connection because
+ * transaction state may be unknown; a failed ROLLBACK does the same. A leaked client is worse than
  * a failed request: the pool runs out and every later SOS waits on a
  * connection that will never come back.
  *
@@ -135,8 +160,14 @@ export async function withTransaction<T>(
 ): Promise<T> {
   const client: PoolClient = await pool.connect();
   const scope = new TransactionScope(client);
+  let discard = false;
   try {
-    await client.query('BEGIN');
+    try {
+      await client.query('BEGIN');
+    } catch (cause) {
+      discard = true;
+      throw cause;
+    }
     let result: T;
     try {
       result = await fn(scope);
@@ -147,21 +178,95 @@ export async function withTransaction<T>(
       try {
         await client.query('ROLLBACK');
       } catch {
-        client.release(true);
-        throw cause;
+        discard = true;
       }
       throw cause;
     }
-    await client.query('COMMIT');
+    try {
+      await client.query('COMMIT');
+    } catch (cause) {
+      // A deferred constraint can fail at COMMIT; a network failure can also
+      // leave its outcome unknown. Never lend that connection or its local
+      // identity context to another request. Discarding closes it and aborts
+      // any still-open transaction; it cannot undo a commit already accepted.
+      discard = true;
+      throw cause;
+    }
     return result;
   } finally {
     // Disarmed BEFORE the connection goes back to the pool, so there is no
     // window in which an escaped handle and a new owner share a connection.
     scope.close();
-    // release() is idempotent in pg; a second call after release(true) above
-    // is ignored, so this cannot double-release.
-    client.release();
+    client.release(discard ? true : undefined);
   }
+}
+
+/**
+ * Application transaction boundary. The pool credential is only a connection
+ * credential: no application statement runs before the restricted role and
+ * transaction-local identity are established. A null subject is explicitly
+ * system work, with no person's evidence access.
+ *
+ * Most existing API policies intentionally grant cross-user operations to this
+ * role; routes/repositories must still authorize those operations. Evidence
+ * SELECT policies additionally enforce owner/accepted-recipient isolation.
+ */
+export async function withApiTransaction<T>(
+  pool: Pool,
+  subject: string | null,
+  fn: (tx: Queryable) => Promise<T>,
+): Promise<T> {
+  if (subject !== null && (!subject || subject.includes('\u0000'))) {
+    throw new IdentityNotMappedError();
+  }
+  return withTransaction(pool, async (tx) => {
+    await tx.query('SET LOCAL ROLE alehulsh_api');
+    const { rows } = await tx.query<{ rolname: string; rolsuper: boolean; rolbypassrls: boolean }>(
+      `SELECT rolname, rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_user`,
+    );
+    const role = rows[0];
+    if (!role || role.rolname !== 'alehulsh_api' || role.rolsuper || role.rolbypassrls) {
+      throw new Error('application database role must be alehulsh_api without superuser or BYPASSRLS');
+    }
+    // Clear BOTH accessors before identity resolution. Supabase auth.uid() can
+    // fall back to request.jwt.claims if the scalar claim is blank.
+    await tx.query(
+      `SELECT set_config('request.jwt.claim.sub', '', true),
+              set_config('request.jwt.claims', '{}', true)`,
+    );
+    if (subject !== null) {
+      const result = await tx.query<{ user_id: string | null }>(
+        `SELECT public.resolve_identity($1::text)::text AS user_id`, [subject],
+      );
+      const userId = result.rows[0]?.user_id;
+      if (!userId) throw new IdentityNotMappedError();
+      await tx.query(
+        `SELECT set_config('request.jwt.claim.sub', $1, true),
+                set_config('request.jwt.claims', $2, true)`,
+        [userId, JSON.stringify({ sub: userId })],
+      );
+    }
+    return fn(tx);
+  });
+}
+
+/** Pass this to application repositories/queues rather than the raw pool. */
+export class ApiDatabase implements Queryable {
+  constructor(private readonly pool: Pool, private readonly subject: string | null = null) {}
+
+  transaction<T>(fn: (tx: Queryable) => Promise<T>): Promise<T> {
+    return withApiTransaction(this.pool, this.subject, fn);
+  }
+
+  query<R extends QueryResultRow = QueryResultRow>(
+    sql: string, params?: readonly unknown[],
+  ): Promise<QueryResult<R>> {
+    return this.transaction((tx) => tx.query<R>(sql, params));
+  }
+}
+
+export function createApiDatabase(pool: Pool, subject: string | null = null): ApiDatabase {
+  return new ApiDatabase(pool, subject);
 }
 
 /**

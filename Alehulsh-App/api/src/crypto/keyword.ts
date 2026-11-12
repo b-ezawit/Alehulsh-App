@@ -1,3 +1,4 @@
+import { keywordAdmission } from './KeywordAdmission.js';
 /**
  * Safety-keyword hashing.  (P1-11 — the prerequisite for the CRIT-05 fix.)
  *
@@ -15,6 +16,8 @@
  */
 import { createHmac, randomBytes, scrypt, timingSafeEqual } from 'node:crypto';
 import { promisify } from 'node:util';
+import { normalizeKeyword } from './keywordNormalization.js';
+export { normalizeKeyword, isShippedDefault, SHIPPED_DEFAULT_KEYWORD } from './keywordNormalization.js';
 
 const scryptAsync = promisify(scrypt) as (
   password: Buffer, salt: Buffer, keylen: number,
@@ -35,9 +38,6 @@ const MAXMEM = 256 * 1024 * 1024;
  * sequences for the same visible word, and a woman retyping her keyword under
  * duress must not fail on an invisible encoding difference.
  */
-export function normalizeKeyword(raw: string): string {
-  return raw.normalize('NFKC').trim().toLowerCase();
-}
 
 /**
  * Peppering. A pepper is a server-side secret that is not in the database.
@@ -51,7 +51,7 @@ function peppered(normalized: string, pepper: string): Buffer {
 }
 
 /** Self-describing, so parameters can be raised later without a migration. */
-export async function hashKeyword(raw: string, pepper: string): Promise<string> {
+async function hashKeywordUnbounded(raw: string, pepper: string): Promise<string> {
   const normalized = normalizeKeyword(raw);
   if (!normalized) throw new Error('keyword is empty after normalisation');
   const salt = randomBytes(SALT_LEN);
@@ -64,7 +64,7 @@ export async function hashKeyword(raw: string, pepper: string): Promise<string> 
  * Constant-time. Returns false rather than throwing on a malformed stored
  * value — a corrupt record must never become an authentication bypass.
  */
-export async function verifyKeyword(raw: string, stored: string, pepper: string): Promise<boolean> {
+async function verifyKeywordUnbounded(raw: string, stored: string, pepper: string): Promise<boolean> {
   try {
     const parts = stored.split('$');
     if (parts.length !== 6 || parts[0] !== 'scrypt') return false;
@@ -88,14 +88,10 @@ export async function verifyKeyword(raw: string, stored: string, pepper: string)
   }
 }
 
-/**
- * The shipped default (user_profile_model.dart:131,226). Anyone still carrying
- * it has no secret at all, because every other user's keyword is the same word.
- * They must be forced to choose a real one (P1-12/P1-13) rather than migrated
- * into a false sense of protection.
- */
-export const SHIPPED_DEFAULT_KEYWORD = 'milo';
+export function hashKeyword(raw: string, pepper: string): Promise<string> {
+  return keywordAdmission.run(() => hashKeywordUnbounded(raw, pepper));
+}
 
-export function isShippedDefault(raw: string): boolean {
-  return normalizeKeyword(raw) === SHIPPED_DEFAULT_KEYWORD;
+export function verifyKeyword(raw: string, stored: string, pepper: string): Promise<boolean> {
+  return keywordAdmission.run(() => verifyKeywordUnbounded(raw, stored, pepper));
 }

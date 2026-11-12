@@ -140,6 +140,26 @@ describe('withTransaction', () => {
     await assert.rejects(() => escaped!.query(`SELECT 1`), /transaction has ended/);
   });
 
+  ptest('deferred COMMIT failure discards the backend and cannot leak local identity to its replacement', async (pool) => {
+    let previousPid = 0;
+    let escaped: Queryable | undefined;
+    await assert.rejects(() => withTransaction(pool, async (tx) => {
+      escaped = tx;
+      const { rows } = await tx.query<{ pid: number }>('SELECT pg_backend_pid() AS pid');
+      previousPid = rows[0]!.pid;
+      await tx.query(`SELECT set_config('request.jwt.claim.sub', $1, true)`, ['synthetic-private-subject']);
+      await tx.query('CREATE TEMP TABLE pg_deferred_commit_failure (v int UNIQUE DEFERRABLE INITIALLY DEFERRED)');
+      // INSERT succeeds; the unique violation is raised only by COMMIT.
+      await tx.query('INSERT INTO pg_deferred_commit_failure VALUES (1),(1)');
+    }), (err: unknown) => (err as { code?: string }).code === '23505');
+    assert.equal(pool.totalCount, 0, 'the uncertain connection was discarded');
+    await assert.rejects(() => escaped!.query('SELECT 1'), /transaction has ended/);
+    const { rows } = await pool.query<{ pid: number; subject: string | null }>(
+      `SELECT pg_backend_pid() AS pid, current_setting('request.jwt.claim.sub', true) AS subject`);
+    assert.notEqual(rows[0]!.pid, previousPid, 'subsequent work runs on a new backend');
+    assert.equal(rows[0]!.subject, null, 'the prior transaction identity cannot survive');
+  });
+
   ptest('concurrent transactions do not see each other', async (pool) => {
     const [a, b] = await Promise.all([
       withTransaction(pool, async (tx) => {

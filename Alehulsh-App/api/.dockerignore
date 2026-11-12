@@ -4,3 +4,13 @@ test
 *.md
 .env
 .env.*
+.dev.vars
+.dev.vars.*
+.dev-certs
+.wrangler
+.git
+key.properties
+*.jks
+*.keystore
+*.p12
+*.pfx

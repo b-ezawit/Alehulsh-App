@@ -1,3 +1,4 @@
+import { requireRestrictedRuntimeLogin } from './db/runtimeLogin.js';
 /**
  * The task worker process.  (M-07)
  *
@@ -33,7 +34,7 @@
  * that credential decision lands.
  */
 import { createLogger } from './logger.js';
-import { closePool, createPool } from './db/pool.js';
+import { closePool, createPool, createApiDatabase } from './db/pool.js';
 import { AbandonedTaskMonitor } from './queue/AbandonedTaskMonitor.js';
 import { OverduePendingProbe } from './queue/OverduePendingProbe.js';
 import { buildTaskQueue, isDurable } from './queue/buildTaskQueue.js';
@@ -54,7 +55,10 @@ export async function main(): Promise<void> {
   const logger = createLogger(config.logLevel);
 
   const pool = createPool(config.db);
-  const queue = buildTaskQueue(config.env, { pool });
+  try { await requireRestrictedRuntimeLogin(pool); }
+  catch (error) { await closePool(pool); throw error; }
+  const database = createApiDatabase(pool);
+  const queue = buildTaskQueue(config.env, { pool: database });
 
   if (!isDurable(queue)) {
     // Unreachable in production - buildTaskQueue throws there - but a worker
@@ -87,7 +91,7 @@ export async function main(): Promise<void> {
   // It lives in this process because the worker is where the queue is already
   // being polled. If no worker is deployed nothing monitors, which is the same
   // precondition the queue itself has.
-  const monitor = new AbandonedTaskMonitor(pool, logger, {
+  const monitor = new AbandonedTaskMonitor(database, logger, {
     batchSize: config.monitorBatchSize,
   });
 
@@ -100,7 +104,7 @@ export async function main(): Promise<void> {
   // when nothing runs. That needs a check OUTSIDE this process - the claim
   // predicate run from elsewhere, or an alarm on the absence of the periodic
   // scan lines these two emit.
-  const backlogProbe = new OverduePendingProbe(pool, logger);
+  const backlogProbe = new OverduePendingProbe(database, logger);
 
   const loop = new WorkerLoop({
     worker: taskWorker,

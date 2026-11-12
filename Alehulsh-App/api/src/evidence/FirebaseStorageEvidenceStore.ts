@@ -1,9 +1,12 @@
+import { randomUUID, createHash } from 'node:crypto';
+import {AppError} from '../errors.js';
+import type { Readable } from 'node:stream';
 import {
-  storagePathFor, type EvidenceStore, type UploadTicket,
+  storagePathFor, type EvidenceStore, type UploadTicket, type PublishedEvidence,
 } from './EvidenceStore.js';
 
 /**
- * Interim implementation. Replaced at M-06 by in-country S3-compatible
+ * Interim implementation. Replaced at M-06 by R2EvidenceStore (Cloudflare R2,
  * storage — a recording of someone's voice is sensitive personal data under
  * Art 2(5) and must come to rest in Ethiopia.
  *
@@ -32,18 +35,40 @@ interface FileLike {
   getSignedUrl(cfg: SignedUrlConfig): Promise<[string]>;
   exists(): Promise<[boolean]>;
   /** The real call resolves to [metadata, apiResponse]. */
-  getMetadata(): Promise<[{ size?: string | number }, ...unknown[]]>;
+  getMetadata(): Promise<[{ size?: string | number; generation?: string | number; contentType?: string }, ...unknown[]]>;
+  copy?(destination: string, options: {preconditionOpts:{ifGenerationMatch:0}}): Promise<unknown>;
+  createReadStream?(): Readable;
   delete(opts?: { ignoreNotFound?: boolean }): Promise<unknown>;
 }
 
 export interface BucketLike {
-  file(path: string): FileLike;
+  file(path: string, options?: {generation?:string | number}): FileLike;
   /** The real call resolves to [files, nextQuery, apiResponse]. */
   getFiles(opts: { prefix: string }): Promise<[FileLike[], ...unknown[]]>;
 }
 
 export class FirebaseStorageEvidenceStore implements EvidenceStore {
   constructor(private readonly bucket: BucketLike) {}
+
+  async publish(source: string, contentType: string): Promise<PublishedEvidence> {
+    const [metadata]=await this.bucket.file(source).getMetadata().catch((e:unknown)=>{
+      if((e as {code?:number}).code===404)throw new AppError('not_found');throw e;
+    });
+    const bytes=Number(metadata.size);
+    if(!metadata.generation||!Number.isSafeInteger(bytes)||bytes<1||bytes>100*1024*1024||metadata.contentType!==contentType)throw Error('invalid staging evidence');
+    const snapshot=this.bucket.file(source,{generation:metadata.generation});
+    if(!snapshot.copy)throw Error('generation-pinned publication unavailable');
+    const destination=`${source}/published/${randomUUID()}`;
+    await snapshot.copy(destination,{preconditionOpts:{ifGenerationMatch:0}});
+    const published=this.bucket.file(destination);
+    if(!published.createReadStream)throw Error('trusted evidence inspection unavailable');
+    const hash=createHash('sha256');let size=0;
+    for await(const chunk of published.createReadStream()){
+      size+=chunk.length;if(size>100*1024*1024)throw Error('evidence too large');hash.update(chunk);
+    }
+    if(size!==bytes)throw Error('incomplete evidence snapshot');
+    return{storagePath:destination,sizeBytes:size,sha256:hash.digest('hex')};
+  }
 
   async createUploadTicket(input: {
     ownerUid: string; alertId: string; evidenceId: string; contentType: string;

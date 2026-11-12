@@ -243,13 +243,15 @@ describe('the loop drives the real stack', () => {
       'a permanently failing task must stop, not retry forever');
   });
 
-  wtest('an unroutable kind fails loudly — notify-contacts is NOT activated', async () => {
+  wtest('an unroutable kind fails loudly and is never recorded as handled', async () => {
+    // `notify-contacts` was the example until it gained a handler (P3-04).
+    // The property is unchanged: a kind nothing serves must fail visibly.
     const { app, dispatch } = await harness();
     try {
       const queue = new PostgresTaskQueue(admin!);
       await queue.schedule({
         key: 'wk-notify-001', runAt: due(),
-        payload: { kind: 'notify-contacts', alertId: 'x', reason: 'no_answer' },
+        payload: { kind: 'send-postcard', alertId: 'x' },
       });
       const worker = new TaskWorker(queue, dispatch, logger, { worker: 'wk-notify' });
       const { loop } = loopOver(worker);
@@ -529,7 +531,10 @@ describe('no external side effects', () => {
       });
       const worker = new TaskWorker(queue, dispatch, logger, { worker: 'wk-nosock' });
       const { loop } = loopOver(worker);
-      assert.ok(await tickUntil(loop, async () => await stateOf('wk-nosock-001') === 'done'));
+      assert.ok(await tickUntil(loop, async () =>
+        ['done', 'cancelled'].includes(await stateOf('wk-nosock-001') ?? '')));
+      assert.equal((await repo.findById(alert.id))?.status, 'expired',
+        'terminal transition may cancel its own claimed expiry task atomically');
       // At least our own dispatch went through the injected fetch, and the
       // real one was never reached - a dispatch that escaped would have
       // thrown on an unresolvable host instead.
@@ -561,16 +566,17 @@ describe('abandoned work is announced by the worker that gave up on it (P2-17)',
     } as Logger & { lines: Line[] };
   }
 
-  wtest('an unroutable notify-contacts task is abandoned, then announced', async () => {
+  wtest('an unroutable task is abandoned, then announced by its worker', async () => {
     const { app, dispatch } = await harness();
     try {
       // max_attempts = 1, so one failed dispatch exhausts it immediately. The
       // real backoff is 10s x 2^attempts, which no test should wait out.
+      // `send-postcard` has no route, which is what makes the dispatch fail.
       const key = `wk-mon-${randomUUID()}`;
       const { rows } = await admin!.query<{ id: string }>(
         `INSERT INTO task_queue (task_key, kind, payload, run_at, max_attempts)
-         VALUES ($1,'notify-contacts',$2::jsonb,$3,1) RETURNING id`,
-        [key, JSON.stringify({ kind: 'notify-contacts', alertId: `wk-${randomUUID()}` }), due()],
+         VALUES ($1,'send-postcard',$2::jsonb,$3,1) RETURNING id`,
+        [key, JSON.stringify({ kind: 'send-postcard', alertId: `wk-${randomUUID()}` }), due()],
       );
       const taskId = String(rows[0]!.id);
 
@@ -591,7 +597,7 @@ describe('abandoned work is announced by the worker that gave up on it (P2-17)',
 
       await tickUntil(loop, async () => (await stateOf(key)) === 'abandoned');
       assert.equal(await stateOf(key), 'abandoned',
-        'precondition: notify-contacts has no handler, so it must be given up on');
+        'precondition: an unroutable kind must be given up on');
 
       // One more tick, in case the abandonment landed after that tick's scan.
       await loop.tick();
@@ -600,7 +606,7 @@ describe('abandoned work is announced by the worker that gave up on it (P2-17)',
         l.msg.startsWith('ABANDONED safety-critical') && l.ctx?.['taskId'] === taskId);
       assert.ok(announcement, 'the worker must announce the work it dropped');
       assert.equal(announcement.level, 'error');
-      assert.equal(announcement.ctx?.['kind'], 'notify-contacts');
+      assert.equal(announcement.ctx?.['kind'], 'send-postcard');
       assert.equal(announcement.ctx?.['errorClass'], 'no_handler');
       assert.equal(announcement.ctx?.['severity'], 'safety');
 

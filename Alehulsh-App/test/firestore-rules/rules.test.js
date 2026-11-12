@@ -52,12 +52,16 @@ const alert = (uid) => ({
 });
 
 before(async () => {
+  const emulator = process.env.FIRESTORE_EMULATOR_HOST || '127.0.0.1:8080';
+  if (!/^127\.0\.0\.1:\d+$/.test(emulator)) {
+    throw new Error('Firestore rules tests require a loopback emulator');
+  }
   env = await initializeTestEnvironment({
     projectId: 'alehulsh-rules-test',
     firestore: {
       rules: readFileSync(join(__dirname, '..', '..', 'firestore.rules'), 'utf8'),
       host: '127.0.0.1',
-      port: 8080,
+      port: Number(emulator.split(':')[1]),
     },
   });
 
@@ -173,6 +177,7 @@ describe('queries — what the rules allow at collection level', () => {
 describe('inbox — per-recipient projections (P2-05, P1-10)', () => {
   const projection = {
     alertId: 'alert_1',
+    alertKey: 'incident_1',
     displayName: '',
     fuzzedLat: 9.01,
     fuzzedLng: 38.76,
@@ -181,8 +186,14 @@ describe('inbox — per-recipient projections (P2-05, P1-10)', () => {
   };
 
   const seed = (uid, alertId) =>
-    env.withSecurityRulesDisabled((ctx) =>
-      setDoc(doc(ctx.firestore(), 'inbox', uid, 'alerts', alertId), projection));
+    env.withSecurityRulesDisabled(async (ctx) => {
+      const db = ctx.firestore();
+      await setDoc(doc(db, 'active_alerts', alertId), {
+        status: 'active', alertKey: 'incident_1',
+        expiresAtTimestamp: new Date(Date.now() + 60_000),
+      });
+      await setDoc(doc(db, 'inbox', uid, 'alerts', alertId), projection);
+    });
 
   test('a recipient reads her own inbox', async () => {
     await seed(ALICE, 'alert_1');
@@ -199,9 +210,9 @@ describe('inbox — per-recipient projections (P2-05, P1-10)', () => {
     await assertFails(getDoc(doc(nobody, 'inbox', ALICE, 'alerts', 'alert_1')));
   });
 
-  test('listing her own inbox is allowed — this is the responder read path', async () => {
+  test('direct inbox listing is denied — the API filters live incident projections', async () => {
     await seed(ALICE, 'alert_1');
-    await assertSucceeds(getDocs(collection(alice, 'inbox', ALICE, 'alerts')));
+    await assertFails(getDocs(collection(alice, 'inbox', ALICE, 'alerts')));
   });
 
   test('nobody may write an inbox, not even its owner', async () => {
@@ -214,6 +225,27 @@ describe('inbox — per-recipient projections (P2-05, P1-10)', () => {
   test('nobody may delete from an inbox', async () => {
     await seed(ALICE, 'alert_1');
     await assertFails(deleteDoc(doc(alice, 'inbox', ALICE, 'alerts', 'alert_1')));
+  });
+
+  test('terminal, expired and replaced incidents no longer authorize exact-location reads', async () => {
+    for (const patch of [
+      { status: 'resolved' }, { status: 'cancelled' }, { status: 'expired' },
+      { expiresAtTimestamp: new Date(0) }, { alertKey: 'replacement_incident' },
+    ]) {
+      await seed(ALICE, 'alert_1');
+      await env.withSecurityRulesDisabled((ctx) =>
+        updateDoc(doc(ctx.firestore(), 'active_alerts', 'alert_1'), patch));
+      await assertFails(getDoc(doc(alice, 'inbox', ALICE, 'alerts', 'alert_1')));
+    }
+  });
+
+  test('legacy projections without an immutable incident key fail closed', async () => {
+    await seed(ALICE, 'alert_1');
+    await env.withSecurityRulesDisabled((ctx) => {
+      const { alertKey, ...legacy } = projection;
+      return setDoc(doc(ctx.firestore(), 'inbox', ALICE, 'alerts', 'alert_1'), legacy);
+    });
+    await assertFails(getDoc(doc(alice, 'inbox', ALICE, 'alerts', 'alert_1')));
   });
 
   test('acceptances are server-only — no client may read or write them', async () => {
@@ -294,5 +326,67 @@ describe('inbox — per-recipient projections (P2-05, P1-10)', () => {
       }));
     await assertFails(getDoc(doc(alice, 'location_reveals', 'r1')));
     await assertFails(setDoc(doc(alice, 'location_reveals', 'r2'), {}));
+  });
+
+  // -------------------------------------------------------------------------
+  // Identity fields are server-written only.
+  //
+  // `phoneHash`/`emailHash` are how the server decides who someone IS:
+  // matching one puts the holder in the `contact` audience, which receives
+  // EXACT coordinates. Under `allow write: if isMe(userId)` a client could
+  // write them into its own profile and be resolved as somebody else's
+  // emergency contact — and because nothing makes the field unique, displace
+  // the real contact so she was never notified at all.
+  // -------------------------------------------------------------------------
+  test('a client cannot plant an identifier hash on its own profile', async () => {
+    // The whole attack, in one write.
+    await assertFails(updateDoc(doc(alice, 'users', ALICE), {
+      phoneHash: 'hash-of-her-sisters-number',
+    }));
+    await assertFails(updateDoc(doc(alice, 'users', ALICE), {
+      emailHash: 'hash-of-her-sisters-email',
+    }));
+  });
+
+  test('a client cannot self-assert verification', async () => {
+    // Otherwise "only trust a verified identifier" becomes "trust whoever
+    // claims to be verified".
+    for (const field of ['phoneVerified', 'emailVerified']) {
+      await assertFails(updateDoc(doc(alice, 'users', ALICE), { [field]: true }));
+    }
+    for (const field of ['phoneVerifiedAt', 'emailVerifiedAt']) {
+      await assertFails(updateDoc(doc(alice, 'users', ALICE), { [field]: new Date().toISOString() }));
+    }
+  });
+
+  test('an identity field cannot be smuggled in alongside a legitimate one', async () => {
+    await assertFails(updateDoc(doc(alice, 'users', ALICE), {
+      fullName: 'Alice Updated',
+      phoneHash: 'planted',
+    }));
+  });
+
+  test('a client cannot plant one at CREATE time either', async () => {
+    const CAROL = 'carol_uid';
+    const carol = env.authenticatedContext(CAROL).firestore();
+    await assertFails(setDoc(doc(carol, 'users', CAROL), {
+      fullName: 'Carol', phoneHash: 'planted-at-signup',
+    }));
+    // ...and a profile without them is still perfectly writable.
+    await assertSucceeds(setDoc(doc(carol, 'users', CAROL), { fullName: 'Carol' }));
+  });
+
+  test('she can still edit her own profile — nothing legitimate is blocked', async () => {
+    // The fields the app actually writes. UserProfile.toMap() contains no
+    // identity field, so this restriction costs the client nothing.
+    await assertSucceeds(updateDoc(doc(alice, 'users', ALICE), {
+      fullName: 'Alice Renamed',
+      homeAddress: '',
+      notificationsEnabled: true,
+    }));
+  });
+
+  test('nobody else can touch her identity fields either', async () => {
+    await assertFails(updateDoc(doc(bob, 'users', ALICE), { phoneHash: 'planted' }));
   });
 });

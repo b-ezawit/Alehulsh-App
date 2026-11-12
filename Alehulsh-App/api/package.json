@@ -20,16 +20,35 @@
     "db:down": "bash db/run.sh down",
     "test:db": "bash -c 'eval \"$(bash db/run.sh env)\"; tsc && node --test \"dist/test/*.integration.test.js\"'",
     "db:env": "bash db/run.sh env",
-    "worker": "node dist/src/worker.js"
+    "worker": "node dist/src/worker.js",
+    "test:local": "tsc && node scripts/run-local-tests.mjs",
+    "env:init": "node scripts/environment-config.mjs --init",
+    "env:check:dev": "node scripts/environment-config.mjs --environment dev",
+    "env:check:prod": "node scripts/environment-config.mjs --environment prod",
+    "worker:local": "wrangler dev --local --config wrangler.local.jsonc",
+    "worker:local:prod": "wrangler dev --local --config wrangler.local.jsonc --env production",
+    "inspect:hosted": "node scripts/hosted-inventory.mjs"
   },
   "dependencies": {
+    "@cfworker/json-schema": "^4.1.1",
+    "@noble/hashes": "^2.4.0",
+    "aws4fetch": "^1.0.20",
     "fastify": "^5.2.0",
     "firebase-admin": "^13.0.2",
+    "google-auth-library": "10.9.1",
+    "hono": "^4.13.13",
+    "jose": "^6.2.13",
     "pg": "^8.23.1"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
     "@types/pg": "^8.23.1",
-    "typescript": "^5.7.2"
+    "esbuild": "^0.28.2",
+    "miniflare": "^5.20261019.1-beta",
+    "typescript": "^5.7.2",
+    "wrangler": "^4.151.3"
+  },
+  "allowScripts": {
+    "workerd@1.20261019.1": true
   }
 }

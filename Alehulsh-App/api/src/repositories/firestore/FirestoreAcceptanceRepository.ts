@@ -1,11 +1,13 @@
+import { AppError } from '../../errors.js';
 import type { Firestore } from 'firebase-admin/firestore';
-import { Timestamp } from 'firebase-admin/firestore';
+import { Timestamp,FieldValue } from 'firebase-admin/firestore';
 import type { Acceptance, AcceptanceRepository } from '../types.js';
 
 /**
  * Interim. Replaced by Postgres at C-04 (M-05).
  *
- * Layout: alert_acceptances/{alertId}/responders/{responderUid}.
+ * Layout: alert_acceptances/{alertKey}/responders/{responderUid}.
+ * Legacy slot-keyed rows are preserved but never authorize a new incident.
  *
  * One document per acceptance rather than an array on the alert. CRIT-04 was
  * exactly that array: a writer who can append can also overwrite, so a single
@@ -16,6 +18,7 @@ const ROOT = 'alert_acceptances';
 const SUB = 'responders';
 
 interface AcceptanceDoc {
+  alertKey: string;
   alertId: string;
   responderUid: string;
   acceptedAt: Timestamp;
@@ -24,48 +27,76 @@ interface AcceptanceDoc {
 
 const toAcceptance = (d: AcceptanceDoc): Acceptance => ({
   alertId: d.alertId,
+  alertKey: d.alertKey,
   responderUid: d.responderUid,
   acceptedAt: d.acceptedAt.toDate(),
   audience: d.audience,
 });
 
 export class FirestoreAcceptanceRepository implements AcceptanceRepository {
-  constructor(private readonly db: Firestore) {}
+  async withdraw(alertId:string,uid:string,key:string):Promise<void>{
+    const ref=this.ref(key,uid);
+    await this.db.runTransaction(async tx=>{
+      const row=await tx.get(ref);
+      if(row.exists&&row.get('alertId')===alertId&&row.get('alertKey')===key&&row.get('responderUid')===uid&&row.get('withdrawnAt')===undefined)
+        tx.update(ref,{withdrawnAt:FieldValue.serverTimestamp()});
+    });
+  }
+  constructor(private readonly db: Firestore) { }
 
   private ref(alertId: string, responderUid: string) {
     return this.db.collection(ROOT).doc(alertId).collection(SUB).doc(responderUid);
   }
 
-  async record(a: Acceptance): Promise<{ acceptance: Acceptance; created: boolean }> {
-    const ref = this.ref(a.alertId, a.responderUid);
-    const doc: AcceptanceDoc = {
-      alertId: a.alertId,
-      responderUid: a.responderUid,
-      acceptedAt: Timestamp.fromDate(a.acceptedAt),
-      audience: a.audience,
-    };
-
-    // A transaction, not create-and-catch: two devices accepting at once must
-    // not both count as first. The stored timestamp is the audit record of
-    // when they actually answered, so a replay must never move it.
-    return this.db.runTransaction(async (tx) => {
-      const snap = await tx.get(ref);
+  async record(a: Acceptance): Promise<{ acceptance: Acceptance; created: boolean; }> {
+    return this.db.runTransaction(async tx => {
+      const source = await tx.get(this.db.collection('active_alerts').doc(a.alertId));
+      const key: unknown = source.get('alertKey');
+      const expiry: unknown = source.get('expiresAtTimestamp');
+      if (!source.exists || typeof key !== 'string' || !key ||
+        !['active', 'escalated'].includes(source.get('status')) ||
+        !(expiry instanceof Timestamp) || expiry.toMillis() <= Date.now()) throw new AppError('alert_closed');
+      if (a.alertKey !== undefined && a.alertKey !== key) throw new AppError('conflict');
+      const projection = await tx.get(this.db.collection('inbox').doc(a.responderUid).collection('alerts').doc(a.alertId));
+      if (projection.get('alertKey') !== key) throw new AppError('not_found');
+      const audience = projection.get('audience');
+      if (!['responder', 'contact'].includes(audience)) throw new AppError('not_found');
+      const ref = this.ref(key, a.responderUid), snap = await tx.get(ref);
       if (snap.exists) {
-        return { acceptance: toAcceptance(snap.data() as AcceptanceDoc), created: false };
+        const reactivated=snap.get('withdrawnAt')!==undefined;
+        if(reactivated)tx.update(ref,{withdrawnAt:FieldValue.delete()});
+        return { acceptance: toAcceptance(snap.data() as AcceptanceDoc), created: reactivated };
       }
-      tx.set(ref, doc);
-      return { acceptance: a, created: true };
+      const doc: AcceptanceDoc = {
+        alertId: a.alertId, alertKey: key, responderUid: a.responderUid,
+        acceptedAt: Timestamp.fromDate(a.acceptedAt), audience
+      };
+      tx.create(ref, doc);
+      return { acceptance: toAcceptance(doc), created: true };
     });
   }
 
   async findFor(alertId: string, responderUid: string): Promise<Acceptance | null> {
-    const snap = await this.ref(alertId, responderUid).get();
-    return snap.exists ? toAcceptance(snap.data() as AcceptanceDoc) : null;
+    return this.db.runTransaction(async tx => {
+      const [source, projection] = await Promise.all([
+        tx.get(this.db.collection('active_alerts').doc(alertId)),
+        tx.get(this.db.collection('inbox').doc(responderUid).collection('alerts').doc(alertId)),
+      ]);
+      const key: unknown = source.get('alertKey'), expiry: unknown = source.get('expiresAtTimestamp');
+      if (typeof key !== 'string' || !key || projection.get('alertKey') !== key ||
+        !['active', 'escalated'].includes(source.get('status')) ||
+        !(expiry instanceof Timestamp) || expiry.toMillis() <= Date.now()) return null;
+      const snap = await tx.get(this.ref(key, responderUid));
+      return snap.exists && snap.get('alertKey') === key &&snap.get('withdrawnAt')===undefined ? toAcceptance(snap.data() as AcceptanceDoc) : null;
+    });
   }
 
   async listForAlert(alertId: string): Promise<Acceptance[]> {
-    const snap = await this.db.collection(ROOT).doc(alertId).collection(SUB).get();
-    return snap.docs.map((d) => toAcceptance(d.data() as AcceptanceDoc));
+    const source = await this.db.collection('active_alerts').doc(alertId).get();
+    const key: unknown = source.get('alertKey');
+    if (typeof key !== 'string' || !key) return [];
+    const snap = await this.db.collection(ROOT).doc(key).collection(SUB).get();
+    return snap.docs.filter(d=>d.get('withdrawnAt')===undefined).map(d => toAcceptance(d.data() as AcceptanceDoc));
   }
 
   async deleteAllForResponder(responderUid: string): Promise<number> {

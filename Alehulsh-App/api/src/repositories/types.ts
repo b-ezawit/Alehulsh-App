@@ -34,6 +34,8 @@ export function isTerminalStatus(status: AlertStatus): boolean {
 }
 
 export interface Alert {
+  message?:string;
+  isUrgent?:boolean;
   /** The document slot — the owner's uid. One live alert per user. */
   id: string;
   /**
@@ -143,6 +145,9 @@ export interface AlertCreateInput {
 }
 
 export interface AlertRepository {
+  updateOwnedDetails?(uid:string,id:string,key:string,details:{message?:string;isUrgent?:boolean}):Promise<void>;
+  /** Atomically reserves a verification slot. Does not record a wrong answer. */
+  admitKeywordVerification(id: string, key: string, cap: number, cooldownMs: number): Promise<boolean>;
   findById(id: string): Promise<Alert | null>;
   findActiveByOwner(ownerId: string): Promise<Alert | null>;
   /**
@@ -163,9 +168,11 @@ export interface AlertRepository {
    * after an escalation that silently did not occur tells them about an
    * emergency that is over.
    */
-  updateStatus(id: string, next: AlertStatus, fields: Partial<Alert>): Promise<Alert>;
+  updateStatus(id: string, next: AlertStatus, fields: Partial<Alert>, expectedKey?: string): Promise<Alert>;
+  /** Atomically records a failed keyword, escalates if active, and persists work. */
+  failKeywordAttempt(id: string, at: Date, expectedKey?: string): Promise<Alert>;
   /** Records a failed keyword attempt. Never resets. */
-  recordFailedAttempt(id: string, at: Date): Promise<Alert>;
+  recordFailedAttempt(id: string, at: Date, expectedKey?: string): Promise<Alert>;
   /**
    * Every alert she has raised, newest first, archive included.  (P2-22)
    *
@@ -178,6 +185,8 @@ export interface AlertRepository {
 }
 
 export interface UserRecord {
+  /** Legacy keyword exists but has not passed the reviewed hash migration. */
+  legacyKeywordMigrationRequired?:boolean;
   uid: string;
   /** Hash only. The plaintext keyword never enters this process — CRIT-05. */
   safetyKeywordHash: string | null;
@@ -211,6 +220,8 @@ export interface KeywordResetRepository {
   findPending(uid: string): Promise<KeywordReset | null>;
   create(reset: KeywordReset): Promise<KeywordReset>;
   update(uid: string, fields: Partial<KeywordReset>): Promise<void>;
+  /** Rechecks incident state and reset generation; commits hash and confirmation together. */
+  confirm(uid: string, requestedAt: Date, hash: string, now: Date): Promise<void>;
   deleteForUid(uid: string): Promise<number>;
 }
 
@@ -228,6 +239,8 @@ export interface UserRepository {
    * reaches this layer — hashing happens in the route, with the pepper.
    */
   setSafetyKeywordHash(uid: string, hash: string): Promise<void>;
+  /** Compare-and-set with the live-incident check inside the same transaction. */
+  compareAndSetSafetyKeyword(uid: string, expectedHash: string | null, hash: string): Promise<void>;
   deleteByUid(uid: string): Promise<number>;
 }
 
@@ -251,7 +264,13 @@ export interface EmergencyContact {
  * docs/responder-projection.md §2.
  */
 export interface AlertProjection {
+  /** Server-only provenance. Never included in HTTP/FCM recipient DTOs. */
+  contactIdentifierHashes?:string[];
   alertId: string;
+  /** Immutable incident identity. Required by Firestore because its slot is reused. */
+  alertKey?: string;
+  /** Authoritative source deadline attached at read time, never a client TTL. */
+  expiresAt?: Date;
   displayName: string;
   /** Centre of the alert's precision-7 geohash cell. Never the true position. */
   fuzzedLat: number | null;
@@ -275,7 +294,7 @@ export interface AlertProjection {
 export interface InboxRepository {
   /** Idempotent on (recipientUid, alertId). */
   put(recipientUid: string, projection: AlertProjection): Promise<void>;
-  remove(recipientUid: string, alertId: string): Promise<void>;
+  remove(recipientUid: string, alertId: string, alertKey?: string): Promise<void>;
   listRecipients(alertId: string): Promise<string[]>;
   /**
    * The authorization surface for P1-10. A projection exists only where the
@@ -283,6 +302,29 @@ export interface InboxRepository {
    * "did we select you for this alert?" — asked without trusting the caller.
    */
   get(recipientUid: string, alertId: string): Promise<AlertProjection | null>;
+
+  /**
+   * ONE recipient's own inbox, newest first, bounded by `limit`.  (P1-02)
+   *
+   * Scoped by argument, not by filter: the recipient is the only way in, so
+   * there is no query shape this method can express that returns somebody
+   * else's projections. That is what makes it safe to expose through
+   * GET /v1/me/inbox, where the uid comes from the verified token.
+   *
+   * `limit` is required rather than defaulted, so a caller cannot ask for an
+   * unbounded read by forgetting an argument - her inbox grows with every
+   * alert she is sent.
+   *
+   * Ordered by `createdAt` descending, and NOT cursor-paginated.
+   *
+   * Deliberate: `createdAt` alone is not a total order - two alerts in the
+   * same millisecond tie, and nothing breaks the tie deterministically - so a
+   * `startAfter(createdAt)` cursor could skip or repeat an entry across pages.
+   * A stable cursor needs a second ordering key and the composite index that
+   * implies, which is a storage-configuration change. Until then this is a
+   * bounded first page, which is honest about what it offers.
+   */
+  listForRecipient(recipientUid: string, limit: number): Promise<AlertProjection[]>;
 }
 
 /**
@@ -298,6 +340,8 @@ export interface InboxRepository {
  * evidence that she is safe.
  */
 export interface Acceptance {
+  /** Immutable incident identity; legacy rows without it grant no new access. */
+  alertKey?: string;
   alertId: string;
   responderUid: string;
   acceptedAt: Date;
@@ -307,6 +351,7 @@ export interface Acceptance {
 }
 
 export interface AcceptanceRepository {
+  withdraw?(alertId:string,responderUid:string,incidentKey:string):Promise<void>;
   /** Idempotent on (alertId, responderUid) — `created` false on a replay. */
   record(acceptance: Acceptance): Promise<{ acceptance: Acceptance; created: boolean }>;
   findFor(alertId: string, responderUid: string): Promise<Acceptance | null>;
@@ -423,6 +468,7 @@ export interface VersionTelemetryRepository {
 export type EvidenceKind = 'deliberate' | 'automatic';
 
 export interface EvidenceRecord {
+  sha256?: string;
   id: string;
   alertId: string;
   /** Which alert instance. alertId is the uid and cannot tell two apart. */
@@ -441,6 +487,7 @@ export interface EvidenceRecord {
 }
 
 export interface EvidenceRepository {
+  markPublished(id: string, sourcePath: string, publication: import('../evidence/EvidenceStore.js').PublishedEvidence): Promise<EvidenceRecord>;
   create(record: EvidenceRecord): Promise<EvidenceRecord>;
   findById(id: string): Promise<EvidenceRecord | null>;
   listForAlert(alertId: string): Promise<EvidenceRecord[]>;

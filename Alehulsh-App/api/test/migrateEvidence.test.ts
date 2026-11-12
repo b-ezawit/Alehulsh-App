@@ -38,7 +38,7 @@ beforeEach(() => {
   store.createUploadTicket = async (i) => {
     const t = await realTicket(i);
     globalThis.fetch = (async () => {
-      store.land(t.storagePath, AUDIO.byteLength);
+      store.land(t.storagePath, AUDIO);
       return { ok: true, status: 200 } as Response;
     }) as typeof fetch;
     return t;

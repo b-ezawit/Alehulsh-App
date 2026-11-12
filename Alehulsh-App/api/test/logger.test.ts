@@ -1,3 +1,4 @@
+import { toClientError } from '../src/errors.js';
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { redact } from '../src/logger.js';
@@ -45,9 +46,10 @@ describe('redact', () => {
     assert.ok(JSON.stringify(redact(deep)).includes('[max-depth]'));
   });
 
-  test('keeps an Error message but never its stack', () => {
+  test('retains Error classification without its sensitive message or stack', () => {
     const out = redact(new Error('boom')) as any;
-    assert.equal(out.message, 'boom');
+    assert.equal(out.error, 'Error');
+    assert.equal(out.message, undefined);
     assert.equal(out.stack, undefined);
   });
 
@@ -56,4 +58,25 @@ describe('redact', () => {
     assert.equal(redact(42), 42);
     assert.equal(redact(null), null);
   });
+});
+
+test('driver and provider diagnostic objects cannot log row, cause, or credential text', () => {
+  const marker = 'synthetic-sensitive-diagnostic';
+  const error = Object.assign(new Error(marker), { detail: marker, cause: new Error(marker) });
+  const output = JSON.stringify(redact({ error, response: { message: marker, detail: marker, cause: marker }, err: marker }));
+  assert.equal(output.includes(marker), false);
+  assert.equal(output.includes('stack'), false);
+});
+test('untrusted Error names cannot smuggle diagnostic text into classification', () => {
+  const error = new Error('synthetic-secret'); error.name = 'synthetic-secret';
+  assert.deepEqual(redact(error), { error: 'Error' });
+});
+
+test('unhandled error mapping cannot expose diagnostics through the actual logger context', () => {
+  const marker = 'synthetic-sensitive-diagnostic';
+  const internal = toClientError(Object.assign(new Error(marker), { code: '23514', constraint: 'live_requires_age', detail: marker })).internal;
+  const output = JSON.stringify(redact(internal));
+  assert.equal(output.includes(marker), false);
+  assert.equal(output.includes('live_requires_age'), true);
+  assert.equal(output.includes('23514'), true);
 });

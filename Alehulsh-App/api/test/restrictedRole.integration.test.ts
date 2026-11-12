@@ -368,9 +368,22 @@ describe('denied: operations the API role must NOT be able to perform', () => {
       () => restricted!.query(`UPDATE reveal_log SET granted = false`), isInsufficientPrivilege);
   });
 
-  rtest('deleting evidence rows — recordings must not be erasable by the API', async () => {
-    await assert.rejects(
-      () => restricted!.query(`DELETE FROM evidence`), isInsufficientPrivilege);
+  rtest('system API identity cannot erase evidence; owner erasure is separately scoped', async () => {
+    const { alert } = await repo.create({ requestId: 'rr-evidence-erase', ownerId: OWNER,
+      latitude: null, longitude: null });
+    const evidenceId = randomUUID();
+    await privileged!.query(
+      `INSERT INTO evidence(id,alert_id,owner_id,r2_key,content_type)
+       VALUES($1,$2,$3,$4,'audio/aac')`, [evidenceId, alert.id, OWNER_UUID, `rr-evidence-${evidenceId}`]);
+    // Migration 0017 grants owner-scoped erasure. No owner context means no
+    // rows can be deleted, rather than a missing table privilege error.
+    await withTransaction(restricted!, async tx => {
+      await tx.query(`SELECT set_config('request.jwt.claim.sub','',true),
+        set_config('request.jwt.claims','{}',true)`);
+      assert.equal((await tx.query('DELETE FROM evidence')).rowCount, 0);
+    });
+    const remaining = await privileged!.query('SELECT id FROM evidence WHERE id=$1', [evidenceId]);
+    assert.equal(remaining.rowCount, 1);
   });
 
   rtest('deleting queued notification work', async () => {

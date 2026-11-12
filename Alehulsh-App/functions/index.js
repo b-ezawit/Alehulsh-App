@@ -7,6 +7,8 @@ const { onDocumentCreated, onDocumentDeleted, onDocumentUpdated } = require("fir
 const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { logger } = require("firebase-functions");
 const admin = require("firebase-admin");
+const { reconcileExpiredAlerts } = require("./expiryReconciliation");
+const { legacyTopicHandler } = require("./legacyTopicPolicy");
 
 admin.initializeApp();
 const db = admin.firestore();
@@ -17,7 +19,7 @@ const db = admin.firestore();
  * The victim's phone does NOT need to loop over hundreds of contacts or nearby users.
  * Firebase edge servers blast out high-priority push notifications in milliseconds.
  */
-exports.onAlertCreated = onDocumentCreated("active_alerts/{alertId}", async (event) => {
+exports.onAlertCreated = onDocumentCreated("active_alerts/{alertId}", legacyTopicHandler(async (event) => {
   const snapshot = event.data;
   if (!snapshot) {
     logger.warn("No data associated with the event");
@@ -83,7 +85,7 @@ exports.onAlertCreated = onDocumentCreated("active_alerts/{alertId}", async (eve
   } catch (error) {
     logger.error(`Error broadcasting SOS to topic ${topicName}:`, error);
   }
-});
+}));
 
 /**
  * 2. AUTOMATIC 2-HOUR TTL SAFETY NET CLEANER
@@ -118,49 +120,18 @@ exports.onAlertCreated = onDocumentCreated("active_alerts/{alertId}", async (eve
  * evidence that escalation did not run. It is logged at error for that reason.
  */
 exports.cleanupExpiredAlerts = onSchedule("every 15 minutes", async (event) => {
-  const now = new Date();
-
   try {
-    const expired = await db.collection("active_alerts")
-      .where("expiresAtTimestamp", "<=", now)
-      .limit(200)
-      .get();
-
-    if (expired.empty) {
-      return;
-    }
-
-    const batch = db.batch();
-    let transitioned = 0;
-
-    expired.forEach((doc) => {
-      const status = doc.get("status");
-
-      // Already terminal. Left exactly as it is — this function's job is to
-      // close alerts that ran out of time, not to tidy away history.
-      if (status === "resolved" || status === "expired") {
-        return;
-      }
-
-      logger.error("Alert expired while still open — escalation did not run", {
-        alertId: doc.id,
-        status,
-        expiresAt: doc.get("expiresAtTimestamp"),
-      });
-
-      batch.update(doc.ref, {
-        status: "expired",
-        expiredAt: admin.firestore.FieldValue.serverTimestamp(),
-      });
-      transitioned++;
+    const transitioned = await reconcileExpiredAlerts({
+      db, now: new Date(), logger,
+      serverTimestamp: () => admin.firestore.FieldValue.serverTimestamp(),
+      timestampFromDate: (date) => admin.firestore.Timestamp.fromDate(date),
     });
-
     if (transitioned > 0) {
-      await batch.commit();
       logger.warn(`Transitioned ${transitioned} alert(s) to expired.`);
     }
   } catch (error) {
     logger.error("Error in cleanupExpiredAlerts:", error);
+    throw error;
   }
 });
 
@@ -183,9 +154,9 @@ exports.cleanupExpiredAlerts = onSchedule("every 15 minutes", async (event) => {
  *     on cancel (CRIT-05); this stays until P1-08.5 cuts the client over, and
  *     should be removed with it.
  */
-const TERMINAL = ["resolved", "expired"];
+const TERMINAL = ["resolved", "cancelled", "expired"];
 
-async function sendDismissal(alertId, reason) {
+const sendDismissal = legacyTopicHandler(async (alertId, reason) => {
   const dismissMessage = {
     topic: "sos_dismissals",
     data: {
@@ -203,7 +174,7 @@ async function sendDismissal(alertId, reason) {
   } catch (err) {
     logger.warn(`Dismissal send note for ${alertId}: ${err.message}`);
   }
-}
+});
 
 exports.onAlertClosed = onDocumentUpdated("active_alerts/{alertId}", async (event) => {
   const before = event.data?.before?.data();

@@ -35,3 +35,20 @@ describe('InMemorySlidingWindowLimiter', () => {
     assert.equal((await l.hit('k', 1, 1)).allowed, true);
   });
 });
+
+test('denied bursts and distinct identities cannot grow limiter state without bound', async () => {
+  const limiter = new InMemorySlidingWindowLimiter(2, 4);
+  for (let i=0;i<1000;i++) await limiter.hit('a',1,60000);
+  assert.equal((await limiter.hit('a',1,60000)).count,1001);
+  await limiter.hit('b',1,60000);
+  for(let i=0;i<100;i++) assert.equal((await limiter.hit(`other-${i}`,1,60000)).allowed,false);
+  assert.ok(limiter.usage.keys<=2); assert.ok(limiter.usage.buckets<=8);
+  assert.equal((await limiter.hit('a',1,60000)).allowed,false);
+});
+test('cleanup cannot expire a long-window identity using another request short window', async () => {
+  const limiter = new InMemorySlidingWindowLimiter(1,4);
+  await limiter.hit('long',1,60000);
+  await new Promise(r=>setTimeout(r,5));
+  assert.equal((await limiter.hit('short',1,1)).allowed,false);
+  assert.equal((await limiter.hit('long',1,60000)).allowed,false);
+});

@@ -100,9 +100,15 @@ export class TaskWorker {
       },
     );
 
-    this.inFlight = Promise.all(lanes);
+    // One lane can fail recording its outcome while another is still sending
+    // or completing work. Settle every lane before rejecting the pass, so a
+    // scheduled hosting handler (or shutdown) cannot end their execution early.
+    const settled = Promise.allSettled(lanes);
+    this.inFlight = settled;
     try {
-      await this.inFlight;
+      const outcomes = await settled;
+      const failure = outcomes.find((outcome) => outcome.status === 'rejected');
+      if (failure?.status === 'rejected') throw failure.reason;
     } finally {
       this.inFlight = null;
     }
@@ -205,10 +211,11 @@ export class TaskWorker {
  * already require. This deliberately does not reach into the handlers, so
  * their authorization stays in exactly one place.
  *
- * `notify-contacts` IS NOT ROUTED. It has no handler, and activating
- * notification delivery is explicitly out of M-07's scope. An unroutable kind
- * fails, retries within its bounded budget and ends `abandoned` - loudly, which
- * is the correct outcome for work nobody can perform.
+ * `notify-contacts` IS NOW ROUTED (P3-04). Its handler writes a durable
+ * projection into each contact's inbox and calls no external service. An
+ * unroutable kind still fails, retries within its bounded budget and ends
+ * `abandoned` - loudly, which remains the correct outcome for work nobody can
+ * perform.
  */
 export function httpTaskDispatcher(options: {
   /** MUST come from trusted configuration. See the validation below. */
@@ -221,6 +228,11 @@ export function httpTaskDispatcher(options: {
   const routes: Record<string, string> = {
     'safety-check': '/internal/tasks/safety-check',
     expiry: '/internal/tasks/expiry',
+    'retract-inbox': '/internal/tasks/retract-inbox',
+    // P3-04. Now routed: it writes durable inbox rows for her contacts and
+    // sends nothing externally. Before this it had no route, so every
+    // escalation produced a task that retried to exhaustion and abandoned.
+    'notify-contacts': '/internal/tasks/notify-contacts',
   };
   const doFetch = options.fetchImpl ?? fetch;
   const timeoutMs = options.timeoutMs ?? 10_000;
@@ -272,7 +284,8 @@ export function httpTaskDispatcher(options: {
       const res = await doFetch(url, {
         method: 'POST',
         headers: { 'content-type': 'application/json', 'x-task-secret': options.secret },
-        body: JSON.stringify({ alertId }),
+        body: JSON.stringify({ alertId, ...(typeof task.payload['alertKey'] === 'string'
+          ? { alertKey: task.payload['alertKey'] } : {}) }),
         signal: controller.signal,
         // VERIFIED LEAK, now closed: fetch follows redirects by default and
         // forwards custom headers across origins. A redirect from the task

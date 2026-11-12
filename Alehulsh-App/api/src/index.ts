@@ -1,14 +1,18 @@
+import { requireRestrictedRuntimeLogin } from './db/runtimeLogin.js';
+import { FirestoreAccountRepository } from './repositories/firestore/FirestoreAccountRepository.js';
+import { FirebaseIdentifierSource } from './auth/FirebaseIdentifierSource.js';
 import { initializeApp, applicationDefault } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
 import { getFirestore } from 'firebase-admin/firestore';
 import { getStorage } from 'firebase-admin/storage';
+import { FirestoreAlertRecovery } from './queue/FirestoreAlertRecovery.js';
 import { loadConfig } from './config.js';
 import { createLogger } from './logger.js';
 import { buildServer } from './server.js';
 import { FirebaseTokenVerifier } from './auth/FirebaseTokenVerifier.js';
 import type { Pool } from 'pg';
 import { buildTaskQueue, isDurable } from './queue/buildTaskQueue.js';
-import { createPool, loadDbConfig, closePool } from './db/pool.js';
+import { createPool, loadDbConfig, closePool, createApiDatabase } from './db/pool.js';
 import { InMemorySlidingWindowLimiter } from './rate/RateLimiter.js';
 import { registerShutdownHandlers } from './lifecycle.js';
 import { FirestoreAlertRepository } from './repositories/firestore/FirestoreAlertRepository.js';
@@ -21,6 +25,8 @@ import { FirestoreContactRepository } from './repositories/firestore/FirestoreCo
 import { FirestoreKeywordResetRepository } from './repositories/firestore/FirestoreKeywordResetRepository.js';
 import { FirebaseStorageEvidenceStore } from './evidence/FirebaseStorageEvidenceStore.js';
 import { FirestoreClientPolicyRepository } from './repositories/firestore/FirestoreClientPolicyRepository.js';
+import { AlertFanout } from './services/AlertFanout.js';
+import { ContactMatcher } from './services/ContactMatcher.js';
 import { FirestoreVersionTelemetryRepository } from './repositories/firestore/FirestoreVersionTelemetryRepository.js';
 
 /**
@@ -60,29 +66,56 @@ async function main(): Promise<void> {
     });
   }
 
-  const queue = buildTaskQueue(config.env, { pool: dbPool });
+  if (dbPool) {
+    try { await requireRestrictedRuntimeLogin(dbPool); }
+    catch (error) { await closePool(dbPool); throw error; }
+  }
+
+  const queue = buildTaskQueue(config.env, { pool: dbPool ? createApiDatabase(dbPool) : undefined });
   if (!isDurable(queue)) {
     logger.warn('using the in-memory task queue — scheduled tasks will NOT fire', {
       detail: 'development only; see M-07',
     });
   }
 
+  // Shared instances: the fan-out writes through the SAME inbox the read side
+  // serves, and resolves contacts through the same user repository.
+  const identifierSource=new FirebaseIdentifierSource(getAuth(firebase),config.keywordPepper);
+  const inbox = new FirestoreInboxRepository(db,identifierSource);
+  const users = new FirestoreUserRepository(db, logger,identifierSource);
+  const contacts = new FirestoreContactRepository(db, config.keywordPepper);
+
+  // Contact fan-out only. `responderLocations` and the eligibility registry are
+  // null because no ResponderLocationRepository implementation exists yet, so
+  // responder discovery (P2-05) cannot run - the fan-out reports that as
+  // `responderDiscovery: 'unavailable'` rather than as "nobody was nearby".
+  // The contact half is what notify-contacts needs and it works today.
+  const fanout = new AlertFanout(
+    inbox, null, null, new ContactMatcher(contacts, users), logger,
+  );
+
+  const alerts = new FirestoreAlertRepository(db, config.activeWindowMs, config.safetyCheckDelayMs);
+  const recovery = new FirestoreAlertRecovery(db, alerts, queue, fanout, logger);
+
   const app = buildServer({
+    profiles: new FirestoreAccountRepository(db,getAuth(firebase)),
+    contactManagement: new FirestoreAccountRepository(db,getAuth(firebase)),
     config,
     logger,
     tokenVerifier: new FirebaseTokenVerifier(getAuth(firebase)),
-    alerts: new FirestoreAlertRepository(db, config.activeWindowMs),
-    users: new FirestoreUserRepository(db),
-    inbox: new FirestoreInboxRepository(db),
+    alerts,
+    users,
+    inbox,
     acceptances: new FirestoreAcceptanceRepository(db),
     reveals: new FirestoreLocationRevealRepository(db),
     evidence: new FirestoreEvidenceRepository(db),
-    contacts: new FirestoreContactRepository(db, config.keywordPepper),
+    contacts,
     keywordResets: new FirestoreKeywordResetRepository(db),
     evidenceStore: new FirebaseStorageEvidenceStore(getStorage(firebase).bucket()),
     clientPolicy: new FirestoreClientPolicyRepository(db),
     versionTelemetry: new FirestoreVersionTelemetryRepository(db),
     queue,
+    fanout,
     // Per-instance and lost on restart, which is fine: nothing safety-critical
     // rides on it. See rate/RateLimiter.ts.
     limiter: new InMemorySlidingWindowLimiter(),
@@ -98,10 +131,11 @@ async function main(): Promise<void> {
   // requests keep their connections. See lifecycle.ts.
   registerShutdownHandlers({
     app, logger,
-    teardowns: dbPool ? [() => closePool(dbPool)] : [],
+    teardowns: [() => recovery.stop(), ...(dbPool ? [() => closePool(dbPool)] : [])],
   });
 
   await app.listen({ port: config.port, host: '0.0.0.0' });
+  if (isDurable(queue)) recovery.start();
   logger.info('api listening', { port: config.port, env: config.env });
 }
 

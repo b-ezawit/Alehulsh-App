@@ -8,6 +8,7 @@ import type { ContactRepository, UserRepository } from '../repositories/types.js
  * document carried its owner's entire support network in the clear (CRIT-02).
  */
 export interface ResolvedContact {
+  identifierHashes?:string[];
   contactId: string;
   name: string;
   isPrimary: boolean;
@@ -31,12 +32,15 @@ export class ContactMatcher {
     const rows = await this.contacts.listByOwner(ownerUid);
 
     return Promise.all(rows.map(async (c): Promise<ResolvedContact> => {
-      // Phone first: it is the identifier people actually keep.
-      const uid =
-        (c.phoneHash ? await this.users.findUidByIdentifierHash(c.phoneHash) : null) ??
-        (c.emailHash ? await this.users.findUidByIdentifierHash(c.emailHash) : null);
+      const [phone,email]=await Promise.all([
+        c.phoneHash?this.users.findUidByIdentifierHash(c.phoneHash):null,
+        c.emailHash?this.users.findUidByIdentifierHash(c.emailHash):null]);
+      // Conflicting verified identifiers are not evidence of one person.
+      // Withhold the contact tier instead of selecting an arbitrary account.
+      const uid=phone&&email&&phone!==email?null:phone??email;
 
       return {
+        ...(uid?{identifierHashes:[phone===uid?c.phoneHash:null,email===uid?c.emailHash:null].filter((h):h is string=>h!==null)}:{}),
         contactId: c.id,
         name: c.name,
         isPrimary: c.isPrimary,

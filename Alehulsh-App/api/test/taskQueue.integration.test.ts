@@ -653,7 +653,7 @@ describe('11 & 15. the real task routes, through the real dispatcher', () => {
       });
       await dispatch({
         id: '1', taskKey: 'k', kind: 'safety-check',
-        payload: { kind: 'safety-check', alertId: alert.id },
+        payload: { kind: 'safety-check', alertId: alert.id, alertKey: alert.key },
         runAt: new Date(), attempts: 1, maxAttempts: 5,
       });
       assert.equal((await deps.alerts.findById(alert.id))?.status, 'escalated');
@@ -671,7 +671,7 @@ describe('11 & 15. the real task routes, through the real dispatcher', () => {
       // The task was queued BEFORE she resolved and is delivered after.
       await dispatch({
         id: '2', taskKey: 'k2', kind: 'safety-check',
-        payload: { kind: 'safety-check', alertId: alert.id },
+        payload: { kind: 'safety-check', alertId: alert.id, alertKey: alert.key },
         runAt: new Date(), attempts: 1, maxAttempts: 5,
       });
 
@@ -709,16 +709,33 @@ describe('11 & 15. the real task routes, through the real dispatcher', () => {
     } finally { await app.close(); }
   });
 
-  qtest('notify-contacts is NOT routed, and fails loudly', async () => {
-    // Activating notification delivery is out of scope. An unroutable kind
-    // must fail visibly rather than be silently dropped or quietly handled.
+  qtest('an UNKNOWN kind is still not routed, and fails loudly', async () => {
+    // `notify-contacts` used to be the example here; it is now routed (P3-04).
+    // The property this test exists for is unchanged and still worth holding:
+    // a kind with no handler must fail VISIBLY rather than be silently dropped
+    // or quietly treated as done.
     const { app, dispatch } = await harness();
     try {
       await assert.rejects(() => dispatch({
-        id: '5', taskKey: 'k5', kind: 'notify-contacts',
-        payload: { kind: 'notify-contacts', alertId: 'a', reason: 'no_answer' },
+        id: '5', taskKey: 'k5', kind: 'send-postcard',
+        payload: { kind: 'send-postcard', alertId: 'a' },
         runAt: new Date(), attempts: 1, maxAttempts: 5,
-      }), /no handler registered for task kind 'notify-contacts'/);
+      }), /no handler registered for task kind 'send-postcard'/);
+    } finally { await app.close(); }
+  });
+
+  qtest('notify-contacts IS routed, and reaches the real handler', async () => {
+    const { app, dispatch } = await harness();
+    try {
+      // Resolves rather than throwing: the kind has a route and the handler
+      // answers. The alert id is unknown to the repository, so the handler
+      // takes its "gone or terminal" branch - which is itself the behaviour
+      // that matters for a late redelivery.
+      await dispatch({
+        id: '6', taskKey: 'k6', kind: 'notify-contacts',
+        payload: { kind: 'notify-contacts', alertId: randomUUID(), reason: 'no_answer' },
+        runAt: new Date(), attempts: 1, maxAttempts: 5,
+      });
     } finally { await app.close(); }
   });
 
@@ -780,7 +797,7 @@ describe('12. transaction consistency with the alert', () => {
       });
       await new PostgresTaskQueue(tx).schedule({
         key: `tq-txn-task-${alert.id}`, runAt: due(),
-        payload: { kind: 'safety-check', alertId: alert.id },
+        payload: { kind: 'safety-check', alertId: alert.id, alertKey: alert.key },
       });
       return alert;
     });
@@ -800,7 +817,7 @@ describe('12. transaction consistency with the alert', () => {
       });
       taskKey = `tq-txn-task-${alert.id}`;
       await new PostgresTaskQueue(tx).schedule({
-        key: taskKey, runAt: due(), payload: { kind: 'safety-check', alertId: alert.id },
+        key: taskKey, runAt: due(), payload: { kind: 'safety-check', alertId: alert.id, alertKey: alert.key },
       });
       throw boom;
     }), (e: unknown) => e === boom);
@@ -945,7 +962,7 @@ describe('REVIEW: the alert-lifecycle race (§6)', () => {
       const before = [...queue.scheduled.keys()];
       await dispatch({
         id: '1', taskKey: 'k', kind: 'safety-check',
-        payload: { kind: 'safety-check', alertId: alert.id },
+        payload: { kind: 'safety-check', alertId: alert.id, alertKey: alert.key },
         runAt: new Date(), attempts: 1, maxAttempts: 5,
       });
 
@@ -966,7 +983,7 @@ describe('REVIEW: the alert-lifecycle race (§6)', () => {
       });
       await dispatch({
         id: '2', taskKey: 'k2', kind: 'safety-check',
-        payload: { kind: 'safety-check', alertId: alert.id },
+        payload: { kind: 'safety-check', alertId: alert.id, alertKey: alert.key },
         runAt: new Date(), attempts: 1, maxAttempts: 5,
       });
 
@@ -987,7 +1004,7 @@ describe('REVIEW: the alert-lifecycle race (§6)', () => {
       const before = [...queue.scheduled.keys()];
       await dispatch({
         id: '3', taskKey: 'k3', kind: 'safety-check',
-        payload: { kind: 'safety-check', alertId: alert.id },
+        payload: { kind: 'safety-check', alertId: alert.id, alertKey: alert.key },
         runAt: new Date(), attempts: 1, maxAttempts: 5,
       });
       const added = [...queue.scheduled.keys()].filter((k) => !before.includes(k));

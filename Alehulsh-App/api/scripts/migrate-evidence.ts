@@ -1,3 +1,4 @@
+import { finalizeEvidence } from '../src/services/finalizeEvidence.js';
 /**
  * P2-10.5 — retire base64 audio embedded in alert documents.
  *
@@ -25,7 +26,7 @@
  * summary. Losing a recording of an assault is not an acceptable failure mode
  * for a cleanup script.
  */
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
 import type { Firestore } from 'firebase-admin/firestore';
 import type { EvidenceRepository } from '../src/repositories/types.js';
 import type { EvidenceStore } from '../src/evidence/EvidenceStore.js';
@@ -106,7 +107,7 @@ export async function migrateEmbeddedAudio(deps: {
           throw new Error(`size mismatch: stored ${String(size)}, expected ${bytes.byteLength}`);
         }
 
-        await deps.evidence.create({
+        const record = await deps.evidence.create({
           id: evidenceId,
           alertId: docSnap.id,
           // The alert this belonged to predates alert keys, so its own key is
@@ -123,8 +124,10 @@ export async function migrateEmbeddedAudio(deps: {
           sizeBytes: size,
           durationMs: null,
           createdAt: new Date(),
-          uploaded: true,
+          uploaded: false,
         });
+
+        await finalizeEvidence(record, deps.store, deps.evidence, createHash('sha256').update(bytes).digest('hex'));
 
         // Only now is the base64 dropped, and the note itself is kept so the
         // recording's place in the timeline survives.

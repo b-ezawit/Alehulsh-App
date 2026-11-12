@@ -1,9 +1,8 @@
+import { evidenceCreateSchema, issueEvidence, completeEvidence, listOwnerEvidence, type EvidenceCreateBody } from '../services/ownerEvidence.js';
 import { isTerminalStatus } from '../repositories/types.js';
-import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { requireSubject, subjectOf } from '../auth/middleware.js';
 import { AppError } from '../errors.js';
-import { isAllowedContentType } from '../evidence/EvidenceStore.js';
 import type { Deps } from '../server.js';
 
 /**
@@ -28,165 +27,17 @@ import type { Deps } from '../server.js';
  * address, other people's conversations, a child — and she made no decision to
  * share any of it. Tapping "accept" does not earn that. Deliberate notes only.
  */
-const MAX_EVIDENCE_PER_ALERT = 20;
 const PLAYBACK_TTL_MS = 5 * 60 * 1000;
-
-const createSchema = {
-  type: 'object',
-  required: ['contentType'],
-  additionalProperties: false,
-  properties: {
-    contentType: { type: 'string', maxLength: 100 },
-    durationMs: { type: ['number', 'null'], minimum: 0, maximum: 60 * 60 * 1000 },
-    // Omitted means automatic. A responder may hear only what she chose to
-    // send, so the default has to be the closed one.
-    kind: { type: 'string', enum: ['deliberate', 'automatic'] },
-  },
-} as const;
-
-interface CreateBody {
-  contentType: string;
-  durationMs?: number | null;
-  kind?: 'deliberate' | 'automatic';
-}
-
 export function registerEvidenceRoutes(app: FastifyInstance, deps: Deps): void {
-  /** Ask for somewhere to put a recording. Owner only. */
-  app.post<{ Params: { id: string }; Body: CreateBody }>(
-    '/v1/alerts/:id/evidence',
-    { schema: { body: createSchema }, onRequest: requireSubject(deps.tokenVerifier) },
-    async (req, reply) => {
-      const { uid } = subjectOf(req);
-      const alert = await deps.alerts.findById(req.params.id);
-
-      // Same shape as resolve: not hers and not existing are indistinguishable.
-      if (!alert || alert.ownerId !== uid) {
-        throw new AppError('not_found', `alert ${req.params.id} not visible to ${uid}`);
-      }
-      if (isTerminalStatus(alert.status)) {
-        throw new AppError('alert_closed', `alert ${alert.id} is ${alert.status}`);
-      }
-      if (!isAllowedContentType(req.body.contentType)) {
-        // Allowlist, not a passthrough. The signature binds the ticket to this
-        // type, so anything we accept here is what the bucket will accept.
-        throw new AppError('invalid_request', `content type ${req.body.contentType} not allowed`);
-      }
-
-      const existing = await deps.evidence.listForAlert(alert.id);
-      if (existing.length >= MAX_EVIDENCE_PER_ALERT) {
-        throw new AppError('rate_limited', `alert ${alert.id} already has ${existing.length} items`);
-      }
-
-      const evidenceId = randomUUID();
-      const ticket = await deps.evidenceStore.createUploadTicket({
-        ownerUid: uid, alertId: alert.id, evidenceId, contentType: req.body.contentType,
-      });
-
-      // Recorded before the upload, not after. An interrupted upload then
-      // leaves a row marked `uploaded: false` — a visible gap we can retry or
-      // report, instead of a recording nobody knows was attempted.
-      await deps.evidence.create({
-        id: evidenceId,
-        alertId: alert.id,
-        // Which alert instance this belongs to. alert.id is her uid and is the
-        // same for every alert she raises; without this a recording cannot be
-        // attributed to one incident.
-        alertKey: alert.key,
-        kind: req.body.kind === 'deliberate' ? 'deliberate' : 'automatic',
-        ownerUid: uid,
-        storagePath: ticket.storagePath,
-        contentType: ticket.contentType,
-        sizeBytes: null,
-        durationMs: req.body.durationMs ?? null,
-        createdAt: new Date(),
-        uploaded: false,
-      });
-
-      deps.logger.info('evidence ticket issued', { alertId: alert.id, subject: uid, evidenceId });
-
-      return reply.status(201).send({
-        evidenceId,
-        upload: {
-          url: ticket.url,
-          method: 'PUT',
-          expiresAt: ticket.expiresAt.toISOString(),
-          // The client must send this header or the signature will not match.
-          headers: { 'content-type': ticket.contentType },
-        },
-      });
-    },
-  );
-
-  /** Confirm the PUT landed. Until this runs the item counts as missing. */
-  app.post<{ Params: { evidenceId: string } }>(
-    '/v1/evidence/:evidenceId/complete',
-    {
-      schema: { body: { type: 'object', additionalProperties: false, properties: {} } },
-      onRequest: requireSubject(deps.tokenVerifier),
-    },
-    async (req, reply) => {
-      const { uid } = subjectOf(req);
-      const record = await deps.evidence.findById(req.params.evidenceId);
-      if (!record || record.ownerUid !== uid) {
-        throw new AppError('not_found', `evidence ${req.params.evidenceId} not visible to ${uid}`);
-      }
-
-      // Verified against the bucket, never taken on the client's word. A
-      // client that crashed mid-PUT would otherwise mark its own upload
-      // complete and the gap would close silently.
-      if (!(await deps.evidenceStore.exists(record.storagePath))) {
-        throw new AppError('not_found', `object for ${record.id} is not present`);
-      }
-
-      const size = await deps.evidenceStore.sizeOf(record.storagePath);
-      const updated = await deps.evidence.markUploaded(record.id, size);
-      deps.logger.info('evidence upload confirmed', {
-        alertId: record.alertId, subject: uid, evidenceId: record.id, sizeBytes: size,
-      });
-
-      return reply.send({
-        evidence: { id: updated.id, uploaded: true, sizeBytes: updated.sizeBytes },
-      });
-    },
-  );
-
-  /** Her own evidence, with short-lived playback URLs. */
-  app.get<{ Params: { id: string } }>(
-    '/v1/alerts/:id/evidence',
-    { onRequest: requireSubject(deps.tokenVerifier) },
-    async (req, reply) => {
-      const { uid } = subjectOf(req);
-      const alert = await deps.alerts.findById(req.params.id);
-      if (!alert || alert.ownerId !== uid) {
-        throw new AppError('not_found', `alert ${req.params.id} not visible to ${uid}`);
-      }
-
-      const records = await deps.evidence.listForAlert(alert.id);
-      const items = await Promise.all(records.map(async (r) => {
-        // No URL for something that never finished uploading — a signed URL to
-        // a missing object is a broken player and a confusing lie.
-        const playback = r.uploaded
-          ? await deps.evidenceStore.createPlaybackUrl(r.storagePath, PLAYBACK_TTL_MS)
-          : null;
-        return {
-          id: r.id,
-          uploaded: r.uploaded,
-          contentType: r.contentType,
-          durationMs: r.durationMs,
-          sizeBytes: r.sizeBytes,
-          kind: r.kind,
-          createdAt: r.createdAt.toISOString(),
-          // storagePath is deliberately not returned. It is an internal
-          // address; the client needs the URL, never the location.
-          ...(playback
-            ? { url: playback.url, urlExpiresAt: playback.expiresAt.toISOString() }
-            : {}),
-        };
-      }));
-
-      return reply.send({ evidence: items });
-    },
-  );
+  app.post<{ Params: { id: string; }; Body: EvidenceCreateBody; }>('/v1/alerts/:id/evidence', {
+    schema: { body: evidenceCreateSchema }, onRequest: requireSubject(deps.tokenVerifier),
+  }, async (req, reply) => reply.status(201).send(await issueEvidence(deps, subjectOf(req).uid, req.params.id, req.body)));
+  app.post<{ Params: { evidenceId: string; }; }>('/v1/evidence/:evidenceId/complete', {
+    schema: { body: { type: 'object', additionalProperties: false, properties: {} } }, onRequest: requireSubject(deps.tokenVerifier),
+  }, async (req, reply) => reply.send(await completeEvidence(deps, subjectOf(req).uid, req.params.evidenceId)));
+  app.get<{ Params: { id: string; }; }>('/v1/alerts/:id/evidence', {
+    onRequest: requireSubject(deps.tokenVerifier),
+  }, async (req, reply) => reply.send(await listOwnerEvidence(deps, subjectOf(req).uid, req.params.id)));
 }
 
 /**
@@ -206,7 +57,7 @@ export function registerEvidenceRoutes(app: FastifyInstance, deps: Deps): void {
  * to what, and when.
  */
 export function registerResponderEvidenceRoute(app: FastifyInstance, deps: Deps): void {
-  app.get<{ Params: { id: string } }>(
+  app.get<{ Params: { id: string; }; }>(
     '/v1/alerts/:id/evidence/responder',
     { onRequest: requireSubject(deps.tokenVerifier) },
     async (req, reply) => {
@@ -225,7 +76,7 @@ export function registerResponderEvidenceRoute(app: FastifyInstance, deps: Deps)
         deps.logger.error('orphaned inbox projection', { alertId, subject: uid });
         throw new AppError('not_found', `alert ${alertId} no longer exists`);
       }
-      if (isTerminalStatus(alert.status)) {
+      if (isTerminalStatus(alert.status) || alert.expiresAt <= new Date()) {
         throw new AppError('alert_closed', `alert ${alertId} is ${alert.status}`);
       }
 
@@ -258,6 +109,12 @@ export function registerResponderEvidenceRoute(app: FastifyInstance, deps: Deps)
         };
       }));
 
+      const [latest, selected, stillAccepted] = await Promise.all([
+        deps.alerts.findById(alertId), deps.inbox.get(uid, alertId), deps.acceptances.findFor(alertId, uid),
+      ]);
+      if (!latest || latest.key !== alert.key || isTerminalStatus(latest.status) || latest.expiresAt <= new Date() ||
+        !selected || !stillAccepted || (selected.alertKey !== undefined && selected.alertKey !== alert.key) ||
+        (stillAccepted.alertKey !== undefined && stillAccepted.alertKey !== alert.key)) throw new AppError('alert_closed');
       return reply.send({ evidence: items });
     },
   );
@@ -265,9 +122,9 @@ export function registerResponderEvidenceRoute(app: FastifyInstance, deps: Deps)
 
 /** C-16 — the database rows. The objects themselves go via the store. */
 export function evidenceDeletableStores(
-  repo: { deleteAllForOwner(uid: string): Promise<number> },
-  store: { removeAllForOwner(uid: string): Promise<number> },
-): Array<{ readonly name: string; purge(uid: string): Promise<number> }> {
+  repo: { deleteAllForOwner(uid: string): Promise<number>; },
+  store: { removeAllForOwner(uid: string): Promise<number>; },
+): Array<{ readonly name: string; purge(uid: string): Promise<number>; }> {
   return [
     // Objects first. If the process dies between the two, an orphaned row
     // pointing at nothing is recoverable; an orphaned recording is not.

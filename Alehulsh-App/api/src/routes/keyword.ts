@@ -1,3 +1,4 @@
+import { keywordChangeSchema as bodySchema } from '../http/schemas.js';
 import type { FastifyInstance } from 'fastify';
 import { requireSubject, subjectOf } from '../auth/middleware.js';
 import { AppError } from '../errors.js';
@@ -34,15 +35,7 @@ import type { Deps } from '../server.js';
  * fix is account recovery, which does not exist and must not be built as
  * something usable under duress.
  */
-const bodySchema = {
-  type: 'object',
-  required: ['keyword'],
-  additionalProperties: false,
-  properties: {
-    keyword: { type: 'string', minLength: 1, maxLength: 256 },
-    currentKeyword: { type: 'string', minLength: 1, maxLength: 256 },
-  },
-} as const;
+
 
 interface Body { keyword: string; currentKeyword?: string }
 
@@ -89,6 +82,9 @@ export function registerKeywordRoute(app: FastifyInstance, deps: Deps): void {
       }
 
       const user = await deps.users.findByUid(uid);
+      // A legacy plaintext keyword is not an unset keyword. Do not silently
+      // replace it or remove compatibility data before reviewed migration.
+      if(user?.legacyKeywordMigrationRequired)throw new AppError('conflict');
       const hasExisting = Boolean(user?.safetyKeywordHash) && user?.mustSetKeyword !== true;
 
       if (hasExisting) {
@@ -112,7 +108,7 @@ export function registerKeywordRoute(app: FastifyInstance, deps: Deps): void {
       }
 
       const hash = await hashKeyword(req.body.keyword, deps.config.keywordPepper);
-      await deps.users.setSafetyKeywordHash(uid, hash);
+      await deps.users.compareAndSetSafetyKeyword(uid, user?.safetyKeywordHash ?? null, hash);
 
       // Never the keyword, never the hash, never the length. The logger redacts
       // by key name, and this gives it nothing to redact.

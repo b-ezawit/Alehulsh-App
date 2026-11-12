@@ -12,7 +12,8 @@ describe('client error contract', () => {
     assert.equal(body.error.message, 'Something went wrong on our side.');
     assert.ok(!JSON.stringify(body).includes('alehulsh-app'));
     // but it is still available for the log
-    assert.ok(String(internal['unhandled']).includes('permission denied'));
+    assert.equal(internal['errorType'], 'Error');
+    assert.equal(JSON.stringify(internal).includes('permission denied'), false);
   });
 
   test('forbidden and not_found are indistinguishable to a caller', () => {

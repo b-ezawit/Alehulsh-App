@@ -23,6 +23,14 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == uid;
     }
 
+    // Fields on a user document that assert WHO SOMEONE IS, and therefore
+    // which audience tier they land in. Server-written only.
+    function IDENTITY_FIELDS() {
+      return ['phoneHash', 'emailHash', 'phoneVerified', 'emailVerified',
+              'phoneVerifiedAt', 'emailVerifiedAt',
+              'safetyKeywordHash', 'mustSetKeyword'];
+    }
+
     // ---------------------------------------------------------------
     // active_alerts — one document per user, keyed by the owner's uid
     // ---------------------------------------------------------------
@@ -67,8 +75,44 @@ service cloud.firestore {
     // address, emergency contacts and plaintext safety keyword. (CRIT-01)
     //
     // This is the single change that stops the live location exposure.
+    // ---------------------------------------------------------------
+    // users — her own profile, except the fields that assert IDENTITY
+    // ---------------------------------------------------------------
     match /users/{userId} {
-      allow read, write: if isMe(userId);
+      allow read: if isMe(userId);
+
+      // `phoneHash` and `emailHash` are how the server decides WHO SOMEONE IS:
+      // AlertFanout resolves a woman's emergency contacts by matching these,
+      // and a match puts the holder in the `contact` audience - the tier that
+      // receives her EXACT coordinates rather than a fuzzed cell.
+      //
+      // Under `allow write: if isMe(userId)` a client could write them, so
+      // anyone could put a victim's contact's hashed number into their own
+      // profile and be resolved as that contact. Worse, nothing makes these
+      // fields unique, so the impostor could DISPLACE the real contact and she
+      // would never be notified at all - disclosure plus a silent denial of
+      // her alert, from one field on the attacker's own document.
+      //
+      // So they are server-written only, as are the verification flags that
+      // would otherwise be self-asserted ("I verified myself").
+      //
+      // Nothing legitimate is blocked: no path in lib/ writes any of these -
+      // UserProfile.toMap() does not contain them - and the server writes with
+      // the Admin SDK, which bypasses rules entirely.
+      //
+      // This closes the write path. It does NOT establish that a hash present
+      // today was ever verified: phone-ownership verification (OTP) does not
+      // exist yet, and the PostgreSQL schema is already ahead of Firestore
+      // here - CHECK (phone_hash IS NULL OR phone_verified_at IS NOT NULL).
+      allow create: if isMe(userId)
+                    && !request.resource.data.keys().hasAny(IDENTITY_FIELDS());
+
+      allow update: if isMe(userId)
+                    && !request.resource.data.diff(resource.data)
+                          .affectedKeys().hasAny(IDENTITY_FIELDS());
+
+      // Removing the profile would discard protected keyword/identity fields.
+      // Account erasure is a trusted, reconciled operation, not an SDK delete.
     }
 
     // Declared in the original ruleset but unused — contacts currently live in
@@ -91,7 +135,20 @@ service cloud.firestore {
     // write here, not even for the owner. A responder who could write her own
     // inbox could invent an alert, or delete one she was asked to answer.
     match /inbox/{recipientUid}/alerts/{alertId} {
-      allow read: if isMe(recipientUid);
+      // Cleanup is durable but asynchronous on Firestore. Never authorize a
+      // stale exact-coordinate copy after closure, expiry, deletion or reuse of
+      // an owner's document slot for another incident.
+      function liveIncident() {
+        let source = get(/databases/$(database)/documents/active_alerts/$(alertId));
+        return resource.data.alertKey is string
+            && source.data.alertKey == resource.data.alertKey
+            && source.data.status in ['active', 'escalated']
+            && source.data.expiresAtTimestamp > request.time;
+      }
+      allow get: if isMe(recipientUid) && liveIncident();
+      // Rules cannot prove a cross-document source check for an unconstrained
+      // list. Collection reads therefore go through GET /v1/me/inbox, whose
+      // repository checks each source in a transaction.
     }
 
     // ---------------------------------------------------------------

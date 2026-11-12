@@ -27,16 +27,40 @@ export interface FanoutResult {
   contacts: string[];
   /** Contacts with no account. Not an error — P3-01 §6 shows her these. */
   unreachableContacts: number;
+  /**
+   * Whether responder discovery could run at all.
+   *
+   * `unavailable` and an empty `responders` list mean something quite
+   * different from `configured` and an empty list: the first is "we did not
+   * look", the second is "we looked and nobody was eligible". Returned
+   * explicitly so a caller cannot report the one as the other.
+   */
+  responderDiscovery: 'configured' | 'unavailable';
 }
 
 export class AlertFanout {
+  /**
+   * @param responderLocations null when no implementation is configured. There
+   *   is none yet: `ResponderLocationRepository` exists as an interface and a
+   *   test fake only, so responder discovery (P2-05) cannot run in a deployed
+   *   build. Passing null is the honest representation of that, and makes the
+   *   CONTACT half — which needs nothing more than the inbox and the contact
+   *   matcher — usable now.
+   * @param registry null for the same reason; responder eligibility is
+   *   meaningless without locations to filter.
+   */
   constructor(
     private readonly inbox: InboxRepository,
-    private readonly responderLocations: ResponderLocationRepository,
-    private readonly registry: ResponderRegistry,
+    private readonly responderLocations: ResponderLocationRepository | null,
+    private readonly registry: ResponderRegistry | null,
     private readonly contacts: ContactMatcher,
     private readonly logger: Logger,
   ) {}
+
+  /** Whether this instance can select responders at all. */
+  get hasResponderDiscovery(): boolean {
+    return this.responderLocations !== null && this.registry !== null;
+  }
 
   async dispatch(alert: Alert): Promise<FanoutResult> {
     const [responders, contactResult] = await Promise.all([
@@ -54,7 +78,8 @@ export class AlertFanout {
 
     await Promise.all([
       ...responderUids.map((uid) => this.inbox.put(uid, this.project(alert, 'responder'))),
-      ...contactUids.map((uid) => this.inbox.put(uid, this.project(alert, 'contact'))),
+      ...contactUids.map((uid) => this.inbox.put(uid,{...this.project(alert, 'contact'),
+        contactIdentifierHashes:[...new Set(contactResult.filter(r=>r.uid===uid).flatMap(r=>r.identifierHashes??[]))]})),
     ]);
 
     const result: FanoutResult = {
@@ -62,6 +87,7 @@ export class AlertFanout {
       responders: responderUids,
       contacts: contactUids,
       unreachableContacts: contactResult.filter((c) => c.uid === null).length,
+      responderDiscovery: this.hasResponderDiscovery ? 'configured' : 'unavailable',
     };
 
     this.logger.info('alert fanned out', {
@@ -69,6 +95,7 @@ export class AlertFanout {
       responderCount: responderUids.length,
       contactCount: contactUids.length,
       unreachableContacts: result.unreachableContacts,
+      responderDiscovery: result.responderDiscovery,
     });
 
     return result;
@@ -76,14 +103,20 @@ export class AlertFanout {
 
   /** Called when an alert reaches a terminal state. A responder's inbox must
    *  not become a history of other people's emergencies. */
-  async retract(alertId: string): Promise<number> {
+  async retract(alertId: string, alertKey?: string): Promise<number> {
     const recipients = await this.inbox.listRecipients(alertId);
-    await Promise.all(recipients.map((uid) => this.inbox.remove(uid, alertId)));
+    await Promise.all(recipients.map((uid) => this.inbox.remove(uid, alertId, alertKey)));
     this.logger.info('alert retracted from inboxes', { alertId, count: recipients.length });
     return recipients.length;
   }
 
   private async selectResponders(alert: Alert): Promise<string[]> {
+    if (this.responderLocations === null || this.registry === null) {
+      // Not configured. Returning an empty list here is NOT "nobody was
+      // nearby" - it is "we did not look", which the result reports as
+      // `responderDiscovery: 'unavailable'` so the distinction survives.
+      return [];
+    }
     if (alert.latitude === null || alert.longitude === null) {
       // No location, no proximity. Contacts still get it; strangers cannot be
       // sent somewhere we do not know.
@@ -115,11 +148,12 @@ export class AlertFanout {
 
     return {
       alertId: alert.id,
+      alertKey: alert.key,
       displayName: '',            // filled by the caller from the owner profile
       fuzzedLat: exact ? alert.latitude : fuzzed?.lat ?? null,
       fuzzedLng: exact ? alert.longitude : fuzzed?.lng ?? null,
       fuzzedPrecision: exact ? 'exact' : FUZZ_LABEL,
-      isUrgent: false,
+      isUrgent: alert.isUrgent===true,
       status: alert.status === 'escalated' ? 'escalated' : 'active',
       createdAt: alert.createdAt,
       hasVoiceNote: false,

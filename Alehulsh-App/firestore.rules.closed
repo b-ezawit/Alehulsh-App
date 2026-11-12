@@ -1,29 +1,17 @@
 rules_version = '2';
 
-// Alehulsh — TARGET ruleset for P1-27. NOT YET DEPLOYED.
+// Alehulsh — API-only alert writes candidate. NOT DEPLOYED.
+// Activate only after supported clients use the trusted API and adoption is verified.
 //
-// This is the ruleset that actually ends the exposure: clients lose write
-// access to active_alerts entirely, and every alert operation goes through the
-// API, which can enforce what rules cannot.
+// CONTAINMENT RULESET (P0-05, P0-06, P0-07).
+// Everything here is owner-only. Responder discovery is deliberately switched
+// off until the server-side fan-out lands in P2-04/P2-05; a responder must
+// never read another user's raw alert, because it carries her exact
+// coordinates, her phone number and every one of her emergency contacts.
 //
-// It lives beside firestore.rules rather than replacing it because deploying
-// it today would break every installed build. See docs/closing-direct-writes.md
-// for the preconditions. When they are met, this file becomes firestore.rules
-// in a single commit and the tests come with it.
-//
-// WHAT CHANGES FROM firestore.rules
-//
-//   active_alerts  create/update/delete by a client: REMOVED.
-//                  Reads stay owner-only, so her own screen still works while
-//                  the client is being cut over.
-//   users          unchanged for now. Closing this needs profile-write
-//                  endpoints, which need P2-02 to say which fields survive.
-//                  Tracked separately; it is not part of this switch.
-//
-// WHY WRITES CAN GO AND READS CANNOT YET: every write path has a server
-// endpoint now — create (P1-08), resolve (P1-09), accept (P1-10), reveal
-// (P2-08), evidence (P2-10), keyword (P1-11). Reads still come straight from
-// Firestore in the client until P2-06.
+// These rules are interim. The durable model is a trusted API layer holding
+// all privileged operations (P1-07 onwards), after which clients lose direct
+// write access entirely (P1-27).
 
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -36,53 +24,140 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == uid;
     }
 
+    // Fields on a user document that assert WHO SOMEONE IS, and therefore
+    // which audience tier they land in. Server-written only.
+    function IDENTITY_FIELDS() {
+      return ['phoneHash', 'emailHash', 'phoneVerified', 'emailVerified',
+              'phoneVerifiedAt', 'emailVerifiedAt',
+              'safetyKeywordHash', 'mustSetKeyword'];
+    }
+
     // ---------------------------------------------------------------
-    // active_alerts — read-only to clients
+    // active_alerts — one document per user, keyed by the owner's uid
     // ---------------------------------------------------------------
-    // The three critical findings all lived here, and all three were write
-    // permissions: CRIT-04 let any account overwrite voiceNotes and responders
-    // on any alert, and the owner's own create/update/delete let the client
-    // decide its own alert state — which is how cancelling came to hard-delete
-    // the evidence (CRIT-05) and how a device clock came to set expiry.
+    // Previously `allow read: if isAuthenticated()`, which let any account
+    // read every alert in the database: exact GPS, victim phone and email,
+    // and the name, phone and email of every emergency contact. (CRIT-02)
     //
-    // None of that can be fixed with a better rule. Firestore cannot check a
-    // keyword, cannot preserve evidence, cannot stamp its own clock. Removing
-    // client writes is the fix; the API does the rest.
+    // The `hasOnly(['responders','voiceNotes'])` update clause let any account
+    // overwrite the evidence array on ANY alert — remote evidence destruction
+    // by an attacker from their own phone. It is removed, not narrowed. (CRIT-04)
+    //
+    // Responder accept/decline returns in P1-10 as a callable function that
+    // appends only the caller's own uid, server-side.
     match /active_alerts/{alertId} {
+
+      // Owner reads her own alert by document id. The legacy-duplicate cleanup
+      // query (alert_service.dart:236) is filtered on userId, so it is also
+      // satisfied here without opening the collection to anyone else.
       allow read: if isMe(alertId) || isMe(resource.data.userId);
 
-      // Deliberately absent: create, update, delete. Do not add them back.
-      // Every one of them now has an endpoint.
+      // Document id AND the userId field must both be the caller. Requiring
+      // both prevents planting an alert in another user's slot, which would
+      // block her real SOS — createSOSAlert preserves an existing active doc.
+      // All incident mutations belong to the trusted API.
+
+      // Field-level validation is deliberately NOT added here. It belongs with
+      // the callable layer (P1-08/P1-09), and adding a partial version now
+      // risks blocking a legitimate SOS write for no security gain.
+
+
+      // Deletion stays owner-only for now. It stops being how an alert ends in
+      // P1-09 — cancelling currently destroys all evidence. (CRIT-05)
+
     }
 
     // ---------------------------------------------------------------
-    // users — unchanged, and knowingly so
+    // users — profile documents
     // ---------------------------------------------------------------
-    // Still client-writable. Closing it requires endpoints for the profile
-    // fields the app legitimately edits, and P2-02 has not yet decided which
-    // of those fields survive at all. Writing them twice would be waste.
+    // Previously `allow read: if isAuthenticated()`. Combined with the
+    // background location writes in location_service.dart:112-131, any account
+    // could follow any user in near-real-time and read her phone number, home
+    // address, emergency contacts and plaintext safety keyword. (CRIT-01)
     //
-    // The keyword is already out: P1-11 moved it behind PUT /v1/me/keyword and
-    // deletes the legacy cleartext field, so the most sensitive thing in this
-    // document is no longer set from a client.
+    // This is the single change that stops the live location exposure.
+    // ---------------------------------------------------------------
+    // users — her own profile, except the fields that assert IDENTITY
+    // ---------------------------------------------------------------
     match /users/{userId} {
-      allow read, write: if isMe(userId);
+      allow read: if isMe(userId);
+
+      // `phoneHash` and `emailHash` are how the server decides WHO SOMEONE IS:
+      // AlertFanout resolves a woman's emergency contacts by matching these,
+      // and a match puts the holder in the `contact` audience - the tier that
+      // receives her EXACT coordinates rather than a fuzzed cell.
+      //
+      // Under `allow write: if isMe(userId)` a client could write them, so
+      // anyone could put a victim's contact's hashed number into their own
+      // profile and be resolved as that contact. Worse, nothing makes these
+      // fields unique, so the impostor could DISPLACE the real contact and she
+      // would never be notified at all - disclosure plus a silent denial of
+      // her alert, from one field on the attacker's own document.
+      //
+      // So they are server-written only, as are the verification flags that
+      // would otherwise be self-asserted ("I verified myself").
+      //
+      // Nothing legitimate is blocked: no path in lib/ writes any of these -
+      // UserProfile.toMap() does not contain them - and the server writes with
+      // the Admin SDK, which bypasses rules entirely.
+      //
+      // This closes the write path. It does NOT establish that a hash present
+      // today was ever verified: phone-ownership verification (OTP) does not
+      // exist yet, and the PostgreSQL schema is already ahead of Firestore
+      // here - CHECK (phone_hash IS NULL OR phone_verified_at IS NOT NULL).
+      allow create: if isMe(userId)
+                    && !request.resource.data.keys().hasAny(IDENTITY_FIELDS());
+
+      allow update: if isMe(userId)
+                    && !request.resource.data.diff(resource.data)
+                          .affectedKeys().hasAny(IDENTITY_FIELDS());
+
+      // Removing the profile would discard protected keyword/identity fields.
+      // Account erasure is a trusted, reconciled operation, not an SDK delete.
     }
 
+    // Declared in the original ruleset but unused — contacts currently live in
+    // an array on the profile document. Kept owner-only for when P2-01 splits
+    // the model.
     match /users/{userId}/contacts/{contactId} {
       allow read, write: if isMe(userId);
     }
 
     // ---------------------------------------------------------------
-    // inbox — per-recipient projections, read-only
+    // inbox — per-recipient alert projections written by the server
     // ---------------------------------------------------------------
+    // This is the collection that lets responder discovery come back safely.
+    // Firestore cannot express "only if you are near this alert", so the
+    // server writes each selected recipient their own copy and the rule only
+    // ever has to answer "is this your own inbox?".
+    //
+    // Read-only for clients. Every write comes from the API layer through the
+    // admin SDK, which bypasses rules — so there is deliberately no allow
+    // write here, not even for the owner. A responder who could write her own
+    // inbox could invent an alert, or delete one she was asked to answer.
     match /inbox/{recipientUid}/alerts/{alertId} {
-      allow read: if isMe(recipientUid);
+      // Cleanup is durable but asynchronous on Firestore. Never authorize a
+      // stale exact-coordinate copy after closure, expiry, deletion or reuse of
+      // an owner's document slot for another incident.
+      function liveIncident() {
+        let source = get(/databases/$(database)/documents/active_alerts/$(alertId));
+        return resource.data.alertKey is string
+            && source.data.alertKey == resource.data.alertKey
+            && source.data.status in ['active', 'escalated']
+            && source.data.expiresAtTimestamp > request.time;
+      }
+      allow get: if isMe(recipientUid) && liveIncident();
+      // Rules cannot prove a cross-document source check for an unconstrained
+      // list. Collection reads therefore go through GET /v1/me/inbox, whose
+      // repository checks each source in a transaction.
     }
 
     // ---------------------------------------------------------------
     // Everything else is denied.
     // ---------------------------------------------------------------
+    // Firestore already denies by default; this is here so the intent is
+    // explicit. Note it does NOT override the allows above — Firestore grants
+    // access if any match permits it.
     match /{document=**} {
       allow read, write: if false;
     }

@@ -129,6 +129,23 @@ describe('authorization', () => {
 });
 
 describe('a failed upload is visible, not silent', () => {
+  test('a stable evidence ID recovers a lost ticket/finalization acknowledgment without duplicating or overwriting metadata',async()=>{
+    const id='12345678-1234-4234-8234-123456789abc';
+    const payload={contentType:'audio/mp4',durationMs:2000,kind:'deliberate',evidenceId:id,incidentKey:`key-seed-${ALERT}`};
+    const send=(body=payload)=>app.inject({method:'POST',url:`/v1/alerts/${ALERT}/evidence`,headers:authAs(OWNER),payload:body});
+    assert.equal((await send()).statusCode,201);assert.equal((await send()).json().evidenceId,id);
+    assert.equal((await evidence.listForAlert(ALERT)).length,1);
+    assert.equal((await send({...payload,durationMs:3000})).statusCode,409);
+    const record=(await evidence.findById(id))!;evidenceStore.land(record.storagePath,4242);
+    assert.equal((await complete(OWNER,id)).statusCode,200);
+    const calls=evidenceStore.ticketCalls,recovered=await send();
+    assert.equal(recovered.json().evidence.uploaded,true);assert.equal(recovered.json().upload,undefined);assert.equal(evidenceStore.ticketCalls,calls);
+  });
+  test('a delayed evidence ticket cannot attach a recording to a replacement Firestore incident',async()=>{
+    const res=await app.inject({method:'POST',url:`/v1/alerts/${ALERT}/evidence`,headers:authAs(OWNER),
+      payload:{contentType:'audio/mp4',evidenceId:'12345678-1234-4234-8234-123456789abc',incidentKey:'old-slot-incident'}});
+    assert.equal(res.statusCode,404);assert.equal(evidenceStore.ticketCalls,0);
+  });
   test('completing before the object lands is refused', async () => {
     const { evidenceId } = (await ticket(OWNER)).json();
     // The client claims success but nothing reached the bucket.
@@ -201,7 +218,7 @@ describe('deletion reaches both the rows and the objects — C-16', () => {
 
     const receipt = await new AccountDeleter(stores, createLogger('error')).deleteAccount(OWNER);
     assert.equal(receipt.complete, true);
-    assert.equal(receipt.purged.evidence_objects, 1);
+    assert.equal(receipt.purged.evidence_objects, 2);
     assert.equal(receipt.purged.evidence_records, 1);
     assert.equal(evidenceStore.objects.size, 0);
     assert.equal(evidence.store.size, 0);
@@ -232,6 +249,20 @@ describe('responder playback — only what she chose to send (data-decisions.md 
 
   const accept = (uid: string) =>
     app.inject({ method: 'POST', url: `/v1/alerts/${ALERT}/accept`, headers: authAs(uid), payload: {} });
+
+  for (const terminal of ['resolved','cancelled','expired','replaced'] as const) {
+    test(`closure while signing playback cannot return a stale grant: ${terminal}`,async()=>{
+      await inbox.put(HELPER,projection());await accept(HELPER);await addEvidence('deliberate-race','deliberate');
+      const sign=evidenceStore.createPlaybackUrl.bind(evidenceStore);
+      evidenceStore.createPlaybackUrl=async(...args)=>{const result=await sign(...args);const current=alerts.store.get(ALERT)!;
+        if(terminal==='replaced')alerts.store.set(ALERT,{...current,key:'replacement'});
+        else await alerts.updateStatus(ALERT,terminal,{},current.key);
+        return result;
+      };
+      const response=await asResponder(HELPER);
+      assert.equal(response.statusCode,409);assert.equal(JSON.stringify(response.json()).includes('url'),false);
+    });
+  }
 
   test('an accepted responder hears a deliberate note', async () => {
     await inbox.put(HELPER, projection());
@@ -300,4 +331,12 @@ describe('responder playback — only what she chose to send (data-decisions.md 
     });
     assert.equal((await evidence.findById(res.json().evidenceId))!.kind, 'deliberate');
   });
+});
+
+
+test('old recordings in a reused owner slot cannot exhaust the new incident upload quota',async()=>{
+  for(let i=0;i<20;i++)await evidence.create({id:`old-${i}`,alertId:ALERT,alertKey:'previous-incident',ownerUid:OWNER,
+    kind:'automatic',storagePath:`evidence/${OWNER}/${ALERT}/old-${i}`,contentType:'audio/aac',sizeBytes:null,
+    durationMs:null,createdAt:new Date(),uploaded:false});
+  assert.equal((await ticket(OWNER)).statusCode,201);
 });

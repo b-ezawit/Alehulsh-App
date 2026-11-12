@@ -24,6 +24,11 @@ beforeEach(() => {
 });
 
 describe('ContactMatcher', () => {
+  test('conflicting verified phone and email identities never select an arbitrary recipient',async()=>{
+    contacts.set(OWNER,[contact('conflicting','Synthetic contact',SISTER_PHONE,AUNT_EMAIL)]);
+    users.register(STRANGER,hashPhone(SISTER_PHONE,PEPPER)!);users.register('different-verified-user',hashEmail(AUNT_EMAIL,PEPPER)!);
+    assert.equal((await matcher.resolveForOwner(OWNER))[0]!.uid,null);
+  });
   test('resolves a contact who has the app, by phone', async () => {
     contacts.set(OWNER, [contact('c1', 'Saba', SISTER_PHONE)]);
     users.register(STRANGER, hashPhone(SISTER_PHONE, PEPPER)!);

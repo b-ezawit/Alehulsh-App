@@ -1,5 +1,8 @@
 # Portable by design — nothing here knows where it runs.
-# Cloud Run now if needed; the in-country host after C-04. See docs/api-layer.md.
+# SUPERSEDED for the API: the target is Cloudflare Workers, which are V8
+# isolates and not containers, so this image does not deploy the API there.
+# Kept because it still builds and runs the Node implementation locally and
+# on any conventional host. See docs/api-layer.md.
 FROM node:22-alpine AS build
 WORKDIR /app
 COPY package*.json ./

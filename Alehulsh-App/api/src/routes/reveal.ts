@@ -97,7 +97,7 @@ export function registerRevealRoute(app: FastifyInstance, deps: Deps): void {
       // Access dies with the alert — responder-projection.md §4. Not a denial:
       // the responder needs to stop, and alert_closed says so without saying
       // which terminal state it was.
-      if (isTerminalStatus(alert.status)) {
+      if (isTerminalStatus(alert.status) || alert.expiresAt <= new Date()) {
         throw new AppError('alert_closed', `alert ${alertId} is ${alert.status}`);
       }
 
@@ -127,6 +127,15 @@ export function registerRevealRoute(app: FastifyInstance, deps: Deps): void {
       // throws, the request fails and nothing is released — an unlogged reveal
       // must not be possible.
       await audit(true, distanceM);
+      // Recheck after the asynchronous audit write: closure or slot replacement
+      // while recording the attempt must not release a stale exact position.
+      const [latest, selected, stillAccepted] = await Promise.all([
+        deps.alerts.findById(alertId), deps.inbox.get(uid,alertId), deps.acceptances.findFor(alertId,uid),
+      ]);
+      if (!latest || latest.key !== alert.key || isTerminalStatus(latest.status) ||
+          latest.expiresAt <= new Date() || !selected || !stillAccepted ||
+          (selected.alertKey !== undefined && selected.alertKey !== alert.key) ||
+          (stillAccepted.alertKey !== undefined && stillAccepted.alertKey !== alert.key)) throw new AppError('alert_closed');
       deps.logger.info('precise location released', {
         alertId, subject: uid, distanceM: Math.round(distanceM),
       });

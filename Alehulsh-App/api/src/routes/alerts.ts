@@ -1,10 +1,12 @@
+import { alertCreateSchema as bodySchema } from '../http/schemas.js';
 import type { FastifyInstance } from 'fastify';
 import { requireSubject, subjectOf } from '../auth/middleware.js';
 import { AppError } from '../errors.js';
 import { readDeviceTime } from '../domain/deviceTime.js';
 import type { Deps } from '../server.js';
-import { taskKeys } from '../tasks.js';
+import { expediteAlertWork } from '../services/alertWork.js';
 import { voidResetOnAlert } from './keywordReset.js';
+import {alertDetailsSchema,type AlertDetailsBody} from '../http/alertDetails.js';
 
 /**
  * POST /v1/alerts — raise an SOS.  (P1-08)
@@ -13,37 +15,7 @@ import { voidResetOnAlert } from './keywordReset.js';
  * own clock, enforce idempotency, and schedule the escalation that
  * docs/coercion-and-escalation.md depends on.
  */
-const bodySchema = {
-  type: 'object',
-  required: ['requestId'],
-  additionalProperties: false,
-  properties: {
-    // Client-generated, stable across retries. Idempotency key.
-    requestId: { type: 'string', minLength: 8, maxLength: 128 },
-    // Nullable on purpose. P1-17 removed the fabricated Addis fallback —
-    // "we do not know where she is" is a real state and must survive the wire.
-    latitude: { type: ['number', 'null'], minimum: -90, maximum: 90 },
-    longitude: { type: ['number', 'null'], minimum: -180, maximum: 180 },
-    // Device clock, for staleness labelling only (P3-13). Never trusted for
-    // expiry, escalation timing, or any authorization decision.
-    //
-    // `format: 'date-time'` was REMOVED here (sprint 3, P4). Fastify enforces
-    // format before the handler runs, so a malformed timestamp - including
-    // the offset-less string Dart emits for a local DateTime - returned 400
-    // and lost the entire SOS over an informational field. The value is now
-    // validated in the handler by readDeviceTime, which normalises anything
-    // unusable to "unknown" instead of refusing the request. maxLength stays,
-    // because an unbounded string is a different problem.
-    occurredAt: { type: ['string', 'null'], maxLength: 64 },
-    /**
-     * Location EVIDENCE (sprint 3, P2). The client reports what its provider
-     * told it; the server decides what that supports. There is deliberately
-     * no `locationQuality` field - see src/domain/location.ts.
-     */
-    accuracyMeters: { type: ['number', 'null'], exclusiveMinimum: 0 },
-    locationAgeMs: { type: ['number', 'null'], minimum: 0 },
-  },
-} as const;
+
 
 interface Body {
   requestId: string;
@@ -55,6 +27,13 @@ interface Body {
 }
 
 export function registerAlertRoutes(app: FastifyInstance, deps: Deps): void {
+  app.patch<{Params:{id:string};Body:AlertDetailsBody}>('/v1/alerts/:id',{
+    schema:{body:alertDetailsSchema},onRequest:requireSubject(deps.tokenVerifier),
+  },async(req,reply)=>{
+    if(!deps.alerts.updateOwnedDetails)return reply.code(503).send({error:{code:'unavailable',message:'This operation is unavailable.'}});
+    const {incidentKey,...details}=req.body;
+    await deps.alerts.updateOwnedDetails(subjectOf(req).uid,req.params.id,incidentKey,details);return reply.send({saved:true});
+  });
   app.post<{ Body: Body }>(
     '/v1/alerts',
     { schema: { body: bodySchema }, onRequest: requireSubject(deps.tokenVerifier) },
@@ -125,25 +104,43 @@ export function registerAlertRoutes(app: FastifyInstance, deps: Deps): void {
         locationAgeMs: req.body.locationAgeMs ?? null,
       });
 
-      if (created) {
-        // A pending keyword reset dies here. Starting a reset, waiting out the
-        // window and then coercing her is the obvious attack on the recovery
-        // flow; if anything happens to her in between, the reset is void.
+      // Repair legacy initialization on retries without moving deadlines.
+      if (alert.status === 'active' || alert.status === 'escalated') {
         await voidResetOnAlert(deps, uid);
+      }
+      await expediteAlertWork(alert, deps.config.safetyCheckDelayMs, deps.queue, deps.logger);
 
-        // Scheduled, not polled, so it can be cancelled the moment she resolves.
-        await deps.queue.schedule({
-          key: taskKeys.safetyCheck(alert),
-          runAt: new Date(alert.createdAt.getTime() + deps.config.safetyCheckDelayMs),
-          payload: { kind: 'safety-check', alertId: alert.id },
-        });
-        // Backstop. Reaching this means escalation did not run —
-        // alert-lifecycle.md §2 treats `expired` as a bug signal.
-        await deps.queue.schedule({
-          key: taskKeys.expiry(alert),
-          runAt: alert.expiresAt,
-          payload: { kind: 'expiry', alertId: alert.id },
-        });
+      if (alert.status === 'active' || alert.status === 'escalated') {
+        // Her contacts get the alert NOW, not on escalation.  (P2-05)
+        //
+        // Inline rather than queued, because the latency of a queue poll is
+        // latency on an emergency. Written as a per-recipient projection so
+        // the database is only ever asked "is this your own inbox?" — a
+        // question rules and RLS both express, unlike "are you near this
+        // alert?".
+        //
+        // A FAN-OUT FAILURE MUST NOT COST HER THE ALERT. The alert row is the
+        // irreplaceable part and it is already committed; failing the request
+        // here would turn a notification problem into a lost SOS. So the
+        // failure is caught, logged at error, and handed to the durable queue
+        // to retry — the notify-contacts task exists precisely to do this work
+        // out of band, with bounded retries and an abandonment signal if it
+        // never succeeds.
+        try {
+          const fan = await deps.fanout.dispatch(alert);
+          deps.logger.info('alert fanned out on creation', {
+            alertId: alert.id,
+            contactCount: fan.contacts.length,
+            unreachableContacts: fan.unreachableContacts,
+            responderDiscovery: fan.responderDiscovery,
+          });
+        } catch (err: unknown) {
+          deps.logger.error('fan-out failed on creation; queued for retry', {
+            alertId: alert.id,
+            detail: err instanceof Error ? err.message : String(err),
+          });
+          // The initial notification intent was committed with the alert.
+        }
       }
 
       deps.logger.info(created ? 'alert created' : 'alert re-trigger folded into existing', {
@@ -158,6 +155,7 @@ export function registerAlertRoutes(app: FastifyInstance, deps: Deps): void {
       return reply.status(created ? 201 : 200).send({
         alert: {
           id: alert.id,
+          key: alert.key,
           status: alert.status,
           createdAt: alert.createdAt.toISOString(),
           expiresAt: alert.expiresAt.toISOString(),

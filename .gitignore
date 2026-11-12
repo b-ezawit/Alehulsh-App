@@ -19,6 +19,13 @@ key.properties
 # Secrets
 .env
 .env.*
+# Cloudflare Workers local secrets. `.dev.vars` is where wrangler reads
+# development credentials from, so it is the file real Supabase and R2 keys
+# would land in. It must never be tracked.
+.dev.vars
+.dev.vars.*
+# wrangler's local state, caches and generated types
+.wrangler/
 
 # Build output
 dist/
@@ -43,3 +50,19 @@ Alehulsh-App/docs/hosting-compatibility-checklist.md
 Alehulsh-App/docs/identity-architecture-decision.md
 Alehulsh-App/docs/overdue-pending-tasks.md
 Alehulsh-App/docs/task-queue.md
+
+# Development trust anchors, supplied by the operator.
+/Alehulsh-App/api/.dev-certs/
+
+# Public mobile build inputs are local and environment-specific. Never point a
+# development build at production by copying a backend secret file.
+/Alehulsh-App/config/mobile.*.json
+!/Alehulsh-App/config/mobile.*.example.json
+# These templates contain names and empty slots only, never credentials.
+!/Alehulsh-App/api/.dev.vars.example
+!/Alehulsh-App/api/.dev.vars.production.example
+
+# Generated audit output and historical working reports stay local.
+/audit-output/
+/Alehulsh-App/docs/development-migration-plan.md
+/Alehulsh-App/docs/migration-integration-status.md

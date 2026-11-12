@@ -7,10 +7,10 @@
 import type { Alert } from './repositories/types.js';
 
 export const taskKeys = {
-  safetyCheck: (a: Pick<Alert, 'id' | 'createdAt'>): string =>
-    `safety-check:${a.id}:${a.createdAt.getTime()}`,
-  expiry: (a: Pick<Alert, 'id' | 'createdAt'>): string =>
-    `expiry:${a.id}:${a.createdAt.getTime()}`,
+  safetyCheck: (a: Pick<Alert, 'id' | 'createdAt'> & Partial<Pick<Alert, 'key'>>): string =>
+    `safety-check:${a.key ?? a.id}:${a.createdAt.getTime()}`,
+  expiry: (a: Pick<Alert, 'id' | 'createdAt'> & Partial<Pick<Alert, 'key'>>): string =>
+    `expiry:${a.key ?? a.id}:${a.createdAt.getTime()}`,
   /** Dispatched on escalation. Consumed by P3-04. */
   notifyContacts: (a: Pick<Alert, 'id'>, at: Date): string =>
     `notify-contacts:${a.id}:${at.getTime()}`,

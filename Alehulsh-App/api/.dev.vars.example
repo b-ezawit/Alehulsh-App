@@ -1,0 +1,24 @@
+# Local development only. Existing operator/preflight credentials may be kept
+# here; never upload this entire file or include it in a mobile build.
+# Hyperdrive and EVIDENCE_BUCKET are Worker bindings, not connection strings
+# supplied by mobile clients. Configure them separately after approval.
+SUPABASE_AUTH_ISSUER=
+SUPABASE_AUTH_AUDIENCE=authenticated
+KEYWORD_PEPPER=
+R2_ENDPOINT=
+R2_BUCKET=
+R2_ACCESS_KEY_ID=
+R2_SECRET_ACCESS_KEY=
+SUPABASE_SESSION_MAX_AGE_SECONDS=
+SUPABASE_SESSION_INACTIVITY_SECONDS=
+TASK_BATCH_SIZE=
+TASK_CONCURRENCY=
+TASK_LEASE_MS=
+TASK_DISPATCH_TIMEOUT_MS=
+TASK_QUERY_TIMEOUT_MS=
+PUSH_DELIVERY_ENABLED=false
+PUSH_CONSENT_VERSION=
+PUSH_CONSENT_TEXT=
+FCM_PROJECT_ID=
+FCM_CLIENT_EMAIL=
+FCM_PRIVATE_KEY=

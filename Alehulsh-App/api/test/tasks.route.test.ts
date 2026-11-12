@@ -17,7 +17,7 @@ beforeEach(() => {
 
 const TASK_AUTH = { 'x-task-secret': testConfig.taskRunnerSecret };
 const fire = (path: string, headers: Record<string, string> = TASK_AUTH) =>
-  app.inject({ method: 'POST', url: `/internal/tasks/${path}`, headers, payload: { alertId: OWNER } });
+  app.inject({ method: 'POST', url: `/internal/tasks/${path}`, headers, payload: { alertId: OWNER, alertKey: alerts.store.get(OWNER)?.key ?? OWNER } });
 
 describe('task endpoints are not user-callable', () => {
   test('no secret is rejected', async () => {
@@ -55,7 +55,7 @@ describe('safety-check — silence is not consent', () => {
   test('queues the contact notification', async () => {
     alerts.seed({ id: OWNER, ownerId: OWNER, status: 'active' });
     await fire('safety-check');
-    assert.equal([...queue.scheduled.keys()].filter((k) => k.startsWith('notify-contacts:')).length, 1);
+    assert.equal([...queue.scheduled.keys()].filter((k) => k.endsWith(':escalation')).length, 1);
   });
 
   test('does not drag a resolved alert back — she answered in time', async () => {
@@ -109,7 +109,7 @@ describe('expiry — the backstop', () => {
   test('notifies nobody — a late warning is worse than none', async () => {
     alerts.seed({ id: OWNER, ownerId: OWNER, status: 'active' });
     await fire('expiry');
-    assert.equal(queue.scheduled.size, 0);
+    assert.equal([...queue.scheduled.values()].filter(t => t.payload['kind'] !== 'retract-inbox').length, 0);
   });
 
   test('redelivery is idempotent', async () => {

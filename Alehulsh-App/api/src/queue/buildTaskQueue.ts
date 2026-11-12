@@ -1,4 +1,4 @@
-import type { Pool } from 'pg';
+import type { Queryable } from '../db/pool.js';
 import { PostgresTaskQueue } from './PostgresTaskQueue.js';
 import { InMemoryTaskQueue, type TaskQueue } from './TaskQueue.js';
 
@@ -20,7 +20,7 @@ import { InMemoryTaskQueue, type TaskQueue } from './TaskQueue.js';
  */
 export function buildTaskQueue(
   env: 'development' | 'production',
-  options: { pool?: Pool | undefined } = {},
+  options: { pool?: Queryable | undefined } = {},
 ): TaskQueue {
   const { pool } = options;
 

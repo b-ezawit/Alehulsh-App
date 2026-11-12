@@ -19,7 +19,7 @@ export interface Config {
    * getStorage().bucket() threw "Bucket name not specified or invalid" during
    * composition, so the process could not start in ANY environment - including
    * production - and the failure named neither the variable nor the cause.
-   * Interim, Firebase-era: becomes the S3-compatible bucket at C-04.
+   * Interim, Firebase-era: becomes the Cloudflare R2 bucket at C-04.
    */
   storageBucket: string;
   env: 'development' | 'production';

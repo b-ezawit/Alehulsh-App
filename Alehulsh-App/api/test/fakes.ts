@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+import type { PublishedEvidence } from '../src/evidence/EvidenceStore.js';
 import type {
   Alert, AlertProjection, AlertRepository, AlertStatus, ContactRepository,
   Acceptance, AcceptanceRepository, ClientPolicy, ClientPolicyRepository,
@@ -17,6 +19,8 @@ import { reportedDelayMs } from '../src/staleness.js';
 import type { Deps } from '../src/server.js';
 import { createLogger } from '../src/logger.js';
 import { InMemoryTaskQueue } from '../src/queue/TaskQueue.js';
+import { AlertFanout } from '../src/services/AlertFanout.js';
+import { ContactMatcher } from '../src/services/ContactMatcher.js';
 import { InMemorySlidingWindowLimiter } from '../src/rate/RateLimiter.js';
 
 export const OWNER = 'alice_uid';
@@ -30,6 +34,15 @@ const FAKE_TRANSITION_TARGETS: ReadonlySet<AlertStatus> =
   new Set<AlertStatus>(['escalated', 'resolved', 'cancelled', 'expired']);
 
 export class FakeAlertRepository implements AlertRepository {
+  private readonly keywordAdmissions = new Map<string, { at: number; count: number }>();
+  async admitKeywordVerification(id: string, key: string, cap: number, cooldownMs: number): Promise<boolean> {
+    const alert = this.store.get(id);
+    if (!alert || alert.key !== key || !['active','escalated'].includes(alert.status) || alert.expiresAt.getTime() <= Date.now()) return false;
+    const prior = this.keywordAdmissions.get(key), now = Date.now();
+    const current = !prior || prior.at + cooldownMs <= now ? { at: now, count: 0 } : prior;
+    if (current.count >= cap) return false;
+    current.count++; this.keywordAdmissions.set(key, current); return true;
+  }
   readonly store = new Map<string, Alert>();
   /** Terminal alerts displaced by a later one, keyed by alert key. */
   readonly history = new Map<string, Alert>();
@@ -89,7 +102,7 @@ export class FakeAlertRepository implements AlertRepository {
    *
    * Returns the alert AS IT STANDS, as the interface documents.
    */
-  async updateStatus(id: string, next: AlertStatus, fields: Partial<Alert>) {
+  async updateStatus(id: string, next: AlertStatus, fields: Partial<Alert>, expectedKey?: string) {
     if (!FAKE_TRANSITION_TARGETS.has(next)) {
       throw new AppError('invalid_request', `unsupported transition target ${next}`);
     }
@@ -100,6 +113,9 @@ export class FakeAlertRepository implements AlertRepository {
     // Firestore AppError('not_found'). Handler tests run on this fake, so the
     // divergence was in exactly the place it would mislead.
     if (!a) throw new AppError('not_found', 'alert not found');
+    if (expectedKey !== undefined && a.key !== expectedKey) {
+      throw new AppError('conflict', 'alert instance changed');
+    }
     // Terminal states are final; not an error, just nothing left to do.
     if (isTerminalStatus(a.status)) return a;
     // No double escalation: a redelivered safety check must not overwrite the
@@ -111,9 +127,25 @@ export class FakeAlertRepository implements AlertRepository {
     return updated;
   }
 
-  async recordFailedAttempt(id: string, at: Date) {
+  async failKeywordAttempt(id: string, at: Date, expectedKey?: string) {
     const a = this.store.get(id);
     if (!a) throw new AppError('not_found', 'alert not found');
+    if (expectedKey !== undefined && a.key !== expectedKey) throw new AppError('conflict', 'alert instance changed');
+    if (isTerminalStatus(a.status)) return a;
+    const updated: Alert = { ...a, attemptCount: a.attemptCount + 1, lastAttemptAt: at,
+      ...(a.status === 'active' ? {status: 'escalated' as const, escalatedAt: at,
+        escalationReason: 'wrong_keyword' as const} : {}) };
+    this.store.set(id, updated);
+    return updated;
+  }
+
+  async recordFailedAttempt(id: string, at: Date, expectedKey?: string) {
+    const a = this.store.get(id);
+    if (!a) throw new AppError('not_found', 'alert not found');
+    if (expectedKey !== undefined && a.key !== expectedKey) {
+      throw new AppError('conflict', 'alert instance changed');
+    }
+    if (isTerminalStatus(a.status)) return a;
     const updated: Alert = { ...a, attemptCount: a.attemptCount + 1, lastAttemptAt: at };
     this.store.set(id, updated);
     return updated;
@@ -148,6 +180,14 @@ export class FakeAlertRepository implements AlertRepository {
 }
 
 export class FakeUserRepository implements UserRepository {
+  alerts?: FakeAlertRepository;
+  async compareAndSetSafetyKeyword(uid: string, expected: string | null, hash: string) {
+    const user = this.store.get(uid);
+    const alert = this.alerts?.store.get(uid);
+    if (!user) throw new AppError('not_found');
+    if (alert && !isTerminalStatus(alert.status) || user.safetyKeywordHash !== expected) throw new AppError('conflict');
+    this.store.set(uid, {...user, safetyKeywordHash: hash, mustSetKeyword: false});
+  }
   readonly store = new Map<string, UserRecord>();
   /** hash -> uid */
   readonly identifiers = new Map<string, string>();
@@ -211,14 +251,24 @@ export class FakeInboxRepository implements InboxRepository {
     box.set(projection.alertId, projection);
     this.store.set(recipientUid, box);
   }
-  async remove(recipientUid: string, alertId: string) {
-    this.store.get(recipientUid)?.delete(alertId);
+  async remove(recipientUid: string, alertId: string, alertKey?: string) {
+    const box = this.store.get(recipientUid);
+    if (alertKey === undefined || box?.get(alertId)?.alertKey === alertKey) box?.delete(alertId);
   }
   async listRecipients(alertId: string) {
     return [...this.store.entries()].filter(([, b]) => b.has(alertId)).map(([uid]) => uid);
   }
   async get(recipientUid: string, alertId: string) {
     return this.store.get(recipientUid)?.get(alertId) ?? null;
+  }
+  async listForRecipient(recipientUid: string, limit: number) {
+    const box = this.store.get(recipientUid);
+    if (!box) return [];
+    // Newest first and bounded, matching the Firestore implementation's
+    // contract so a handler tested here behaves the same against the real one.
+    return [...box.values()]
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+      .slice(0, Math.max(1, Math.trunc(limit)));
   }
   projectionFor(uid: string, alertId: string) { return this.store.get(uid)?.get(alertId); }
 }
@@ -237,7 +287,14 @@ export class FakeResponderLocationRepository implements ResponderLocationReposit
 /** Maps a bearer token straight to a uid, so tests can act as anyone. */
 export const fakeVerifier: TokenVerifier = {
   verify: async (t) => {
-    if (!t.startsWith('token-')) throw new Error('bad token');
+    // AppError('unauthenticated'), not a bare Error. FirebaseTokenVerifier
+    // converts every verification failure into exactly this, so a fake that
+    // threw a plain Error made an unverifiable token surface as 500 in tests
+    // while production correctly returns 401 - a fake that disagrees with its
+    // real counterpart is a test that measures the wrong thing.
+    if (!t.startsWith('token-')) {
+      throw new AppError('unauthenticated', 'token verification failed');
+    }
     return { uid: t.slice('token-'.length) };
   },
 };
@@ -319,6 +376,13 @@ export class FakeLocationRevealRepository implements LocationRevealRepository {
 
 
 export class FakeEvidenceRepository implements EvidenceRepository {
+  async markPublished(id:string,source:string,p:PublishedEvidence){
+    const r=this.store.get(id);if(!r)throw new AppError('not_found');
+    if(r.uploaded&&r.sha256){if(r.sha256!==p.sha256)throw new AppError('conflict');return r;}
+    if(r.storagePath!==source)throw new AppError('conflict');
+    const updated={...r,storagePath:p.storagePath,sizeBytes:p.sizeBytes,sha256:p.sha256,uploaded:true};
+    this.store.set(id,updated);return updated;
+  }
   readonly store = new Map<string, EvidenceRecord>();
   async create(r: EvidenceRecord) { this.store.set(r.id, r); return r; }
   async findById(id: string) { return this.store.get(id) ?? null; }
@@ -349,7 +413,13 @@ export class FakeEvidenceRepository implements EvidenceRepository {
 
 /** In-memory stand-in for the bucket. `objects` is what actually landed. */
 export class FakeEvidenceStore {
+  async publish(path:string,_contentType:string):Promise<PublishedEvidence>{
+    const size=this.objects.get(path);if(size===undefined)throw new AppError('not_found');
+    const destination=path+'/published/00000000-0000-4000-8000-000000000001';
+    this.objects.set(destination,size);return{storagePath:destination,sizeBytes:size,sha256:this.contents.has(path)?createHash('sha256').update(this.contents.get(path)!).digest('hex'):'0'.repeat(64)};
+  }
   readonly objects = new Map<string, number>();
+  readonly contents = new Map<string, Uint8Array>();
   ticketCalls = 0;
 
   async createUploadTicket(i: {
@@ -381,7 +451,10 @@ export class FakeEvidenceStore {
     return n;
   }
   /** Simulates the client completing its PUT. */
-  land(storagePath: string, bytes = 1024) { this.objects.set(storagePath, bytes); }
+  land(storagePath: string, bytes: number | Uint8Array = 1024) {
+    this.objects.set(storagePath,typeof bytes==='number'?bytes:bytes.byteLength);
+    if(typeof bytes!=='number')this.contents.set(storagePath,bytes);
+  }
 }
 
 
@@ -417,22 +490,36 @@ export class FakeVersionTelemetryRepository implements VersionTelemetryRepositor
  * that happens to build a server — which it did, repeatedly, before this.
  */
 export function makeDeps(overrides: Partial<Deps> = {}): Deps {
+  const logger = overrides.logger ?? createLogger('error');
+  // Resolved before the fan-out is built, so it shares the SAME instances the
+  // test holds - otherwise a test could not see what the fan-out wrote.
+  const inbox = overrides.inbox ?? new FakeInboxRepository();
+  const users = overrides.users ?? new FakeUserRepository();
+  const contacts = overrides.contacts ?? new FakeContactRepository();
+  const alerts = overrides.alerts ?? new FakeAlertRepository();
+  const keywordResets = overrides.keywordResets ?? new FakeKeywordResetRepository();
+  if (users instanceof FakeUserRepository && alerts instanceof FakeAlertRepository) users.alerts = alerts;
+  if (keywordResets instanceof FakeKeywordResetRepository && alerts instanceof FakeAlertRepository && users instanceof FakeUserRepository) { keywordResets.alerts = alerts; keywordResets.users = users; }
+
   return {
     config: testConfig,
-    logger: createLogger('error'),
+    logger,
     tokenVerifier: fakeVerifier,
-    alerts: new FakeAlertRepository(),
-    users: new FakeUserRepository(),
-    inbox: new FakeInboxRepository(),
+    alerts,
+    users,
+    inbox,
     acceptances: new FakeAcceptanceRepository(),
     reveals: new FakeLocationRevealRepository(),
     evidence: new FakeEvidenceRepository(),
     evidenceStore: new FakeEvidenceStore(),
-    contacts: new FakeContactRepository(),
-    keywordResets: new FakeKeywordResetRepository(),
+    contacts,
+    keywordResets,
     clientPolicy: new FakeClientPolicyRepository(),
     versionTelemetry: new FakeVersionTelemetryRepository(),
     queue: new InMemoryTaskQueue(),
+    // Contacts only: responder discovery is deliberately null because no
+    // ResponderLocationRepository implementation exists (P2-05 is open).
+    fanout: new AlertFanout(inbox, null, null, new ContactMatcher(contacts, users), logger),
     limiter: new InMemorySlidingWindowLimiter(),
     ...overrides,
   };
@@ -440,12 +527,28 @@ export function makeDeps(overrides: Partial<Deps> = {}): Deps {
 
 
 export class FakeKeywordResetRepository implements KeywordResetRepository {
+  alerts?: FakeAlertRepository;
+  users?: FakeUserRepository;
+  async confirm(uid: string, requestedAt: Date, hash: string, now: Date) {
+    const reset = this.store.get(uid); const user = this.users?.store.get(uid); const alert = this.alerts?.store.get(uid);
+    if (alert && !isTerminalStatus(alert.status)) throw new AppError('conflict');
+    if (!reset || reset.status !== 'pending' || !user) throw new AppError('not_found');
+    if (reset.requestedAt.getTime() !== requestedAt.getTime() || reset.eligibleAt > now) throw new AppError('conflict');
+    this.users!.store.set(uid, {...user, safetyKeywordHash: hash, mustSetKeyword: false});
+    this.store.set(uid, {...reset, status: 'confirmed'});
+  }
   readonly store = new Map<string, KeywordReset>();
   async findPending(uid: string) {
     const r = this.store.get(uid);
     return r && r.status === 'pending' ? r : null;
   }
-  async create(reset: KeywordReset) { this.store.set(reset.uid, reset); return reset; }
+  async create(reset: KeywordReset) {
+    const live=this.alerts?.store.get(reset.uid);
+    if(live&&!isTerminalStatus(live.status))throw new AppError('conflict');
+    const current=this.store.get(reset.uid);
+    if(current?.status==='pending')return current;
+    this.store.set(reset.uid,reset);return reset;
+  }
   async update(uid: string, fields: Partial<KeywordReset>) {
     const r = this.store.get(uid);
     if (r) this.store.set(uid, { ...r, ...fields });

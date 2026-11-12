@@ -74,6 +74,7 @@ function emulatorReachable(hostPort: string, timeoutMs = 1000): Promise<boolean>
 }
 
 before(async () => {
+  process.env['METADATA_SERVER_DETECTION'] = 'none';
   process.env['FIRESTORE_EMULATOR_HOST'] = EMULATOR;
   logger = createLogger('error');
 
@@ -103,7 +104,9 @@ before(async () => {
   // cannot disturb another suite running in a parallel process.
   await clearFixtures();
 
-  users = new FirestoreUserRepository(db);
+  users = new FirestoreUserRepository(db, undefined, {
+    proves: async (uid, hash) => uid === CONTACT && hash === hashPhone(CONTACT_PHONE, PEPPER),
+  });
   contactsRepo = new FirestoreContactRepository(db, PEPPER);
   inbox = new FirestoreInboxRepository(db);
 
@@ -151,6 +154,13 @@ async function clearFixtures(): Promise<void> {
   const uids = [VICTIM, CONTACT, STRANGER];
   for (const uid of uids) {
     await db.collection('active_alerts').doc(uid).delete().catch(() => {});
+    for (const query of [
+      db.collection('alert_requests').where('ownerId', '==', uid),
+      db.collection('alert_task_outbox').where('payload.alertId', '==', uid),
+    ]) {
+      const rows = await query.get();
+      for (const row of rows.docs) await row.ref.delete();
+    }
 
     const inbox = await db.collection('inbox').doc(uid).collection('alerts')
       .get().catch(() => null);
@@ -199,23 +209,10 @@ function itest(name: string, fn: () => Promise<void>): void {
   });
 }
 
-/**
- * A test for behaviour the system is SUPPOSED to have and does not yet.
- *
- * Marked todo, so it runs and reports as an outstanding target rather than
- * failing the suite. Confirming that a defect is still present is not the same
- * as confirming the feature works: these are the assertions that must go green
- * before the feature can be called done. Drop the `todo` wrapper - do not
- * rewrite the assertion - when the corresponding fix lands.
- */
-function ptest(name: string, fn: () => Promise<void>): void {
-  test(name, { todo: 'not implemented yet - see docs/ and the task sheet' }, async (t) => {
-    if (!available) {
-      t.skip(`Firestore emulator unavailable at ${EMULATOR}`);
-      return;
-    }
-    await fn();
-  });
+async function taskBody(alertId: string): Promise<{ alertId: string; alertKey: string }> {
+  const alert = await new FirestoreAlertRepository(db, ACTIVE_WINDOW).findById(alertId);
+  assert.ok(alert, 'task fixture must name an existing incident');
+  return { alertId, alertKey: alert.key };
 }
 
 describe('alert creation through the real composition', () => {
@@ -231,11 +228,9 @@ describe('alert creation through the real composition', () => {
     assert.equal((await db.collection('active_alerts').doc(VICTIM).get()).exists, true);
   });
 
-  itest('creating an alert fans out to NOBODY', async () => {
-    // Regression guard for the defect, not an endorsement of it: AlertFanout is
-    // never constructed in src/index.ts and dispatch() has no caller, so no
-    // recipient learns of an alert. Flip these two assertions when the fan-out
-    // is wired into the create path.
+  itest('a contact without a verified identifier receives no projection', async () => {
+    // At this point the fixture contact has no identifier hash. The fan-out
+    // must not infer an exact-location audience from an unverified profile.
     assert.equal(await inbox.get(CONTACT, VICTIM), null);
     assert.deepEqual(await inbox.listRecipients(VICTIM), []);
   });
@@ -266,14 +261,9 @@ describe('fan-out, when something calls it', () => {
       new ContactMatcher(contactsRepo, users),
       logger,
     );
-    const stored = (await db.collection('active_alerts').doc(VICTIM).get()).data()!;
-    const result = await fanout.dispatch({
-      id: VICTIM, ownerId: VICTIM, requestId: 'itest-req-0001',
-      latitude: 9.0125, longitude: 38.7636,
-      geohash: (stored['geohash'] as string | undefined) ?? null,
-      status: 'active', createdAt: new Date(),
-      expiresAt: new Date(Date.now() + ACTIVE_WINDOW), reportedDelayMs: null,
-    } as never);
+    const stored = await new FirestoreAlertRepository(db, ACTIVE_WINDOW).findById(VICTIM);
+    assert.ok(stored);
+    const result = await fanout.dispatch(stored);
 
     assert.deepEqual(result.contacts, [CONTACT]);
     assert.notEqual(await inbox.get(CONTACT, VICTIM), null);
@@ -326,16 +316,157 @@ describe('acknowledgement authorization', () => {
 });
 
 describe('the notification pipeline', () => {
-  itest('notify-contacts is scheduled but has NO handler', async () => {
-    // Regression guard: escalation and a wrong-keyword resolve both schedule
-    // this task, and nothing serves it, so contacts are never told. Flip this
-    // to 200 when the handler lands.
+  itest('notify-contacts IS handled, and writes the contact a durable row', async () => {
+    // Was a regression guard asserting 404: escalation and a wrong-keyword
+    // resolve both schedule this task, and nothing served it, so contacts were
+    // never told and the task abandoned every time. The handler now exists.
+    await db.collection('users').doc(CONTACT)
+      .set({ phoneHash: hashPhone(CONTACT_PHONE, PEPPER) }, { merge: true });
+    await inbox.remove(CONTACT, VICTIM);
+
     const res = await app.inject({
       method: 'POST', url: '/internal/tasks/notify-contacts',
       headers: { 'x-task-secret': 'task-secret-for-tests' },
-      payload: { alertId: VICTIM },
+      payload: await taskBody(VICTIM),
     });
-    assert.equal(res.statusCode, 404);
+
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.json().handled, true);
+    assert.equal(res.json().notified, 1, 'her one linked contact, newly notified');
+
+    const projection = await inbox.get(CONTACT, VICTIM);
+    assert.ok(projection, 'her contact must hold a durable projection');
+    assert.equal(projection.audience, 'contact');
+    assert.equal(projection.alertId, VICTIM);
+  });
+
+  itest('the guard still applies — no secret, no notification', async () => {
+    const res = await app.inject({
+      method: 'POST', url: '/internal/tasks/notify-contacts',
+      payload: await taskBody(VICTIM),
+    });
+    assert.equal(res.statusCode, 401);
+  });
+});
+
+
+/**
+ * The inbox READ path, over the real emulator.  (P1-02)
+ *
+ * The write side was proven above; this is the half that was missing - until
+ * now the projections were durable, correct and readable by nobody. Everything
+ * here goes through the real composed server, the real auth middleware and the
+ * real FirestoreInboxRepository.
+ */
+describe('GET /v1/me/inbox — the read side of the fan-out', () => {
+  const readInbox = (uid: string, query = '') =>
+    app.inject({ method: 'GET', url: `/v1/me/inbox${query}`, headers: authAs(uid) });
+
+  itest('a real alert reaches her contact, who can then read it', async () => {
+    await db.collection('users').doc(CONTACT)
+      .set({ phoneHash: hashPhone(CONTACT_PHONE, PEPPER) }, { merge: true });
+    await db.collection('active_alerts').doc(VICTIM).delete();
+    await inbox.remove(CONTACT, VICTIM);
+
+    const created = await app.inject({
+      method: 'POST', url: '/v1/alerts', headers: authAs(VICTIM),
+      payload: { requestId: `inbox-read-${Date.now()}`, latitude: 9.0125, longitude: 38.7636 },
+    });
+    assert.equal(created.statusCode, 201);
+
+    const res = await readInbox(CONTACT);
+    assert.equal(res.statusCode, 200);
+    const body = res.json();
+    assert.equal(body.count, 1, 'her contact must be able to read what she was sent');
+
+    const item = body.items[0];
+    assert.equal(item.alertId, VICTIM);
+    assert.equal(item.audience, 'contact');
+    // A contact she chose gets the true position, and it is labelled as true.
+    assert.equal(item.precision, 'exact');
+    assert.equal(item.latitude, 9.0125);
+    assert.equal(item.longitude, 38.7636);
+    assert.equal(item.status, 'active');
+    assert.equal(item.hasVoiceNote, false);
+  });
+
+  itest('the victim cannot read her contact\u2019s inbox, and vice versa', async () => {
+    await db.collection('users').doc(CONTACT)
+      .set({ phoneHash: hashPhone(CONTACT_PHONE, PEPPER) }, { merge: true });
+
+    // Neither of these two accounts holds a projection for the other.
+    const victimView = await readInbox(VICTIM);
+    assert.equal(victimView.statusCode, 200);
+    assert.equal(
+      victimView.json().items.some((i: { alertId: string }) => i.alertId === VICTIM), false,
+      'the owner of an alert is not a recipient of it',
+    );
+
+    const strangerView = await readInbox(STRANGER);
+    assert.equal(strangerView.statusCode, 200);
+    assert.equal(strangerView.json().count, 0,
+      'an account nobody selected must read an empty inbox');
+  });
+
+  itest('a stranger who knows the alert id still reads nothing', async () => {
+    // The alert id is a real, guessable value here - it IS the victim's uid -
+    // which is exactly why it must not be an input to this endpoint.
+    const res = await readInbox(STRANGER, `?alertId=${VICTIM}`);
+    assert.equal(res.statusCode, 400, 'the parameter is refused, not ignored');
+
+    const plain = await readInbox(STRANGER);
+    assert.equal(plain.json().count, 0);
+  });
+
+  itest('an unauthenticated read is refused by the real middleware', async () => {
+    const res = await app.inject({ method: 'GET', url: '/v1/me/inbox' });
+    assert.equal(res.statusCode, 401);
+  });
+
+  itest('a redelivered notification does not duplicate her inbox entry', async () => {
+    await db.collection('users').doc(CONTACT)
+      .set({ phoneHash: hashPhone(CONTACT_PHONE, PEPPER) }, { merge: true });
+
+    for (let i = 0; i < 3; i += 1) {
+      const t = await app.inject({
+        method: 'POST', url: '/internal/tasks/notify-contacts',
+        headers: { 'x-task-secret': TASK_SECRET },
+        payload: await taskBody(VICTIM),
+      });
+      assert.equal(t.statusCode, 200);
+    }
+
+    const items = (await readInbox(CONTACT)).json().items
+      .filter((i: { alertId: string }) => i.alertId === VICTIM);
+    assert.equal(items.length, 1, 'three deliveries, one entry in her inbox');
+  });
+
+  itest('the read is bounded, and a malformed limit is refused', async () => {
+    assert.equal((await readInbox(CONTACT, '?limit=1')).statusCode, 200);
+    assert.ok((await readInbox(CONTACT, '?limit=1')).json().count <= 1);
+    for (const bad of ['?limit=0', '?limit=101', '?limit=abc']) {
+      assert.equal((await readInbox(CONTACT, bad)).statusCode, 400, `${bad} must be refused`);
+    }
+  });
+
+  itest('nothing sensitive from the alert document reaches the response', async () => {
+    await db.collection('users').doc(CONTACT)
+      .set({ phoneHash: hashPhone(CONTACT_PHONE, PEPPER) }, { merge: true });
+    // Put the things that must never travel into the alert document itself.
+    await db.collection('active_alerts').doc(VICTIM).set({
+      userPhone: '+251911223344',
+      emergencyContacts: [{ phone: '+251911999888', name: 'Sister' }],
+      voiceNotes: [{ audioUrl: 'data:audio/aac;base64,AAAA' }],
+      safetyKeyword: 'Milo',
+    }, { merge: true });
+
+    const raw = (await readInbox(CONTACT)).body;
+    for (const forbidden of [
+      '251911223344', '251911999888', 'Milo', 'audioUrl', 'base64',
+      'emergencyContacts', 'safetyKeyword', 'userPhone',
+    ]) {
+      assert.ok(!raw.includes(forbidden), `the inbox response leaked ${forbidden}`);
+    }
   });
 });
 
@@ -345,7 +476,7 @@ describe('the notification pipeline', () => {
 // ---------------------------------------------------------------------------
 
 describe('TARGET 1 - alert creation triggers the fan-out', () => {
-  ptest('a new alert reaches the intended recipient inbox without manual dispatch',
+  itest('a new alert reaches the intended recipient inbox without manual dispatch',
     async () => {
       // Needs: AlertFanout constructed in src/index.ts, added to Deps, and
       // called from the create path in routes/alerts.ts.
@@ -365,7 +496,7 @@ describe('TARGET 1 - alert creation triggers the fan-out', () => {
       assert.deepEqual(await inbox.listRecipients(VICTIM), [CONTACT]);
     });
 
-  ptest('an alert with no location still reaches contacts, and no stranger',
+  itest('an alert with no location still reaches contacts, and no stranger',
     async () => {
       // A missing fix must not cost her the contact path: contacts are matched
       // by explicit link, not by distance. Responders get nothing, because we
@@ -383,7 +514,7 @@ describe('TARGET 1 - alert creation triggers the fan-out', () => {
 });
 
 describe('TARGET 2 - a VERIFIED contact resolves to the right account', () => {
-  ptest('resolution requires a verified identifier, not a self-asserted one',
+  itest('resolution requires a verified identifier, not a self-asserted one',
     async () => {
       // Needs: identifier ownership verification (phone OTP), hashes written
       // ONLY from verified identifiers, and a rules restriction stopping a
@@ -406,13 +537,13 @@ describe('TARGET 2 - a VERIFIED contact resolves to the right account', () => {
           'an unverified claimant must never win the contact slot');
         assert.notEqual(resolved[0]!.uid, ATTACKER);
       } finally {
-        // Must run even though the assertion above currently fails, or the
+        // Must run after each assertion, or the
         // planted collision leaks into every later test in this file.
         await db.collection('users').doc(ATTACKER).delete();
       }
     });
 
-  ptest('a colliding hash must not DISPLACE the real contact', async () => {
+  itest('a colliding hash must not DISPLACE the real contact', async () => {
     // Discovered by this suite rather than by reading: findUidByIdentifierHash
     // queries `where(phoneHash == h).limit(1)`, and nothing constrains that
     // field to be unique across users. With two documents carrying the same
@@ -442,26 +573,26 @@ describe('TARGET 2 - a VERIFIED contact resolves to the right account', () => {
 });
 
 describe('TARGET 3 - the notification task executes', () => {
-  ptest('notify-contacts has a handler and reports what it did', async () => {
+  itest('notify-contacts has a handler and reports what it did', async () => {
     // Needs: a registered /internal/tasks/notify-contacts handler. Escalation
     // and a wrong-keyword resolve both schedule this task today and nothing
     // serves it, so no contact is ever told.
     const res = await app.inject({
       method: 'POST', url: '/internal/tasks/notify-contacts',
       headers: { 'x-task-secret': 'task-secret-for-tests' },
-      payload: { alertId: VICTIM },
+      payload: await taskBody(VICTIM),
     });
     assert.equal(res.statusCode, 200, 'the task must be served, not 404');
   });
 
-  ptest('a redelivered notify-contacts does not notify twice', async () => {
+  itest('a redelivered notify-contacts does not notify twice', async () => {
     // Any queue redelivers. The handler must be idempotent per (alert,
     // recipient) - and note the two schedulers currently build DIFFERENT task
     // keys for one alert, so de-duplication cannot rely on the key alone.
-    const send = () => app.inject({
+    const send = async () => app.inject({
       method: 'POST', url: '/internal/tasks/notify-contacts',
       headers: { 'x-task-secret': 'task-secret-for-tests' },
-      payload: { alertId: VICTIM },
+      payload: await taskBody(VICTIM),
     });
     assert.equal((await send()).statusCode, 200);
     const second = await send();
@@ -489,12 +620,11 @@ describe('TARGET 4 - the recipient sees only what her audience permits', () => {
       new ContactMatcher(contactsRepo, users),
       logger,
     );
-    await fanout.dispatch({
-      id: VICTIM, ownerId: VICTIM, requestId: 'tier-0001',
-      latitude: 9.0125, longitude: 38.7636, geohash: null,
-      status: 'active', createdAt: new Date(),
-      expiresAt: new Date(Date.now() + ACTIVE_WINDOW), reportedDelayMs: null,
-    } as never);
+    await db.collection('active_alerts').doc(VICTIM).delete();
+    const { alert } = await new FirestoreAlertRepository(db, ACTIVE_WINDOW).create({
+      ownerId: VICTIM, requestId: 'tier-0001', latitude: 9.0125, longitude: 38.7636,
+    });
+    await fanout.dispatch(alert);
 
     const proj = await inbox.get(CONTACT, VICTIM);
     assert.notEqual(proj, null, 'the contact must have received a projection');

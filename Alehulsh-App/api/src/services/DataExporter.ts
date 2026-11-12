@@ -1,3 +1,4 @@
+import { ContactMatcher } from './ContactMatcher.js';
 import type {
   AlertRepository, ContactRepository, EvidenceRepository, UserRepository,
 } from '../repositories/types.js';
@@ -70,7 +71,7 @@ export class DataExporter {
     const [user, history, contacts, evidence] = await Promise.all([
       this.users.findByUid(uid),
       this.alerts.listHistoryForOwner(uid),
-      this.contacts.listByOwner(uid),
+      new ContactMatcher(this.contacts, this.users).resolveForOwner(uid),
       this.evidence.listForOwner(uid),
     ]);
 
@@ -136,7 +137,7 @@ export class DataExporter {
         name: c.name,
         isPrimary: c.isPrimary,
         // Whether we could reach them, without re-exposing the hashes.
-        reachable: Boolean(c.phoneHash ?? c.emailHash),
+        reachable: c.uid !== null,
       })),
       alerts: history.map((a) => ({
         key: a.key,

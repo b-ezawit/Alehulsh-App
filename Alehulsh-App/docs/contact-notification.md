@@ -1,5 +1,11 @@
 # Emergency Contact Notification
 
+**Current status (2026-10-25):** provider SMS is a candidate fallback from the
+previous channel preference. External delivery activation is not approved.
+The current consent/acknowledgment design and open decisions are in
+[notification-review.md](notification-review.md). No provider is configured and
+no SMS is sent by the current code.
+
 **Task:** P3-01 · **Status:** draft for review · **Depends on:** P1-03
 **Governs:** contact alerts (P3-03), escalation on non-response (P3-04), contact
 onboarding (P3-02), and the fallback decision (P3-05).
@@ -23,25 +29,18 @@ So today an SOS can reach nobody at all while the app tells her
 
 ## 2. The channel decision
 
-Meron's call: **in-app notification, not a provider SMS gateway.**
+The current decision supersedes the earlier in-app-only restriction. Initial
+in-app projections remain useful, but escalation must reach provider SMS when
+selected contacts do not acknowledge. An inbox row is not a delivery receipt.
 
-It is the right call, and for more reasons than cost:
-
-| | |
-|---|---|
-| No provider contract | Africa's Talking' Ethiopian termination was never verified, and that risk disappears |
-| No regulatory dependency | A2P sender-ID registration is not on the critical path |
-| Richer | Location, acknowledgement, two-way — an SMS is a dead end |
-| Real receipts | We learn whether she *opened* it, not whether we handed it to a carrier |
-| **Residency** | An SMS via a foreign gateway exports her name, a location link and a phone number. In-app keeps it in-country, which Art 22(1) requires anyway |
-
-That last one is the strongest and was not the reason it was chosen. It means
-the decision is consistent with the migration rather than something to revisit
-after C-04.
+The SMS provider, sender identity, country coverage and credentials are not yet
+selected or verified. No location-bearing message template is approved by this
+document. The historical in-app-only planning below needs reconciliation with
+the acknowledgment and consent policy before implementation.
 
 ### The dependency it creates
 
-**Every emergency contact must install the app.** At launch that is close to
+**Historical in-app-only assumption:** every emergency contact must install the app. At launch that is close to
 none of them, and a contact who is her mother on a feature phone can never be
 reached this way — not slowly, never.
 

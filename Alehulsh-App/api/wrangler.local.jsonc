@@ -1,0 +1,38 @@
+{
+  "name": "alehulsh-local-validation",
+  "main": "src/workers/index.ts",
+  "compatibility_date": "2026-10-24",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
+  "send_metrics": false,
+  "vars": { "PUSH_DELIVERY_ENABLED": "false" },
+  "secrets": {
+    "required": [
+      "SUPABASE_AUTH_ISSUER", "SUPABASE_AUTH_AUDIENCE", "KEYWORD_PEPPER",
+      "R2_ENDPOINT", "R2_BUCKET", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY",
+      "SUPABASE_SESSION_MAX_AGE_SECONDS", "SUPABASE_SESSION_INACTIVITY_SECONDS",
+      "TASK_BATCH_SIZE", "TASK_CONCURRENCY", "TASK_LEASE_MS",
+      "TASK_DISPATCH_TIMEOUT_MS", "TASK_QUERY_TIMEOUT_MS",
+      "PUSH_CONSENT_VERSION", "PUSH_CONSENT_TEXT",
+      "FCM_PROJECT_ID", "FCM_CLIENT_EMAIL", "FCM_PRIVATE_KEY"
+    ]
+  },
+  "env": {
+    "production": {
+      "name": "alehulsh-production-local-validation",
+      "workers_dev": false,
+      "vars": { "PUSH_DELIVERY_ENABLED": "false" },
+      "secrets": {
+        "required": [
+          "SUPABASE_AUTH_ISSUER", "SUPABASE_AUTH_AUDIENCE", "KEYWORD_PEPPER",
+          "R2_ENDPOINT", "R2_BUCKET", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY",
+          "SUPABASE_SESSION_MAX_AGE_SECONDS", "SUPABASE_SESSION_INACTIVITY_SECONDS",
+          "TASK_BATCH_SIZE", "TASK_CONCURRENCY", "TASK_LEASE_MS",
+          "TASK_DISPATCH_TIMEOUT_MS", "TASK_QUERY_TIMEOUT_MS",
+          "PUSH_CONSENT_VERSION", "PUSH_CONSENT_TEXT",
+          "FCM_PROJECT_ID", "FCM_CLIENT_EMAIL", "FCM_PRIVATE_KEY"
+        ]
+      }
+    }
+  }
+}

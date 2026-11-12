@@ -24,11 +24,37 @@ DO $$ BEGIN
 
 -- Supabase-compatible current-user accessor. Policies use this, so they move
 -- to Supabase without edits.
-CREATE SCHEMA IF NOT EXISTS auth;
-CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid
-LANGUAGE sql STABLE AS $$
-    SELECT NULLIF(current_setting('request.jwt.claim.sub', true), '')::uuid
-$$;
+--
+-- CREATED ONLY IF ABSENT, which matters on Supabase: `auth` there is owned by
+-- `supabase_auth_admin` and the project's `postgres` role is NOT a superuser,
+-- so `CREATE OR REPLACE FUNCTION auth.uid()` failed outright with "permission
+-- denied for schema auth". Measured against a real Supabase project, not
+-- assumed.
+--
+-- Using theirs is also the better outcome: it is a SUPERSET of this one -
+-- the same `request.jwt.claim.sub` read, the same `uuid` return type and
+-- STABLE volatility, plus a fallback to the `request.jwt.claims` JSON object.
+-- Every policy written against `auth.uid()` therefore works unedited, which
+-- was the whole point of naming it this way.
+--
+-- So: on Supabase this block does nothing; on the local container it creates
+-- the accessor the policies need.
+DO $outer$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_proc p
+          JOIN pg_namespace n ON n.oid = p.pronamespace
+         WHERE n.nspname = 'auth' AND p.proname = 'uid'
+    ) THEN
+        CREATE SCHEMA IF NOT EXISTS auth;
+        EXECUTE $fn$
+            CREATE FUNCTION auth.uid() RETURNS uuid
+            LANGUAGE sql STABLE AS $body$
+                SELECT NULLIF(current_setting('request.jwt.claim.sub', true), '')::uuid
+            $body$
+        $fn$;
+    END IF;
+END $outer$;
 
 -- Default-deny, then grant back deliberately.
 REVOKE ALL ON ALL TABLES IN SCHEMA public FROM anon, authenticated, alehulsh_api;

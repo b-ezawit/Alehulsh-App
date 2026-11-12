@@ -1,0 +1,13 @@
+rules_version = '2';
+
+// Final API-only cutover candidate. NOT the active rules configuration.
+// Deploy only after replacement clients, hosted workflows and adoption pass.
+// Firebase Auth tokens and ownership confer no direct application-data access.
+// Trusted server access remains governed by its own authorization checks.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

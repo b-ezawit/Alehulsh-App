@@ -35,6 +35,8 @@ case "${1:-}" in
     echo "postgres ready on $BIND:$PORT (synthetic/local only)"
     ;;
   migrate)
+    # Minimal Auth replica for synthetic local tests, never hosted migrations.
+    psqlc -v ON_ERROR_STOP=1 -q < "$(dirname "$0")/fixtures/supabase-auth.sql"
     for f in "$(dirname "$0")"/migrations/*.sql; do
       echo "-- applying $(basename "$f")"
       psqlc -v ON_ERROR_STOP=1 -q < "$f"

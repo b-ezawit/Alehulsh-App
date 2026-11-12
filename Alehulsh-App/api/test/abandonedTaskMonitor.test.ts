@@ -128,11 +128,11 @@ describe('extractHttpStatus', () => {
 
 describe('severity — safety by default, background only on purpose', () => {
   test('every kind this queue carries is safety-critical', () => {
-    for (const kind of ['safety-check', 'expiry', 'notify-contacts']) {
+    for (const kind of ['safety-check', 'expiry', 'notify-contacts', 'retract-inbox']) {
       assert.equal(severityForKind(kind), 'safety');
       assert.ok(isRegisteredKind(kind));
     }
-    assert.equal(SAFETY_CRITICAL_KINDS.size, 3);
+    assert.equal(SAFETY_CRITICAL_KINDS.size, 4);
   });
 
   test('nothing is downgraded today, so an unknown kind is treated as safety', () => {

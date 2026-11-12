@@ -232,3 +232,17 @@ describe('distanceMetres', () => {
     assert.ok(Math.abs(a - b) < 1e-6);
   });
 });
+
+
+for (const terminal of ['resolved','cancelled','expired','replaced'] as const) {
+  test(`closure or replacement during reveal audit cannot release exact location: ${terminal}`,async()=>{
+    await inbox.put(HELPER,projection());await acceptAs(HELPER);
+    const append=reveals.append.bind(reveals);
+    reveals.append=async attempt=>{await append(attempt);const current=alerts.store.get(ALERT)!;
+      if(terminal==='replaced')alerts.store.set(ALERT,{...current,key:'replacement'});
+      else await alerts.updateStatus(ALERT,terminal,{},current.key);
+    };
+    const response=await reveal(HELPER,NEAR);
+    assert.equal(response.statusCode,409);assert.equal(JSON.stringify(response.json()).includes('latitude'),false);
+  });
+}

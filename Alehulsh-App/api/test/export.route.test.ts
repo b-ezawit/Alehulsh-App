@@ -24,6 +24,7 @@ beforeEach(() => {
   app = buildServer(makeDeps({ alerts, users, contacts, evidence, evidenceStore }));
 
   users.set(OWNER, { safetyKeywordHash: KEYWORD_HASH });
+  users.findUidByIdentifierHash = async hash => hash === 'h1' ? STRANGER : null;
   contacts.set(OWNER, [
     { id: 'c1', ownerUid: OWNER, name: 'Sister', phoneHash: 'h1', emailHash: null, isPrimary: true },
     { id: 'c2', ownerUid: OWNER, name: 'Neighbour', phoneHash: null, emailHash: null, isPrimary: false },
@@ -184,4 +185,14 @@ describe('P2-22 — alert history survives the next SOS', () => {
     assert.deepEqual(byKey[first.alert.key], ['e-first']);
     assert.deepEqual(byKey[second.alert.key], ['e-second']);
   });
+});
+
+test('an identifier hash without a verified account is not reachability', async () => {
+  users.findUidByIdentifierHash = async () => null;
+  const body = (await exportFor(OWNER)).json();
+  assert.equal(body.emergencyContacts[0].reachable, false);
+});
+test('the owner is never counted as her own reachable contact', async () => {
+  users.findUidByIdentifierHash = async () => OWNER;
+  assert.equal((await exportFor(OWNER)).json().emergencyContacts[0].reachable, false);
 });

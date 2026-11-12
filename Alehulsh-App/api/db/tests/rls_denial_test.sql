@@ -16,13 +16,13 @@ TRUNCATE task_alert_log, task_queue;
 
 -- ---- synthetic fixtures ---------------------------------------------------
 INSERT INTO users (id, display_name, phone_e164, phone_verified_at,
-                   phone_hash, email_hash, keyword_hash) VALUES
+                   phone_hash, email_hash, keyword_hash, email_verified_at) VALUES
   ('11111111-1111-1111-1111-111111111111', 'Alice',    '+251911111111', now(),
-   'SYNTHETIC-PHONE-HASH', 'SYNTHETIC-EMAIL-HASH', 'SYNTHETIC-KEYWORD-HASH'),
+   'SYNTHETIC-PHONE-HASH', 'SYNTHETIC-EMAIL-HASH', 'SYNTHETIC-KEYWORD-HASH', now()),
   ('22222222-2222-2222-2222-222222222222', 'Beza',     '+251922222222', NULL,
-   NULL, NULL, NULL),
+   NULL, NULL, NULL, NULL),
   ('33333333-3333-3333-3333-333333333333', 'Stranger', '+251933333333', NULL,
-   NULL, NULL, NULL);
+   NULL, NULL, NULL, NULL);
 
 INSERT INTO alerts (id, owner_id, request_id, expires_at, location, location_quality, location_age_ms)
 VALUES ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',

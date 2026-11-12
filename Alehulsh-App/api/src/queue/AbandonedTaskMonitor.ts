@@ -54,11 +54,12 @@ export type TaskErrorClass =
 
 export type AlertSeverity = 'safety' | 'background';
 
-/** Every kind this queue currently carries. All three are safety-relevant. */
+/** Every kind this queue currently carries. All are safety or privacy relevant. */
 export const SAFETY_CRITICAL_KINDS: ReadonlySet<string> = new Set([
   'safety-check',
   'expiry',
   'notify-contacts',
+  'retract-inbox',
 ]);
 
 /**

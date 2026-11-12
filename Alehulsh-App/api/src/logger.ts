@@ -27,6 +27,8 @@ export const SENSITIVE_KEYS = [
   'token', 'authorization', 'password', 'apikey', 'credential', 'cookie',
   // evidence
   'audiourl', 'voicenote', 'recording',
+  // Provider/driver diagnostic text can contain entire rows and credentials.
+  'message', 'detail', 'cause', 'stack', 'reason',
 ] as const;
 
 const MAX_DEPTH = 6;
@@ -49,13 +51,15 @@ export function redact(value: unknown, depth = 0): unknown {
 
   if (value instanceof Error) {
     // Never log a stack to a client-facing sink; keep the type for triage.
-    return { error: value.name, message: value.message };
+    const known = ['Error', 'TypeError', 'RangeError', 'AppError', 'TimeoutError', 'AbortError'];
+    return { error: known.includes(value.name) ? value.name : 'Error' };
   }
 
   if (typeof value === 'object') {
     const out: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-      out[k] = isSensitive(k) ? REDACTED : redact(v, depth + 1);
+      out[k] = isSensitive(k) || (['err', 'error'].includes(k.toLowerCase()) && !(v instanceof Error))
+        ? REDACTED : redact(v, depth + 1);
     }
     return out;
   }

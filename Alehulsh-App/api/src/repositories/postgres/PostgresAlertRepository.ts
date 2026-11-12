@@ -1,3 +1,4 @@
+import { AppError } from '../../errors.js';
 /**
  * AlertRepository backed by PostgreSQL + PostGIS.  (M-05)
  *
@@ -23,6 +24,8 @@ export { IdentityNotMappedError };
 
 /** Row shape returned by alertColumns(). */
 interface AlertRow {
+  message:string;
+  is_urgent:boolean;
   id: string;
   /**
    * The owner's EXTERNAL subject, joined back through identity_map - not the
@@ -67,7 +70,7 @@ interface AlertRow {
  */
 const ALERT_SELECT = `
   SELECT
-    a.id, m.firebase_uid AS owner_subject, a.request_id, a.status,
+    a.id, m.firebase_uid AS owner_subject, a.request_id, a.status,a.message,a.is_urgent,
     ST_Y(a.location::geometry) AS lat,
     ST_X(a.location::geometry) AS lng,
     a.location_quality, a.location_age_ms, a.accuracy_m,
@@ -90,6 +93,7 @@ function mapAlert(row: AlertRow): Alert {
   const lng = toNumberOrNull(row.lng);
 
   const alert: Alert = {
+    ...(row.message?{message:row.message}:{}),...(row.is_urgent?{isUrgent:true}:{}),
     // The document-era `id` was the owner's uid and `key` the instance.
     // Here the row id IS the instance, so both point at it and nothing
     // upstream has to care which era it came from.
@@ -153,7 +157,7 @@ const UNMAPPED_IDENTITY_SQLSTATE = 'AL001';
  *
  * Deliberately almost nothing: no length, no character class, no shape. A
  * subject is whatever the IdP issued, and Firebase's 28 characters are not a
- * contract we should encode here - C-04 replaces it with a self-hosted IdP
+ * contract we should encode here - C-04 replaces it with an IdP not yet chosen
  * whose subjects look different.
  *
  * The one exception is a NUL byte, which Postgres cannot store in `text` at
@@ -201,6 +205,23 @@ function isUnmappedIdentity(cause: unknown): boolean {
 }
 
 export class PostgresAlertRepository implements AlertRepository {
+  async updateOwnedDetails(uid:string,id:string,key:string,details:{message?:string;isUrgent?:boolean}):Promise<void>{
+    if(key!==id||!looksLikeAlertId(id))throw new AppError('not_found');
+    const {rowCount}=await this.db.query(`WITH changed AS (
+      UPDATE alerts SET message=coalesce($3::text,message),is_urgent=coalesce($4::boolean,is_urgent)
+      WHERE id=$2::uuid AND owner_id=auth.uid() AND owner_id=(SELECT user_id FROM identity_map WHERE firebase_uid=$1)
+        AND status IN ('active','escalated') AND expires_at>clock_timestamp() RETURNING id,is_urgent
+     ), refreshed AS (UPDATE inbox i SET projection=jsonb_set(i.projection,'{isUrgent}',to_jsonb(c.is_urgent))
+       FROM changed c WHERE i.alert_id=c.id RETURNING i.alert_id)
+     SELECT id FROM changed`,[uid,id,details.message??null,details.isUrgent??null]);
+    if(!rowCount)throw new AppError('not_found');
+  }
+  async admitKeywordVerification(id: string, key: string, cap: number, cooldownMs: number): Promise<boolean> {
+    if (!looksLikeAlertId(id) || key !== id) return false;
+    const { rows } = await this.db.query<{ admitted: boolean }>(
+      'SELECT admit_keyword_verification($1::uuid,$2,$3,$4) AS admitted', [id,key,cap,cooldownMs]);
+    return rows[0]?.admitted === true;
+  }
   /**
    * @param db a Pool for ordinary calls, or one transaction's client when the
    *   caller owns a transaction. This repository NEVER issues BEGIN, COMMIT or
@@ -217,6 +238,7 @@ export class PostgresAlertRepository implements AlertRepository {
     private readonly db: Queryable,
     private readonly activeWindowMs: number,
     private readonly freshFixMs: number = FRESH_FIX_MS,
+    private readonly safetyCheckDelayMs = 120_000,
   ) {}
 
   /**
@@ -227,7 +249,7 @@ export class PostgresAlertRepository implements AlertRepository {
    * finished transaction by a concurrent caller.
    */
   withQueryable(db: Queryable): PostgresAlertRepository {
-    return new PostgresAlertRepository(db, this.activeWindowMs, this.freshFixMs);
+    return new PostgresAlertRepository(db, this.activeWindowMs, this.freshFixMs, this.safetyCheckDelayMs);
   }
 
   /**
@@ -283,13 +305,13 @@ export class PostgresAlertRepository implements AlertRepository {
     let result: { alert_id: string; created: boolean } | undefined;
     try {
       const { rows } = await this.db.query<{ alert_id: string; created: boolean }>(
-        `SELECT alert_id, created FROM create_alert_for_subject(
+        `SELECT alert_id, created FROM create_alert_with_tasks(
            $1::text, $2::text, $3::double precision, $4::double precision,
-           $5::bigint, $6::double precision, $7::interval, $8::timestamptz, $9::bigint)`,
+           $5::bigint, $6::double precision, $7::interval, $8::timestamptz, $9::bigint, $10::bigint)`,
         [
           input.ownerId, input.requestId, input.latitude, input.longitude,
           input.locationAgeMs ?? null, input.accuracyMeters ?? null,
-          windowInterval, input.occurredAt ?? null, this.freshFixMs,
+          windowInterval, input.occurredAt ?? null, this.freshFixMs, this.safetyCheckDelayMs,
         ],
       );
       result = rows[0];
@@ -327,10 +349,19 @@ export class PostgresAlertRepository implements AlertRepository {
     const resolvedBy = next === 'resolved' ? (fields.resolvedBy ?? null) : null;
 
     await this.db.query(
-      `SELECT transition_alert($1::uuid, $2::alert_status, $3::text, $4::text, $5::text)`,
+      `SELECT transition_alert_with_tasks($1::uuid, $2::alert_status, $3::text, $4::text, $5::text)`,
       [id, next, 'api', reason, resolvedBy],
     );
 
+    const alert = await this.findById(id);
+    if (!alert) throw new AlertNotFoundError();
+    return alert;
+  }
+
+  async failKeywordAttempt(id: string, at: Date, expectedKey?: string): Promise<Alert> {
+    if (!looksLikeAlertId(id)) throw new AlertNotFoundError();
+    if (expectedKey !== undefined && expectedKey !== id) throw new AppError('conflict', 'alert instance changed');
+    await this.db.query('SELECT fail_keyword_attempt_with_tasks($1::uuid, $2::timestamptz)', [id, at]);
     const alert = await this.findById(id);
     if (!alert) throw new AlertNotFoundError();
     return alert;

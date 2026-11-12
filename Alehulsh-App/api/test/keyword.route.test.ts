@@ -19,6 +19,7 @@ before(async () => { oldHash = await hashKeyword(OLD, PEPPER); });
 beforeEach(() => {
   alerts = new FakeAlertRepository();
   users = new FakeUserRepository();
+  users.set(OWNER, { safetyKeywordHash: null });
   app = buildServer(makeDeps({ alerts, users }));
 });
 
@@ -78,7 +79,7 @@ describe('setting one for the first time', () => {
     // a secret an attacker can guess on the first try.
     const res = await setKeyword(OWNER, { keyword: 'Milo' });
     assert.equal(res.statusCode, 400);
-    assert.equal(users.store.get(OWNER), undefined);
+    assert.equal(users.store.get(OWNER)!.safetyKeywordHash, null);
   });
 
   test('something too short to be a secret is refused', async () => {
@@ -157,4 +158,10 @@ describe('abuse', () => {
     const res = await setKeyword(OWNER, { keyword: NEW, uid: 'someone_else' });
     assert.equal(res.statusCode, 400);
   });
+});
+
+test('a verified subject without an application profile cannot mint a sparse profile through keyword setting', async () => {
+  users.store.delete(OWNER);
+  assert.equal((await setKeyword(OWNER, {keyword: NEW})).statusCode, 404);
+  assert.equal(users.store.has(OWNER), false);
 });

@@ -191,3 +191,13 @@ describe('deletion reaches acceptances — C-16', () => {
     assert.equal(await acceptances.findFor(ALERT, HELPER), null);
   });
 });
+
+test('a stale acceptance key cannot acknowledge a successor incident', async () => {
+  const deps=makeDeps();
+  const alert=await deps.alerts.create({ownerId:OWNER,requestId:'keyed-acceptance',latitude:null,longitude:null});
+  await deps.inbox.put(STRANGER,{alertId:alert.alert.id,alertKey:alert.alert.key,displayName:'Synthetic',fuzzedLat:null,fuzzedLng:null,
+    fuzzedPrecision:'exact',isUrgent:false,status:'active',createdAt:new Date(),hasVoiceNote:false,reportedDelayMs:null,audience:'contact'});
+  const server=buildServer(deps);
+  const response=await server.inject({method:'POST',url:`/v1/alerts/${alert.alert.id}/accept`,headers:authAs(STRANGER),payload:{incidentKey:'old-incident'}});
+  assert.equal(response.statusCode,409);
+});

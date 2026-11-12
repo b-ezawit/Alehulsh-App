@@ -10,6 +10,7 @@ import type {
   UserRepository, VersionTelemetryRepository,
 } from './repositories/types.js';
 import type { TaskQueue } from './queue/TaskQueue.js';
+import type { AlertFanout } from './services/AlertFanout.js';
 import type { RateLimiter } from './rate/RateLimiter.js';
 import type { EvidenceStore } from './evidence/EvidenceStore.js';
 import { registerAlertRoutes } from './routes/alerts.js';
@@ -18,16 +19,22 @@ import { registerResolveRoute } from './routes/resolve.js';
 import { registerAppPolicyRoutes } from './routes/appPolicy.js';
 import { registerEvidenceRoutes, registerResponderEvidenceRoute } from './routes/evidence.js';
 import { registerExportRoute } from './routes/export.js';
+import { registerInboxRoute } from './routes/inbox.js';
 import { registerKeywordRoute } from './routes/keyword.js';
 import { registerKeywordResetRoutes } from './routes/keywordReset.js';
 import { registerRevealRoute } from './routes/reveal.js';
 import { registerTaskRoutes } from './routes/tasks.js';
+import { registerAccountRoutes } from './routes/account.js';
+import type { PostgresProfileRepository } from './repositories/postgres/PostgresProfileRepository.js';
+import type { PostgresContactManagementRepository } from './repositories/postgres/PostgresContactManagementRepository.js';
 
 /**
  * Everything the handlers need, injected. No module reaches for a global
  * client, which is what keeps the swap at C-04 to three files.
  */
 export interface Deps {
+  profiles?: Pick<PostgresProfileRepository,'get'|'update'>;
+  contactManagement?: Pick<PostgresContactManagementRepository,'list'|'put'|'remove'>;
   config: Config;
   logger: Logger;
   tokenVerifier: TokenVerifier;
@@ -48,6 +55,14 @@ export interface Deps {
   clientPolicy: ClientPolicyRepository;
   versionTelemetry: VersionTelemetryRepository;
   queue: TaskQueue;
+  /**
+   * Write side of the fan-out. Consumed by the notify-contacts task.
+   *
+   * Responder discovery may be unconfigured (there is no
+   * ResponderLocationRepository implementation yet); the contact half works
+   * regardless, which is what notify-contacts needs.
+   */
+  fanout: AlertFanout;
   /** Abuse ceilings only — never a safety-critical limit. */
   limiter: RateLimiter;
 }
@@ -105,8 +120,10 @@ export function buildServer(deps: Deps): FastifyInstance {
   registerResponderEvidenceRoute(app, deps);
   registerAppPolicyRoutes(app, deps);
   registerExportRoute(app, deps);
+  registerInboxRoute(app, deps);
   registerKeywordRoute(app, deps);
   registerKeywordResetRoutes(app, deps);
+  registerAccountRoutes(app, deps);
 
   return app;
 }

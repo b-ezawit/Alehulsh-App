@@ -1,7 +1,7 @@
 /**
  * Swap point #5. See docs/api-layer.md.  (P2-10.1)
  *
- * Firebase Storage now; MinIO or a local S3-compatible provider at M-06, where
+ * Firebase Storage now; Cloudflare R2 at M-06, where
  * the objects must also come to rest in Ethiopia — Art 2(5) makes a recording
  * of someone's voice sensitive personal data, and Art 22(3) requires prior
  * Authority approval to hold it abroad. Nothing above this interface knows
@@ -18,6 +18,8 @@ export interface UploadTicket {
 }
 
 export interface EvidenceStore {
+  /** Freeze a bounded snapshot at a server-only key before marking it stored. */
+  publish(storagePath: string, contentType: string): Promise<PublishedEvidence>;
   /**
    * A URL the client can PUT one object to, and nothing else.
    *
@@ -45,6 +47,16 @@ export interface EvidenceStore {
 
   /** C-16. Everything under this owner's prefix. Returns how many objects went. */
   removeAllForOwner(ownerUid: string): Promise<number>;
+}
+
+export interface PublishedEvidence { storagePath: string; sha256: string; sizeBytes: number }
+export function assertPublication(source: string, result: PublishedEvidence): void {
+  if (!result.storagePath.startsWith(`${source}/published/`) ||
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(result.storagePath.slice(`${source}/published/`.length)) ||
+      !/^[0-9a-f]{64}$/i.test(result.sha256) || !Number.isSafeInteger(result.sizeBytes) ||
+      result.sizeBytes < 1 || result.sizeBytes > 100 * 1024 * 1024) {
+    throw new Error('invalid immutable evidence publication');
+  }
 }
 
 /**
