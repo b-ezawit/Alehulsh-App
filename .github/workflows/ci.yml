@@ -40,6 +40,21 @@ jobs:
   api:
     name: API
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgis/postgis:16-3.4
+        env: { POSTGRES_PASSWORD: synthetic-ci-only, POSTGRES_DB: alehulsh_ci }
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 12
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: '5432'
+      PGDATABASE: alehulsh_ci
+      PGUSER: postgres
+      PGPASSWORD: synthetic-ci-only
+      ALEHULSH_LOCAL_DB_TESTS: '1'
+      FIRESTORE_EMULATOR_HOST: 127.0.0.1:8080
     steps:
       - uses: actions/checkout@v4
       - id: exists
@@ -59,10 +74,22 @@ jobs:
         if: steps.exists.outputs.found == 'true'
         run: npm run typecheck
         working-directory: Alehulsh-App/api
-      - name: Tests
-        if: steps.exists.outputs.found == 'true'
-        run: npm test
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '17' }
+      - run: npm ci
+        working-directory: Alehulsh-App/test/firestore-rules
+      - name: Synthetic PostgreSQL schema
         working-directory: Alehulsh-App/api
+        run: |
+          psql -X -v ON_ERROR_STOP=1 -f db/fixtures/supabase-auth.sql
+          for migration in db/migrations/*.sql; do psql -X -v ON_ERROR_STOP=1 -f "$migration"; done
+      - name: Database, emulator and workerd integration gate
+        working-directory: Alehulsh-App
+        run: test/firestore-rules/node_modules/.bin/firebase emulators:exec --only firestore,storage --project demo-alehulsh-ci "cd api && npm run test:local"
+      - name: SQL security regressions
+        working-directory: Alehulsh-App/api
+        run: |
+          for regression in db/tests/*.sql; do psql -X -v ON_ERROR_STOP=1 -f "$regression"; done
       - name: Docker build
         if: steps.exists.outputs.found == 'true'
         # The portability claim in docs/api-layer.md is only true if the image
@@ -81,6 +108,9 @@ jobs:
           cache: npm
           cache-dependency-path: Alehulsh-App/functions/package-lock.json
       - run: npm ci
+        working-directory: Alehulsh-App/functions
+      - name: Expiry regressions
+        run: npm test
         working-directory: Alehulsh-App/functions
       - name: Syntax
         run: node --check index.js
@@ -107,6 +137,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
         with: { channel: stable }
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '17' }
       - run: flutter pub get
         working-directory: Alehulsh-App
       # Not --fatal-infos: there is a pre-existing backlog of infos, and
@@ -117,6 +149,12 @@ jobs:
       - name: Tests
         run: flutter test
         working-directory: Alehulsh-App
+      - name: Prepare Android build tooling
+        run: flutter build apk --debug --config-only --no-pub --flavor prod --dart-define=FIREBASE_ENV=prod
+        working-directory: Alehulsh-App
+      - name: Android integration and unit tests
+        run: ./gradlew --no-daemon :app:testProdDebugUnitTest
+        working-directory: Alehulsh-App/android
 
   hygiene:
     name: Repository hygiene
@@ -136,13 +174,6 @@ jobs:
           echo "clean"
       - name: No obvious secrets
         run: |
-          # Firebase client keys are public by design and live in the committed
-          # config files, so they are excluded. Anything else matching is not.
-          #
-          # The bracketed letters keep this pattern from matching its own text
-          # in this file. Excluding the workflow instead would create a blind
-          # spot exactly where a secret is easiest to hide.
-          bad=$(git grep -nIE 'BEG[I]N [A-Z ]*PRIVATE KEY|-----BEG[I]N|"private_ke[y]"' -- . \
-                ':!*google-services.json' ':!*GoogleService-Info.plist' || true)
-          if [ -n "$bad" ]; then echo "possible secret:"; echo "$bad"; exit 1; fi
-          echo "clean"
+          # Inspect the index and report filenames/classifications only. Never
+          # echo a matching credential line into the CI log.
+          node Alehulsh-App/api/scripts/check-repository-secrets.mjs
